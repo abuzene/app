@@ -187,6 +187,52 @@ await page.waitForTimeout(250);
 const overlapBom = await page.locator('#tab-body').innerText();
 check('no phantom bend is taken off', overlapBom, (v) => !/BEND/.test(v), 'no BEND line');
 
+// Joint type drives every mark on the drawing and decides what counts as a weld.
+page.once('dialog', (d) => d.accept());
+await page.click('#new');
+await page.waitForTimeout(400);
+await page.click('#tabs button:has-text("Command")');
+await page.waitForTimeout(200);
+await page.fill('#command-text', 'DN80\nSTD\nORIGIN 0 0 0\nE 2000\n+GATE\nN 1500\nEND CAP');
+await page.click('[data-a="run-commands"]');
+await page.waitForTimeout(500);
+
+const dots = () => page.locator('#canvas .joint-bw').count();
+const buttWeldDots = await dots();
+check('butt welds are drawn as filled dots', buttWeldDots, (v) => v === 5, '5 — two elbow legs, two at the valve, one at the cap');
+check('a butt welded cap shows its body', await page.locator('#canvas .node .sym-hollow').count(), (v) => v >= 1, 'at least 1');
+
+await page.selectOption('#joint', 'SW');
+await page.waitForTimeout(500);
+check('switching to socket weld replaces every dot', await dots(), (v) => v === 0, '0');
+
+await page.selectOption('#joint', 'THD');
+await page.waitForTimeout(500);
+await page.click('#tabs button:has-text("Welds")');
+await page.waitForTimeout(300);
+const threadedWelds = await page.locator('#tab-body').innerText();
+check('threaded joints are not welds', threadedWelds, (v) => /Welds are generated/.test(v), 'an empty weld schedule');
+
+await page.selectOption('#joint', 'BW');
+await page.waitForTimeout(400);
+await page.click('#tabs button:has-text("Welds")');
+await page.waitForTimeout(300);
+check('switching back restores the weld schedule', await page.locator('#tab-body tbody tr').count(), (v) => v === buttWeldDots, `${buttWeldDots}`);
+
+// A branch of a different size is a reducing tee, drawn and taken off as one.
+page.once('dialog', (d) => d.accept());
+await page.click('#new');
+await page.waitForTimeout(400);
+await page.click('#tabs button:has-text("Command")');
+await page.waitForTimeout(200);
+await page.fill('#command-text', 'DN80\nSTD\nORIGIN 0 0 0\nE 2000\nMARK t\nE 2000\nGOTO t\nDN50\nN 1500');
+await page.click('[data-a="run-commands"]');
+await page.waitForTimeout(500);
+check('a reducing tee is drawn as its triangle', await page.locator('#canvas .fitting-body').count(), (v) => v === 1, '1');
+await page.click('#tabs button:has-text("Items")');
+await page.waitForTimeout(300);
+check('the reducing tee is taken off with its branch size', await page.locator('#tab-body').innerText(), (v) => /REDUCING TEE DN80 x DN50/.test(v), 'REDUCING TEE DN80 x DN50');
+
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 
 await browser.close();

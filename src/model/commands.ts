@@ -214,7 +214,9 @@ export function runCommands(drawing: Drawing, text: string, state: CommandState)
         if (parsed === null) return fail(`Could not read the offset '${tokens[1]}'.`);
         offset = parsed;
       }
-      const ends = kind.startsWith('FLG_') || kind === 'SPECTACLE' ? 'FLG' : 'BW';
+      // Flanges and blinds carry their own joint; everything else follows the
+      // drawing's default end preparation.
+      const ends = kind.startsWith('FLG_') || kind === 'SPECTACLE' ? 'FLG' : undefined;
       addComponent(drawing, run.id, kind, offset, ends);
       applied += 1;
       return;

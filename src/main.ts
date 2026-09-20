@@ -242,19 +242,38 @@ function applyToSelectedRun(): void {
   });
 }
 
-snapSelect.addEventListener('change', () => {
-  state.drawing.options.snap = Number(snapSelect.value) || 50;
+/**
+ * Drawing options feed the analysis — the joint type decides every mark and
+ * which joints are welds, and not-to-scale mode changes the layout — so an
+ * option change has to recompute, not just redraw.
+ */
+function updateOptions(mutate: (options: typeof state.drawing.options) => void): void {
+  mutate(state.drawing.options);
+  recompute();
   persist();
   render();
+}
+
+const jointSelect = $<HTMLSelectElement>('joint');
+jointSelect.addEventListener('change', () => {
+  updateOptions((o) => {
+    o.joint = jointSelect.value as 'BW' | 'SW' | 'THD';
+  });
+});
+
+snapSelect.addEventListener('change', () => {
+  updateOptions((o) => {
+    o.snap = Number(snapSelect.value) || 50;
+  });
 });
 
 $('undo').addEventListener('click', undo);
 $('redo').addEventListener('click', redo);
 $('fit').addEventListener('click', () => fitView());
 $('rotate').addEventListener('click', () => {
-  state.drawing.options.northRotation = (((state.drawing.options.northRotation + 1) % 4) as 0 | 1 | 2 | 3);
-  persist();
-  render();
+  updateOptions((o) => {
+    o.northRotation = ((o.northRotation + 1) % 4) as 0 | 1 | 2 | 3;
+  });
   fitView();
 });
 
@@ -267,9 +286,9 @@ for (const [id, key] of [
   const input = $<HTMLInputElement>(id);
   input.checked = Boolean(state.drawing.options[key]);
   input.addEventListener('change', () => {
-    (state.drawing.options[key] as boolean) = input.checked;
-    persist();
-    render();
+    updateOptions((o) => {
+      (o[key] as boolean) = input.checked;
+    });
     if (key === 'schematic') fitView();
   });
 }
@@ -668,6 +687,7 @@ document.addEventListener('click', (event) => {
 /* ----------------------------------------------------------------- start */
 
 snapSelect.value = String(state.drawing.options.snap);
+jointSelect.value = state.drawing.options.joint ?? 'BW';
 refreshSizeSelects();
 render();
 fitView();

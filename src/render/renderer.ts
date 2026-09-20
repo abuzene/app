@@ -2,7 +2,7 @@ import type { Analysis } from '../model/drawing';
 import type { Axis, Drawing, Vec3 } from '../model/types';
 import { COMPONENT_LABEL, TERMINAL_LABEL, fittingLabel } from '../model/drawing';
 import { AXIS_VECTOR, axisScreenDir, project, scale3, add } from '../model/iso';
-import { componentSymbol, frameFor, terminalSymbol, weldSymbol } from './symbols';
+import { componentSymbol, frameFor, jointMark, terminalSymbol } from './symbols';
 
 export interface ViewBox {
   x: number;
@@ -257,10 +257,11 @@ export function renderDrawing(state: RenderState): string {
       const otherId = run.from === node.id ? run.to : run.from;
       const q = paper(otherId);
       if (q) {
-        const f = frameFor(p.x, p.y, q.x, q.y, 0, size);
-        nodes += terminalSymbol(node.terminal.kind, f);
+        // Frame runs from the pipe outwards, so the symbol faces off the end.
+        const f = frameFor(q.x, q.y, p.x, p.y, 1, size);
+        nodes += terminalSymbol(node.terminal.kind, f, node.joint ?? drawing.options.joint ?? 'BW');
         if (node.terminal.note) {
-          nodes += `<text class="note" x="${(p.x - f.dx * size * 2).toFixed(2)}" y="${(p.y - f.dy * size * 2).toFixed(2)}">${escapeText(node.terminal.note)}</text>`;
+          nodes += `<text class="note" x="${(p.x + f.dx * size * 2.4).toFixed(2)}" y="${(p.y + f.dy * size * 2.4).toFixed(2)}">${escapeText(node.terminal.note)}</text>`;
         }
       }
     }
@@ -274,24 +275,40 @@ export function renderDrawing(state: RenderState): string {
     nodes += `</g>`;
   }
 
-  // Welds sit on the run they belong to, positioned by true distance.
+  // Joint marks sit on the run they belong to, positioned by true distance.
+  // They are part of the fitting symbol, so they are always drawn; only the
+  // weld numbers follow the Welds toggle.
   let welds = '';
-  if (drawing.options.showWelds) {
-    analysis.welds.forEach((weld, index) => {
-      const place = weldPlacement(drawing, analysis, weld.pos);
-      if (!place) return;
-      const f = frameFor(place.a.x, place.a.y, place.b.x, place.b.y, place.t, size);
-      // Welds cluster around fittings, so stagger the tags either side of the
+  const jointPoints = new Map<string, Pt>();
+  analysis.joints.forEach((joint, index) => {
+    const place = weldPlacement(drawing, analysis, joint.pos);
+    if (!place) return;
+    const f = frameFor(place.a.x, place.a.y, place.b.x, place.b.y, place.t, size);
+    jointPoints.set(joint.key, { x: f.cx, y: f.cy });
+    welds += `<g class="weld">`;
+    welds += jointMark(f, joint.joint, joint.type === 'FIELD', joint.facing);
+    if (drawing.options.showWelds && joint.number) {
+      // Joints cluster around fittings, so stagger the tags either side of the
       // pipe rather than stacking them all on the same one.
       const side = index % 2 === 0 ? 1 : -1;
-      const lx = f.cx + f.nx * size * 1.7 * side;
-      const ly = f.cy + f.ny * size * 1.7 * side;
-      welds += `<g class="weld">`;
-      welds += weldSymbol(f, weld.type === 'FIELD');
-      welds += `<text class="weld-no" x="${lx.toFixed(2)}" y="${ly.toFixed(2)}" text-anchor="middle">${escapeText(weld.number)}</text>`;
-      welds += `</g>`;
-    });
+      const lx = f.cx + f.nx * size * 1.9 * side;
+      const ly = f.cy + f.ny * size * 1.9 * side;
+      welds += `<text class="weld-no" x="${lx.toFixed(2)}" y="${ly.toFixed(2)}" text-anchor="middle">${escapeText(joint.number)}</text>`;
+    }
+    welds += `</g>`;
+  });
+
+  // A reducing tee is drawn as the triangle across its three joints.
+  let tees = '';
+  for (const [nodeId, info] of analysis.nodeInfo) {
+    if (info.fitting !== 'TEE_REDUCING') continue;
+    const corners = info.runs
+      .map((run) => jointPoints.get(`n:${nodeId}:${run.id}`))
+      .filter((c): c is Pt => Boolean(c));
+    if (corners.length < 3) continue;
+    tees += `<polygon class="fitting-body" points="${corners.map((c) => `${c.x.toFixed(2)},${c.y.toFixed(2)}`).join(' ')}"/>`;
   }
+  welds = tees + welds;
 
   // Drag preview.
   let preview = '';

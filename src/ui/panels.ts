@@ -1,4 +1,4 @@
-import type { ComponentKind, EndType, FittingKind, TerminalKind } from '../model/types';
+import type { ComponentKind, EndType, FittingKind, JointType, TerminalKind } from '../model/types';
 import type { Host, TabId } from './types';
 import { COMPONENT_LABEL, TERMINAL_LABEL, fittingLabel } from '../model/drawing';
 import { COMMAND_HELP } from '../model/commands';
@@ -14,8 +14,14 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'title', label: 'Title' },
 ];
 
-const TERMINALS: TerminalKind[] = ['OPEN', 'FLG_WN', 'FLG_SO', 'FLG_BLIND', 'CAP', 'CONTINUATION', 'EQUIPMENT'];
-const FITTINGS: FittingKind[] = ['ELBOW_90', 'ELBOW_45', 'BEND', 'TEE', 'CROSS', 'OLET', 'MITRE'];
+const TERMINALS: TerminalKind[] = ['OPEN', 'FLG_WN', 'FLG_SO', 'FLG_SW', 'FLG_THD', 'FLG_LAP', 'FLG_BLIND', 'CAP', 'CONTINUATION', 'EQUIPMENT'];
+const FITTINGS: FittingKind[] = ['ELBOW_90', 'ELBOW_45', 'BEND', 'TEE', 'TEE_REDUCING', 'CROSS', 'OLET', 'MITRE'];
+const JOINTS: JointType[] = ['BW', 'SW', 'THD'];
+const JOINT_LABEL: Record<string, string> = {
+  BW: 'Butt weld',
+  SW: 'Socket weld',
+  THD: 'Threaded',
+};
 const END_TYPES: EndType[] = ['BW', 'SW', 'THD', 'FLG', 'PLAIN'];
 const COMPONENT_KINDS = Object.keys(COMPONENT_LABEL) as ComponentKind[];
 
@@ -99,6 +105,7 @@ function nodeProperties(host: Host, nodeId: string): string {
          <div class="row"><label>End note</label><input type="text" data-f="termnote" value="${esc(node.terminal?.note ?? '')}" placeholder="e.g. TO V-101 N3" /></div>`
       : `<div class="row"><label>Fitting</label><select data-f="fitting">${options(['auto', ...FITTINGS], node.fittingOverride ?? 'auto', { auto: `Automatic (${fittingLabel(fitting) || 'none'})` })}</select></div>`
   }
+  <div class="row"><label>Joint</label><select data-f="joint">${options(['auto', ...JOINTS], node.joint ?? 'auto', { ...JOINT_LABEL, auto: `Drawing default (${JOINT_LABEL[host.state.drawing.options.joint] ?? 'butt weld'})` })}</select></div>
   <p class="empty-note">Drag from this point on the drawing to route a new run. ${
     (info?.degree ?? 0) >= 2 ? 'Routing from a point that already has two runs creates a tee.' : ''
   }</p>
@@ -123,7 +130,7 @@ function componentProperties(host: Host, compId: string): string {
   <div class="row"><label>Position</label><input type="number" data-f="offset" step="1" min="0" max="${Math.round(total)}" value="${Math.round(comp.offset)}" /></div>
   <div class="row"><label>Size</label><select data-f="dn">${options(DN_LIST, comp.dn ?? run.dn)}</select></div>
   ${isReducer ? `<div class="row"><label>Reduces to</label><select data-f="dn2">${options(DN_LIST, comp.dn2 ?? run.dn)}</select></div>` : ''}
-  <div class="row"><label>Ends</label><select data-f="ends">${options(END_TYPES, comp.ends)}</select></div>
+  <div class="row"><label>Ends</label><select data-f="ends">${options(['auto', ...END_TYPES], comp.ends ?? 'auto', { auto: `Drawing default (${host.state.drawing.options.joint})` })}</select></div>
   <div class="row"><label>Tag</label><input type="text" data-f="tag" value="${esc(comp.tag ?? '')}" placeholder="e.g. HV-101" /></div>
   <p class="empty-note">Measured ${mm(comp.offset)} mm from the start of a ${mm(total)} mm run.</p>
   <div class="btn-row">
@@ -247,6 +254,7 @@ function weldsTab(host: Host): string {
       (w) => `<tr>
   <td>${esc(w.number)}</td>
   <td>${esc(w.dn)}</td>
+  <td>${esc(w.joint)}</td>
   <td>${esc(w.joins)}</td>
   <td><button class="pill${w.type === 'FIELD' ? ' field' : ''}" data-weld="${esc(w.key)}">${w.type === 'FIELD' ? 'FIELD' : 'SHOP'}</button></td>
 </tr>`,
@@ -258,7 +266,7 @@ function weldsTab(host: Host): string {
   <h3>Weld schedule</h3>
   <p class="empty-note">Click a tag to switch a weld between shop and field. Numbers follow the route.</p>
   <table>
-    <thead><tr><th>No.</th><th>Size</th><th>Joins</th><th>Type</th></tr></thead>
+    <thead><tr><th>No.</th><th>Size</th><th>Prep</th><th>Joins</th><th>Type</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>
   <div class="totals">
@@ -435,6 +443,13 @@ function wire(body: HTMLElement, host: Host): void {
         if (node) node.terminal = { kind: node.terminal?.kind ?? 'OPEN', note: value || undefined };
       }, { keepPanel: true });
     });
+    field('joint')?.addEventListener('change', (e) => {
+      const value = (e.target as HTMLSelectElement).value;
+      host.edit('Set joint type', (d) => {
+        const node = d.nodes.find((n) => n.id === id);
+        if (node) node.joint = value === 'auto' ? undefined : (value as JointType);
+      });
+    });
     field('fitting')?.addEventListener('change', (e) => {
       const value = (e.target as HTMLSelectElement).value;
       host.edit('Set fitting', (d) => {
@@ -490,7 +505,8 @@ function wire(body: HTMLElement, host: Host): void {
     );
     field('ends')?.addEventListener('change', (e) =>
       withComponent('Change end preparation', (c) => {
-        c.ends = (e.target as HTMLSelectElement).value as EndType;
+        const value = (e.target as HTMLSelectElement).value;
+        c.ends = value === 'auto' ? undefined : (value as EndType);
       }),
     );
     field('tag')?.addEventListener('change', (e) =>
@@ -553,9 +569,9 @@ function wire(body: HTMLElement, host: Host): void {
     return toCsv(rows);
   };
   const weldCsv = () => {
-    const rows = [['Weld', 'Size', 'Schedule', 'Type', 'Joins']];
+    const rows = [['Weld', 'Size', 'Schedule', 'Preparation', 'Type', 'Joins']];
     for (const w of host.state.analysis.welds) {
-      rows.push([w.number, w.dn, w.schedule, w.type, w.joins]);
+      rows.push([w.number, w.dn, w.schedule, w.joint, w.type, w.joins]);
     }
     return toCsv(rows);
   };

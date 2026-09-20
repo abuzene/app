@@ -135,12 +135,13 @@ export function addComponent(
   runId: string,
   kind: ComponentKind,
   offset?: number,
-  ends: EndType = 'BW',
+  ends?: EndType,
 ): InlineComponent | null {
   const run = drawing.runs.find((r) => r.id === runId);
   if (!run) return null;
   const total = runLength(drawing, run);
   const at = offset === undefined ? total / 2 : Math.max(0, Math.min(total, offset));
+  // Leaving `ends` unset lets the component follow the drawing's joint type.
   const comp: InlineComponent = { id: uid('c'), kind, offset: at, ends };
   run.inline.push(comp);
   run.inline.sort((a, b) => a.offset - b.offset);

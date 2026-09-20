@@ -11,8 +11,8 @@ interface ToolGroup {
 
 const GROUPS: ToolGroup[] = [
   { label: 'Valves', kinds: ['GATE', 'GLOBE', 'BALL', 'CHECK', 'BUTTERFLY', 'CONTROL', 'RELIEF', 'PLUG', 'NEEDLE'] },
-  { label: 'Flanges', kinds: ['FLG_WN', 'FLG_SO', 'FLG_BLIND', 'SPECTACLE'] },
-  { label: 'Fittings', kinds: ['RED_CONC', 'RED_ECC', 'UNION', 'STRAINER'] },
+  { label: 'Flanges', kinds: ['FLG_WN', 'FLG_SO', 'FLG_SW', 'FLG_THD', 'FLG_LAP', 'FLG_BLIND', 'SPECTACLE'] },
+  { label: 'Fittings', kinds: ['RED_CONC', 'RED_ECC', 'CAP', 'UNION', 'STRAINER'] },
   { label: 'Supports', kinds: ['SUPPORT', 'ANCHOR', 'GUIDE', 'INSTRUMENT'] },
 ];
 
@@ -28,10 +28,14 @@ const SHORT: Partial<Record<ComponentKind, string>> = {
   NEEDLE: 'Ndl',
   FLG_WN: 'WN',
   FLG_SO: 'SO',
+  FLG_SW: 'SW',
+  FLG_THD: 'Thd',
+  FLG_LAP: 'Lap',
   FLG_BLIND: 'Blind',
   SPECTACLE: 'Spec',
   RED_CONC: 'Conc',
   RED_ECC: 'Ecc',
+  CAP: 'Cap',
   UNION: 'Union',
   STRAINER: 'Strnr',
   SUPPORT: 'Supp',
@@ -43,8 +47,11 @@ const SHORT: Partial<Record<ComponentKind, string>> = {
 /** The palette icons are the drawing symbols themselves, so nothing can drift. */
 function icon(kind: ComponentKind): string {
   // The frame leaves headroom for the symbols that carry a stem and actuator.
-  const f: Frame = { cx: 23, cy: 17, dx: 1, dy: 0, nx: 0, ny: 1, s: 4.8 };
-  return `<svg viewBox="0 0 46 30" aria-hidden="true">${componentSymbol(kind, f)}</svg>`;
+  const f: Frame = { cx: 23, cy: 18, dx: 1, dy: 0, nx: 0, ny: 1, s: 5.4 };
+  // A stub of pipe gives the compact symbols — flanges, reducers — something to
+  // read against, exactly as they appear on the drawing.
+  const stub = `<line class="icon-pipe" x1="4" y1="${f.cy}" x2="42" y2="${f.cy}"/>`;
+  return `<svg viewBox="0 0 46 32" aria-hidden="true">${stub}${componentSymbol(kind, f)}</svg>`;
 }
 
 /** The run a newly picked component should be added to. */
@@ -87,7 +94,7 @@ export function renderTools(container: HTMLElement, host: Host): void {
         host.notify('Select a run first, then pick a component.');
         return;
       }
-      const ends = kind.startsWith('FLG_') || kind === 'SPECTACLE' ? 'FLG' : 'BW';
+      const ends = kind === 'SPECTACLE' ? 'FLG' : undefined;
       let addedId: string | null = null;
       host.edit(`Add ${COMPONENT_LABEL[kind]}`, (drawing) => {
         const comp = addComponent(drawing, target.id, kind, undefined, ends);

@@ -141,20 +141,23 @@ main { flex: 1 1 auto; display: flex; min-height: 0; }
 }
 .tool {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  width: 48px; height: 48px; margin: 3px auto; overflow: hidden;
+  width: 48px; height: 50px; margin: 3px auto; overflow: hidden;
   background: #fff; border: 1px solid var(--line); border-radius: var(--radius);
   cursor: pointer; padding: 2px 0 3px;
 }
 .tool:hover { border-color: var(--accent); background: var(--accent-soft); }
 .tool:disabled { opacity: 0.35; cursor: default; }
 .tool:disabled:hover { border-color: var(--line); background: #fff; }
-.tool svg { width: 44px; height: 30px; display: block; flex: 0 0 auto; }
+.tool svg { width: 44px; height: 31px; display: block; flex: 0 0 auto; }
+.tool svg .icon-pipe { stroke: var(--muted); stroke-width: 1.2; }
 /* Palette icons reuse the drawing symbols, so they need the same classes. */
 .tool svg .sym-line { stroke: var(--ink); stroke-width: 1.4; fill: none; stroke-linecap: round; }
 .tool svg .sym-heavy { stroke: var(--ink); stroke-width: 2.4; fill: none; }
 .tool svg .sym-fill { fill: #fff; stroke: var(--ink); stroke-width: 1.4; }
 .tool svg .sym-hollow { fill: none; stroke: var(--ink); stroke-width: 1.4; }
 .tool svg .sym-solid { fill: var(--ink); stroke: var(--ink); stroke-width: 1; }
+.tool svg .joint-bw { fill: var(--ink); stroke: var(--ink); stroke-width: 0.8; }
+.tool svg .fitting-body { fill: none; stroke: var(--ink); stroke-width: 1.4; }
 .tool-name { font-size: 8px; line-height: 9px; text-align: center; color: var(--muted); flex: 0 0 auto; }
 
 /* ---------- side panel ---------- */

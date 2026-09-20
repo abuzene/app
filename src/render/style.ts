@@ -40,9 +40,8 @@ export function contentCss({ k, u, dark = false }: ContentStyleOptions): string 
 .component.selected .sym-hollow,
 .component.selected .sym-fill { stroke: ${accent}; }
 .component.selected .sym-solid { fill: ${accent}; stroke: ${accent}; }
-.weld-shop { fill: ${dark ? '#0d1117' : '#ffffff'}; stroke: ${ink}; stroke-width: ${w(1.4)}; }
-.weld-field { fill: ${ink}; stroke: ${ink}; stroke-width: ${w(1)}; }
-.weld-tick { stroke: ${ink}; stroke-width: ${w(1.4)}; }
+.joint-bw { fill: ${ink}; stroke: ${ink}; stroke-width: ${w(0.8)}; }
+.fitting-body { fill: none; stroke: ${ink}; stroke-width: ${w(1.8)}; }
 .weld-no { fill: ${dim}; font-size: ${w(8.5)}px; font-family: inherit; }
 .dim-line, .dim-ext, .dim-tick { stroke: ${dim}; stroke-width: ${w(0.9)}; fill: none; }
 .dim-ext { stroke-dasharray: ${w(3)} ${w(3)}; }

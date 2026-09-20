@@ -4,6 +4,7 @@ import type {
   FittingKind,
   InlineComponent,
   IsoNode,
+  JointType,
   Meta,
   Run,
   Vec3,
@@ -11,6 +12,7 @@ import type {
 } from './types';
 import { add, angleBetween, direction, length3, scale3, sub } from './iso';
 import { componentTakeout, fittingTakeout, massPerMetre, sizeOf } from './pipe-data';
+import { flangeJoint, isFlange } from '../render/symbols';
 
 let counter = 0;
 export function uid(prefix: string): string {
@@ -52,6 +54,7 @@ export function defaultOptions(): DrawingOptions {
     showNodeLabels: true,
     showGrid: true,
     northRotation: 0,
+    joint: 'BW',
   };
 }
 
@@ -98,6 +101,9 @@ export interface RunLengths {
 export interface Analysis {
   nodeInfo: Map<string, NodeInfo>;
   nodeById: Map<string, IsoNode>;
+  /** Every mark where the pipe meets something, threaded joints included. */
+  joints: Weld[];
+  /** The joints that are actually welds, numbered along the route. */
   welds: Weld[];
   runLengths: Map<string, RunLengths>;
   bom: BomLine[];
@@ -106,7 +112,7 @@ export interface Analysis {
   warnings: string[];
 }
 
-function inferFitting(legs: Vec3[], override?: FittingKind): FittingKind {
+function inferFitting(legs: Vec3[], runs: Run[], override?: FittingKind): FittingKind {
   if (override) return override;
   if (legs.length <= 1) return 'NONE';
   if (legs.length === 2) {
@@ -116,7 +122,12 @@ function inferFitting(legs: Vec3[], override?: FittingKind): FittingKind {
     if (Math.abs(deviation - 45) < 1) return 'ELBOW_45';
     return 'BEND';
   }
-  if (legs.length === 3) return 'TEE';
+  if (legs.length === 3) {
+    // A branch of a different size makes it a reducing tee, which is drawn
+    // and taken off differently from an equal one.
+    const sizes = new Set(runs.map((r) => r.dn));
+    return sizes.size > 1 ? 'TEE_REDUCING' : 'TEE';
+  }
   return 'CROSS';
 }
 
@@ -130,6 +141,8 @@ export function fittingLabel(kind: FittingKind): string {
       return 'BEND';
     case 'TEE':
       return 'EQUAL TEE';
+    case 'TEE_REDUCING':
+      return 'REDUCING TEE';
     case 'CROSS':
       return 'CROSS';
     case 'OLET':
@@ -153,10 +166,14 @@ export const COMPONENT_LABEL: Record<string, string> = {
   RELIEF: 'RELIEF VALVE',
   FLG_WN: 'WELD NECK FLANGE',
   FLG_SO: 'SLIP-ON FLANGE',
+  FLG_SW: 'SOCKET WELD FLANGE',
+  FLG_THD: 'THREADED FLANGE',
+  FLG_LAP: 'LAP JOINT FLANGE',
   FLG_BLIND: 'BLIND FLANGE',
   SPECTACLE: 'SPECTACLE BLIND',
   RED_CONC: 'CONCENTRIC REDUCER',
   RED_ECC: 'ECCENTRIC REDUCER',
+  CAP: 'CAP',
   UNION: 'UNION',
   STRAINER: 'STRAINER',
   INSTRUMENT: 'INSTRUMENT',
@@ -169,16 +186,31 @@ export const TERMINAL_LABEL: Record<string, string> = {
   OPEN: 'OPEN END',
   FLG_WN: 'WELD NECK FLANGE',
   FLG_SO: 'SLIP-ON FLANGE',
+  FLG_SW: 'SOCKET WELD FLANGE',
+  FLG_THD: 'THREADED FLANGE',
+  FLG_LAP: 'LAP JOINT FLANGE',
   FLG_BLIND: 'BLIND FLANGE',
   CAP: 'CAP',
   CONTINUATION: 'CONTINUATION',
   EQUIPMENT: 'EQUIPMENT CONNECTION',
 };
 
-/** Components that occupy length and are welded into the line. */
-function componentIsWelded(c: InlineComponent): boolean {
-  if (c.ends !== 'BW' && c.ends !== 'SW') return false;
-  return !['SUPPORT', 'ANCHOR', 'GUIDE', 'INSTRUMENT', 'SPECTACLE', 'FLG_BLIND'].includes(c.kind);
+/**
+ * How a component joins the pipe either side of it, or null when it makes no
+ * mark of its own — a support clamps on, a blind bolts between flanges.
+ */
+function componentJoint(c: InlineComponent, fallback: JointType): JointType | null {
+  if (['SUPPORT', 'ANCHOR', 'GUIDE', 'INSTRUMENT', 'SPECTACLE'].includes(c.kind)) return null;
+  // A flange's own type says how it joins the pipe, whatever the default is.
+  if (isFlange(c.kind)) return flangeJoint(c.kind);
+  const ends = c.ends ?? fallback;
+  return ends === 'BW' || ends === 'SW' || ends === 'THD' ? ends : null;
+}
+
+/** How a line end joins whatever terminates it. */
+function terminalJoint(kind: string, fallback: JointType): JointType | null {
+  if (isFlange(kind)) return flangeJoint(kind);
+  return kind === 'CAP' ? fallback : null;
 }
 
 function categoryOf(kind: string): BomLine['category'] {
@@ -257,7 +289,7 @@ export function analyse(drawing: Drawing): Analysis {
       const dir = other ? direction(node.pos, other.pos) : null;
       if (dir) legs.push(dir);
     }
-    const fitting = inferFitting(legs, node.fittingOverride);
+    const fitting = inferFitting(legs, runs, node.fittingOverride);
     nodeInfo.set(node.id, { node, runs, legs, fitting, degree: runs.length });
     if (runs.length > 4) warnings.push(`Node ${node.label ?? node.id} has ${runs.length} connections.`);
   }
@@ -286,21 +318,36 @@ export function analyse(drawing: Drawing): Analysis {
     }
   }
 
-  // Welds. Keys are stable so that shop/field choices survive edits.
-  const weldMap = new Map<string, Weld & { sortRun: number; sortDist: number }>();
+  // Joint marks. Keys are stable so that shop/field choices survive edits.
+  const jointMap = new Map<string, Weld & { sortRun: number; sortDist: number }>();
   const runIndex = new Map(drawing.runs.map((r, i) => [r.id, i]));
+  const defaultJoint = drawing.options.joint ?? 'BW';
 
-  const pushWeld = (
+  const pushJoint = (
     key: string,
+    joint: JointType,
     dn: string,
     schedule: string,
     joins: string,
     pos: Vec3,
+    facing: 1 | -1,
     sortRun: number,
     sortDist: number,
   ) => {
-    if (weldMap.has(key)) return;
-    weldMap.set(key, { key, number: '', type: 'SHOP', dn, schedule, joins, pos, sortRun, sortDist });
+    if (jointMap.has(key)) return;
+    jointMap.set(key, {
+      key,
+      number: '',
+      type: 'SHOP',
+      joint,
+      dn,
+      schedule,
+      joins,
+      pos,
+      facing,
+      sortRun,
+      sortDist,
+    });
   };
 
   for (const run of drawing.runs) {
@@ -318,31 +365,50 @@ export function analyse(drawing: Drawing): Analysis {
     ] as const) {
       const info = nodeInfo.get(node.id);
       if (!info) continue;
+      const nodeJoint = node.joint ?? defaultJoint;
       const takeout = fittingTakeout(info.fitting, run.dn);
       const distance = atStart ? takeout : total - takeout;
       const pos = add(a.pos, scale3(dir, distance));
+      // A mark faces the thing it joins the pipe to.
+      const facing: 1 | -1 = atStart ? -1 : 1;
+
       if (info.degree === 1) {
         const terminal = node.terminal?.kind ?? 'OPEN';
-        if (terminal === 'FLG_WN' || terminal === 'FLG_SO' || terminal === 'CAP') {
-          pushWeld(
+        const joint = terminalJoint(terminal, nodeJoint);
+        if (joint) {
+          pushJoint(
             `n:${node.id}:term`,
+            joint,
             run.dn,
             run.schedule,
-            `PIPE / ${TERMINAL_LABEL[terminal]}`,
+            `PIPE / ${TERMINAL_LABEL[terminal] ?? terminal}`,
             atStart ? a.pos : b.pos,
+            facing,
             idx,
             atStart ? 0 : total,
           );
         }
       } else if (info.fitting === 'NONE') {
-        pushWeld(`n:${node.id}`, run.dn, run.schedule, 'PIPE / PIPE', node.pos, idx, distance);
+        pushJoint(
+          `n:${node.id}`,
+          nodeJoint,
+          run.dn,
+          run.schedule,
+          'PIPE / PIPE',
+          node.pos,
+          facing,
+          idx,
+          distance,
+        );
       } else {
-        pushWeld(
+        pushJoint(
           `n:${node.id}:${run.id}`,
+          nodeJoint,
           run.dn,
           run.schedule,
           `PIPE / ${fittingLabel(info.fitting)}`,
           pos,
+          facing,
           idx,
           distance,
         );
@@ -350,17 +416,20 @@ export function analyse(drawing: Drawing): Analysis {
     }
 
     for (const comp of run.inline) {
-      if (!componentIsWelded(comp)) continue;
+      const joint = componentJoint(comp, defaultJoint);
+      if (!joint) continue;
       const dn = comp.dn ?? run.dn;
       const takeout = componentTakeout(comp.kind, dn);
       for (const side of [0, 1] as const) {
         const distance = side === 0 ? comp.offset - takeout : comp.offset + takeout;
-        pushWeld(
+        pushJoint(
           `c:${comp.id}:${side}`,
+          joint,
           dn,
           run.schedule,
           `PIPE / ${COMPONENT_LABEL[comp.kind] ?? comp.kind}`,
           add(a.pos, scale3(dir, distance)),
+          side === 0 ? 1 : -1,
           idx,
           distance,
         );
@@ -368,14 +437,32 @@ export function analyse(drawing: Drawing): Analysis {
     }
   }
 
-  const welds: Weld[] = [...weldMap.values()]
-    .sort((x, y) => x.sortRun - y.sortRun || x.sortDist - y.sortDist)
-    .map((w, i) => {
-      const override = drawing.weldOverrides[w.key];
-      const type = override?.type ?? w.type;
-      const number = override?.number ?? `${type === 'FIELD' ? 'FW' : 'SW'}${i + 1}`;
-      return { key: w.key, number, type, dn: w.dn, schedule: w.schedule, joins: w.joins, pos: w.pos };
-    });
+  const ordered = [...jointMap.values()].sort(
+    (x, y) => x.sortRun - y.sortRun || x.sortDist - y.sortDist,
+  );
+
+  // Threaded joints are marked on the drawing but are not welds, so the weld
+  // numbers run over the welded joints only.
+  let weldNumber = 0;
+  const joints: Weld[] = ordered.map((j) => {
+    const override = drawing.weldOverrides[j.key];
+    const type = override?.type ?? j.type;
+    const welded = j.joint !== 'THD';
+    if (welded) weldNumber += 1;
+    const number = welded ? override?.number ?? `${type === 'FIELD' ? 'FW' : 'SW'}${weldNumber}` : '';
+    return {
+      key: j.key,
+      number,
+      type,
+      joint: j.joint,
+      dn: j.dn,
+      schedule: j.schedule,
+      joins: j.joins,
+      pos: j.pos,
+      facing: j.facing,
+    };
+  });
+  const welds = joints.filter((j) => j.joint !== 'THD');
 
   // Bill of materials.
   const bom: BomLine[] = [];
@@ -410,9 +497,13 @@ export function analyse(drawing: Drawing): Analysis {
     if (info.fitting !== 'NONE' && info.degree > 1) {
       const dn = info.runs[0]?.dn ?? 'DN80';
       const schedule = info.runs[0]?.schedule ?? 'STD';
+      const branch = info.runs.find((r) => r.dn !== dn);
       tally({
         category: 'FITTING',
-        description: fittingLabel(info.fitting),
+        description:
+          info.fitting === 'TEE_REDUCING' && branch
+            ? `${fittingLabel(info.fitting)} ${dn} x ${branch.dn}`
+            : fittingLabel(info.fitting),
         dn,
         schedule,
         unit: 'off',
@@ -453,6 +544,7 @@ export function analyse(drawing: Drawing): Analysis {
   return {
     nodeInfo,
     nodeById,
+    joints,
     welds,
     runLengths,
     bom,

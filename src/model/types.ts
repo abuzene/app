@@ -10,8 +10,15 @@ export interface Vec3 {
   u: number;
 }
 
+/**
+ * How a joint is made. This is what decides the mark drawn where a fitting
+ * meets the pipe — a filled dot for a butt weld, a bracket for a socket weld,
+ * a single bar for a threaded joint — and whether the joint is a weld at all.
+ */
+export type JointType = 'BW' | 'SW' | 'THD';
+
 /** How a component or pipe end is joined. Drives weld generation. */
-export type EndType = 'BW' | 'SW' | 'THD' | 'FLG' | 'PLAIN';
+export type EndType = JointType | 'FLG' | 'PLAIN';
 
 /** Inline components sit part-way along a run, at an offset from its start node. */
 export type ComponentKind =
@@ -26,10 +33,14 @@ export type ComponentKind =
   | 'RELIEF'
   | 'FLG_WN'
   | 'FLG_SO'
+  | 'FLG_SW'
+  | 'FLG_THD'
+  | 'FLG_LAP'
   | 'FLG_BLIND'
   | 'SPECTACLE'
   | 'RED_CONC'
   | 'RED_ECC'
+  | 'CAP'
   | 'UNION'
   | 'STRAINER'
   | 'INSTRUMENT'
@@ -42,6 +53,9 @@ export type TerminalKind =
   | 'OPEN'
   | 'FLG_WN'
   | 'FLG_SO'
+  | 'FLG_SW'
+  | 'FLG_THD'
+  | 'FLG_LAP'
   | 'FLG_BLIND'
   | 'CAP'
   | 'CONTINUATION'
@@ -56,7 +70,8 @@ export interface InlineComponent {
   dn?: string;
   /** Second size for reducers — the size downstream of the component. */
   dn2?: string;
-  ends: EndType;
+  /** End preparation. Left unset, the component follows the drawing's default. */
+  ends?: EndType;
   tag?: string;
   note?: string;
 }
@@ -77,6 +92,8 @@ export interface IsoNode {
   terminal?: Terminal;
   /** Overrides the fitting inferred from connectivity. */
   fittingOverride?: FittingKind;
+  /** Overrides the drawing's default joint type at this point. */
+  joint?: JointType;
 }
 
 export type FittingKind =
@@ -85,6 +102,7 @@ export type FittingKind =
   | 'ELBOW_45'
   | 'BEND'
   | 'TEE'
+  | 'TEE_REDUCING'
   | 'CROSS'
   | 'OLET'
   | 'MITRE';
@@ -107,15 +125,22 @@ export type WeldType = 'SHOP' | 'FIELD';
  * Welds are derived from connectivity on every recalculation, but user choices
  * (shop vs field, manual renumbering) persist against the stable `key`.
  */
+/**
+ * Every place the pipe meets something else. Threaded joints are marked on the
+ * drawing but are not welds, so only the welded ones reach the weld schedule.
+ */
 export interface Weld {
   key: string;
   number: string;
   type: WeldType;
+  joint: JointType;
   dn: string;
   schedule: string;
-  /** What the weld joins, for the weld schedule table. */
+  /** What the joint connects, for the weld schedule table. */
   joins: string;
   pos: Vec3;
+  /** Which way a one-sided symbol at this joint should face. */
+  facing: 1 | -1;
 }
 
 export interface WeldOverride {
@@ -159,6 +184,8 @@ export interface DrawingOptions {
   showGrid: boolean;
   /** Rotates which screen direction North points to, in 90-degree steps. */
   northRotation: 0 | 1 | 2 | 3;
+  /** How fittings are joined unless a point says otherwise. */
+  joint: JointType;
 }
 
 export interface Drawing {

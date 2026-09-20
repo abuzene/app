@@ -190,6 +190,7 @@ export function fittingTakeout(fitting: string, dn: string): number {
     case 'ELBOW_45':
       return size.elbow45;
     case 'TEE':
+    case 'TEE_REDUCING':
     case 'CROSS':
       return size.tee;
     case 'MITRE':
