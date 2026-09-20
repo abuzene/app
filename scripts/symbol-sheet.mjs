@@ -6,11 +6,13 @@
  * fitting, one column per joint type, because the joint is what changes the
  * mark at each end.
  *
- *   node scripts/symbol-sheet.mjs   ->  dist/symbols.svg
+ *   node scripts/symbol-sheet.mjs   ->  reference/symbols.svg
  */
 import { build } from 'esbuild';
 import { writeFile, mkdir, rm } from 'node:fs/promises';
 
+// Kept out of dist/, which every build empties.
+await mkdir('reference', { recursive: true });
 await mkdir('dist', { recursive: true });
 await build({
   entryPoints: ['src/render/symbols.ts'],
@@ -277,6 +279,6 @@ text { font-family: "Helvetica Neue", Arial, sans-serif; }
 ${parts.join('')}
 </svg>`;
 
-await writeFile('dist/symbols.svg', svg);
+await writeFile('reference/symbols.svg', svg);
 await rm('dist/_symbols.mjs', { force: true });
-console.log(`dist/symbols.svg  ${W} x ${H}`);
+console.log(`reference/symbols.svg  ${W} x ${H}`);
