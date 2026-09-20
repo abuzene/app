@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Isometric Piping</title>
+    <meta name="description" content="Draw metric piping isometrics with automatic dimensions, welds and bill of materials." />
+  </head>
+  <body>
+    <div id="app">
+      <header class="toolbar">
+        <div class="brand">
+          <span class="mark" aria-hidden="true"></span>
+          <span class="brand-text">Isometric Piping</span>
+        </div>
+
+        <div class="group">
+          <label class="field">
+            <span>Size</span>
+            <select id="dn"></select>
+          </label>
+          <label class="field">
+            <span>Schedule</span>
+            <select id="schedule"></select>
+          </label>
+          <label class="field">
+            <span>Snap</span>
+            <select id="snap">
+              <option value="1">1 mm</option>
+              <option value="10">10 mm</option>
+              <option value="25">25 mm</option>
+              <option value="50" selected>50 mm</option>
+              <option value="100">100 mm</option>
+              <option value="250">250 mm</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="group">
+          <button id="undo" class="btn" title="Undo (Ctrl+Z)">Undo</button>
+          <button id="redo" class="btn" title="Redo (Ctrl+Shift+Z)">Redo</button>
+          <button id="fit" class="btn" title="Zoom to fit (F)">Fit</button>
+          <button id="rotate" class="btn" title="Rotate the sheet 90°">Rotate</button>
+        </div>
+
+        <div class="group toggles">
+          <label class="check"><input type="checkbox" id="opt-dims" checked /><span>Dims</span></label>
+          <label class="check"><input type="checkbox" id="opt-welds" checked /><span>Welds</span></label>
+          <label class="check"><input type="checkbox" id="opt-grid" checked /><span>Grid</span></label>
+          <label class="check"><input type="checkbox" id="opt-schematic" /><span>Not to scale</span></label>
+        </div>
+
+        <div class="group right">
+          <button id="new" class="btn">New</button>
+          <button id="open" class="btn">Open</button>
+          <button id="save" class="btn">Save</button>
+          <button id="export" class="btn primary">Export</button>
+        </div>
+      </header>
+
+      <main>
+        <aside class="tools" id="tools"></aside>
+
+        <section class="canvas-wrap">
+          <svg id="canvas" xmlns="http://www.w3.org/2000/svg"></svg>
+          <div class="overlay compass-overlay" id="compass"></div>
+          <div class="overlay hud" id="hud"></div>
+          <div class="overlay empty-hint" id="empty-hint">
+            <h2>Start the route</h2>
+            <p>Click anywhere to place the first point, then drag from it along one of the six isometric directions.</p>
+            <p class="muted">Or switch to the <strong>Command</strong> tab and type <code>N 1500</code>.</p>
+            <p><button class="btn-line" data-a="load-sample">Load an example line</button></p>
+          </div>
+        </section>
+
+        <aside class="panel">
+          <nav class="tabs" id="tabs"></nav>
+          <div class="tab-body" id="tab-body"></div>
+        </aside>
+      </main>
+    </div>
+
+    <input type="file" id="file-input" accept="application/json,.iso.json,.json" hidden />
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

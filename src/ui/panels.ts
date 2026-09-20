@@ -1,0 +1,583 @@
+import type { ComponentKind, EndType, FittingKind, TerminalKind } from '../model/types';
+import type { Host, TabId } from './types';
+import { COMPONENT_LABEL, TERMINAL_LABEL, fittingLabel } from '../model/drawing';
+import { COMMAND_HELP } from '../model/commands';
+import { DN_LIST, schedulesFor } from '../model/pipe-data';
+import { axisBetween } from '../model/iso';
+import { deleteNode, deleteRun, removeComponent, runLength, setRunLength, splitRun } from '../model/edit';
+
+const TABS: { id: TabId; label: string }[] = [
+  { id: 'route', label: 'Route' },
+  { id: 'command', label: 'Command' },
+  { id: 'items', label: 'Items' },
+  { id: 'welds', label: 'Welds' },
+  { id: 'title', label: 'Title' },
+];
+
+const TERMINALS: TerminalKind[] = ['OPEN', 'FLG_WN', 'FLG_SO', 'FLG_BLIND', 'CAP', 'CONTINUATION', 'EQUIPMENT'];
+const FITTINGS: FittingKind[] = ['ELBOW_90', 'ELBOW_45', 'BEND', 'TEE', 'CROSS', 'OLET', 'MITRE'];
+const END_TYPES: EndType[] = ['BW', 'SW', 'THD', 'FLG', 'PLAIN'];
+const COMPONENT_KINDS = Object.keys(COMPONENT_LABEL) as ComponentKind[];
+
+function esc(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function options(values: string[], selected: string, labels?: Record<string, string>): string {
+  return values
+    .map(
+      (v) =>
+        `<option value="${esc(v)}"${v === selected ? ' selected' : ''}>${esc(labels?.[v] ?? v)}</option>`,
+    )
+    .join('');
+}
+
+function mm(value: number): string {
+  return Math.round(value).toLocaleString('en-GB');
+}
+
+export function renderTabs(nav: HTMLElement, host: Host): void {
+  nav.innerHTML = TABS.map(
+    (t) => `<button data-tab="${t.id}"${host.state.tab === t.id ? ' class="active"' : ''}>${t.label}</button>`,
+  ).join('');
+  nav.querySelectorAll<HTMLButtonElement>('button').forEach((b) => {
+    b.addEventListener('click', () => host.setTab(b.dataset.tab as TabId));
+  });
+}
+
+/* ------------------------------------------------------------------ route */
+
+function runDirection(host: Host, runId: string): string {
+  const { drawing } = host.state;
+  const run = drawing.runs.find((r) => r.id === runId);
+  if (!run) return '—';
+  const a = drawing.nodes.find((n) => n.id === run.from);
+  const b = drawing.nodes.find((n) => n.id === run.to);
+  if (!a || !b) return '—';
+  return axisBetween(a.pos, b.pos) ?? 'SKEW';
+}
+
+function runProperties(host: Host, runId: string): string {
+  const { drawing, analysis } = host.state;
+  const run = drawing.runs.find((r) => r.id === runId);
+  if (!run) return '';
+  const lengths = analysis.runLengths.get(run.id);
+  return `
+<div class="section" data-editor="run" data-id="${run.id}">
+  <h3>Run — ${runDirection(host, run.id)}</h3>
+  <div class="row"><label>Length</label><input type="number" data-f="length" step="1" min="1" value="${Math.round(lengths?.centre ?? 0)}" /></div>
+  <div class="row"><label>Size</label><select data-f="dn">${options(DN_LIST, run.dn)}</select></div>
+  <div class="row"><label>Schedule</label><select data-f="schedule">${options(schedulesFor(run.dn), run.schedule)}</select></div>
+  <div class="row"><label>Note</label><input type="text" data-f="note" value="${esc(run.note ?? '')}" placeholder="optional" /></div>
+  <div class="row"><label>Dimension</label><select data-f="nodim">${options(['show', 'hide'], run.noDim ? 'hide' : 'show')}</select></div>
+  <p class="empty-note">Cut length after take-outs: <strong>${mm(lengths?.cut ?? 0)} mm</strong></p>
+  <div class="btn-row">
+    <button class="btn-line" data-a="split">Split in half</button>
+    <button class="btn-line danger" data-a="delete-run">Delete run</button>
+  </div>
+</div>`;
+}
+
+function nodeProperties(host: Host, nodeId: string): string {
+  const { drawing, analysis } = host.state;
+  const node = drawing.nodes.find((n) => n.id === nodeId);
+  if (!node) return '';
+  const info = analysis.nodeInfo.get(nodeId);
+  const isEnd = (info?.degree ?? 0) <= 1;
+  const fitting = info?.fitting ?? 'NONE';
+
+  return `
+<div class="section" data-editor="node" data-id="${node.id}">
+  <h3>Point — ${esc(fitting === 'NONE' ? (isEnd ? 'line end' : 'joint') : fittingLabel(fitting))}</h3>
+  <div class="row"><label>Label</label><input type="text" data-f="label" value="${esc(node.label ?? '')}" placeholder="e.g. N1" /></div>
+  <div class="row"><label>East</label><input type="number" data-f="e" step="1" value="${Math.round(node.pos.e)}" /></div>
+  <div class="row"><label>North</label><input type="number" data-f="n" step="1" value="${Math.round(node.pos.n)}" /></div>
+  <div class="row"><label>Up</label><input type="number" data-f="u" step="1" value="${Math.round(node.pos.u)}" /></div>
+  ${
+    isEnd
+      ? `<div class="row"><label>End type</label><select data-f="terminal">${options(TERMINALS, node.terminal?.kind ?? 'OPEN', TERMINAL_LABEL)}</select></div>
+         <div class="row"><label>End note</label><input type="text" data-f="termnote" value="${esc(node.terminal?.note ?? '')}" placeholder="e.g. TO V-101 N3" /></div>`
+      : `<div class="row"><label>Fitting</label><select data-f="fitting">${options(['auto', ...FITTINGS], node.fittingOverride ?? 'auto', { auto: `Automatic (${fittingLabel(fitting) || 'none'})` })}</select></div>`
+  }
+  <p class="empty-note">Drag from this point on the drawing to route a new run. ${
+    (info?.degree ?? 0) >= 2 ? 'Routing from a point that already has two runs creates a tee.' : ''
+  }</p>
+  <div class="btn-row">
+    <button class="btn-line danger" data-a="delete-node">Delete point and its runs</button>
+  </div>
+</div>`;
+}
+
+function componentProperties(host: Host, compId: string): string {
+  const { drawing } = host.state;
+  const run = drawing.runs.find((r) => r.inline.some((c) => c.id === compId));
+  const comp = run?.inline.find((c) => c.id === compId);
+  if (!run || !comp) return '';
+  const total = runLength(drawing, run);
+  const isReducer = comp.kind === 'RED_CONC' || comp.kind === 'RED_ECC';
+
+  return `
+<div class="section" data-editor="component" data-id="${comp.id}">
+  <h3>${esc(COMPONENT_LABEL[comp.kind] ?? comp.kind)}</h3>
+  <div class="row"><label>Type</label><select data-f="kind">${options(COMPONENT_KINDS, comp.kind, COMPONENT_LABEL)}</select></div>
+  <div class="row"><label>Position</label><input type="number" data-f="offset" step="1" min="0" max="${Math.round(total)}" value="${Math.round(comp.offset)}" /></div>
+  <div class="row"><label>Size</label><select data-f="dn">${options(DN_LIST, comp.dn ?? run.dn)}</select></div>
+  ${isReducer ? `<div class="row"><label>Reduces to</label><select data-f="dn2">${options(DN_LIST, comp.dn2 ?? run.dn)}</select></div>` : ''}
+  <div class="row"><label>Ends</label><select data-f="ends">${options(END_TYPES, comp.ends)}</select></div>
+  <div class="row"><label>Tag</label><input type="text" data-f="tag" value="${esc(comp.tag ?? '')}" placeholder="e.g. HV-101" /></div>
+  <p class="empty-note">Measured ${mm(comp.offset)} mm from the start of a ${mm(total)} mm run.</p>
+  <div class="btn-row">
+    <button class="btn-line danger" data-a="delete-component">Remove</button>
+  </div>
+</div>`;
+}
+
+function runList(host: Host): string {
+  const { drawing, analysis, selection } = host.state;
+  if (drawing.runs.length === 0) {
+    return `<div class="section"><h3>Runs</h3><p class="empty-note">No runs yet. Click the drawing to place the first point, then drag along one of the six isometric directions.</p></div>`;
+  }
+  const rows = drawing.runs
+    .map((run, i) => {
+      const lengths = analysis.runLengths.get(run.id);
+      const selected = selection?.kind === 'run' && selection.id === run.id;
+      return `<tr class="clickable${selected ? ' is-selected' : ''}" data-run-row="${run.id}">
+  <td class="num">${i + 1}</td>
+  <td>${runDirection(host, run.id)}</td>
+  <td>${esc(run.dn)}</td>
+  <td class="len num"><input type="number" step="1" min="1" data-run-len="${run.id}" value="${Math.round(lengths?.centre ?? 0)}" /></td>
+  <td class="num">${mm(lengths?.cut ?? 0)}</td>
+</tr>`;
+    })
+    .join('');
+
+  const total = [...analysis.runLengths.values()].reduce((sum, r) => sum + r.centre, 0);
+  return `
+<div class="section">
+  <h3>Runs</h3>
+  <table class="run-list">
+    <thead><tr><th class="num">#</th><th>Dir</th><th>Size</th><th class="num">C/C mm</th><th class="num">Cut mm</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <div class="totals"><span>Developed length <strong>${(total / 1000).toFixed(2)} m</strong></span><span>Welds <strong>${analysis.welds.length}</strong></span></div>
+</div>`;
+}
+
+function routeTab(host: Host): string {
+  const sel = host.state.selection;
+  let props = '';
+  if (sel?.kind === 'run') props = runProperties(host, sel.id);
+  else if (sel?.kind === 'node') props = nodeProperties(host, sel.id);
+  else if (sel?.kind === 'component') props = componentProperties(host, sel.id);
+  else
+    props = `<div class="section"><h3>Nothing selected</h3><p class="empty-note">Click a run, a point or a component on the drawing to edit it.</p></div>`;
+  return props + runList(host);
+}
+
+/* ---------------------------------------------------------------- command */
+
+function commandTab(host: Host): string {
+  const errors = host.state.commandErrors;
+  return `
+<div class="section">
+  <h3>Route by typing</h3>
+  <textarea class="command" id="command-text" spellcheck="false" placeholder="DN80\nSTD\nN 1500\nUP 800\n+GATE\nE 2400\nEND FLG">${esc(host.state.commandText)}</textarea>
+  <div class="btn-row">
+    <button class="btn-line solid" data-a="run-commands">Apply</button>
+    <button class="btn-line" data-a="clear-commands">Clear</button>
+  </div>
+  ${
+    errors.length > 0
+      ? `<ul class="errors">${errors
+          .map((e) => `<li><code>line ${e.line}: ${esc(e.text)}</code><br/>${esc(e.message)}</li>`)
+          .join('')}</ul>`
+      : ''
+  }
+</div>
+<div class="section">
+  <h3>Syntax</h3>
+  <pre class="help">${esc(COMMAND_HELP)}</pre>
+</div>`;
+}
+
+/* ------------------------------------------------------------------ items */
+
+function itemsTab(host: Host): string {
+  const { bom } = host.state.analysis;
+  if (bom.length === 0) {
+    return `<div class="section"><h3>Bill of materials</h3><p class="empty-note">The take-off builds itself as you draw.</p></div>`;
+  }
+  const rows = bom
+    .map(
+      (line, i) => `<tr>
+  <td class="num">${i + 1}</td>
+  <td>${esc(line.description)}</td>
+  <td>${esc(line.dn)}</td>
+  <td class="num">${line.unit === 'm' ? line.quantity.toFixed(2) : Math.round(line.quantity)}</td>
+  <td>${line.unit}</td>
+</tr>`,
+    )
+    .join('');
+  const mass = bom.reduce((sum, l) => sum + l.mass, 0);
+  const pipe = bom.filter((l) => l.category === 'PIPE').reduce((sum, l) => sum + l.quantity, 0);
+  return `
+<div class="section">
+  <h3>Bill of materials</h3>
+  <table>
+    <thead><tr><th class="num">#</th><th>Description</th><th>Size</th><th class="num">Qty</th><th>Unit</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <div class="totals">
+    <span>Pipe <strong>${pipe.toFixed(2)} m</strong></span>
+    <span>Pipe mass <strong>${mass.toFixed(1)} kg</strong></span>
+  </div>
+  <div class="btn-row"><button class="btn-line" data-a="export-bom">Export CSV</button></div>
+</div>`;
+}
+
+/* ------------------------------------------------------------------ welds */
+
+function weldsTab(host: Host): string {
+  const { welds } = host.state.analysis;
+  if (welds.length === 0) {
+    return `<div class="section"><h3>Weld schedule</h3><p class="empty-note">Welds are generated from the route — every fitting, valve and flange adds its own.</p></div>`;
+  }
+  const rows = welds
+    .map(
+      (w) => `<tr>
+  <td>${esc(w.number)}</td>
+  <td>${esc(w.dn)}</td>
+  <td>${esc(w.joins)}</td>
+  <td><button class="pill${w.type === 'FIELD' ? ' field' : ''}" data-weld="${esc(w.key)}">${w.type === 'FIELD' ? 'FIELD' : 'SHOP'}</button></td>
+</tr>`,
+    )
+    .join('');
+  const field = welds.filter((w) => w.type === 'FIELD').length;
+  return `
+<div class="section">
+  <h3>Weld schedule</h3>
+  <p class="empty-note">Click a tag to switch a weld between shop and field. Numbers follow the route.</p>
+  <table>
+    <thead><tr><th>No.</th><th>Size</th><th>Joins</th><th>Type</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <div class="totals">
+    <span>Shop <strong>${welds.length - field}</strong></span>
+    <span>Field <strong>${field}</strong></span>
+    <span>Total <strong>${welds.length}</strong></span>
+  </div>
+  <div class="btn-row">
+    <button class="btn-line" data-a="export-welds">Export CSV</button>
+    <button class="btn-line" data-a="reset-welds">Reset all to shop</button>
+  </div>
+</div>`;
+}
+
+/* ------------------------------------------------------------------ title */
+
+const META_FIELDS: { key: keyof import('../model/types').Meta; label: string; placeholder?: string }[] = [
+  { key: 'project', label: 'Project' },
+  { key: 'client', label: 'Client' },
+  { key: 'lineNumber', label: 'Line number', placeholder: '6"-P-1201-A1A-IH' },
+  { key: 'drawingNo', label: 'Drawing no.' },
+  { key: 'sheet', label: 'Sheet' },
+  { key: 'revision', label: 'Revision' },
+  { key: 'date', label: 'Date' },
+  { key: 'drawnBy', label: 'Drawn by' },
+  { key: 'checkedBy', label: 'Checked by' },
+  { key: 'spec', label: 'Piping spec' },
+  { key: 'service', label: 'Service' },
+  { key: 'material', label: 'Material' },
+  { key: 'insulation', label: 'Insulation' },
+  { key: 'pwht', label: 'PWHT' },
+  { key: 'ndt', label: 'NDT' },
+  { key: 'designPressure', label: 'Design press.', placeholder: 'barg' },
+  { key: 'designTemp', label: 'Design temp.', placeholder: '°C' },
+  { key: 'testPressure', label: 'Test press.', placeholder: 'barg' },
+];
+
+function titleTab(host: Host): string {
+  const meta = host.state.drawing.meta;
+  return `
+<div class="section" data-editor="meta">
+  <h3>Title block</h3>
+  ${META_FIELDS.map(
+    (f) =>
+      `<div class="row"><label>${esc(f.label)}</label><input type="text" data-meta="${f.key}" value="${esc(String(meta[f.key] ?? ''))}" placeholder="${esc(f.placeholder ?? '')}" /></div>`,
+  ).join('')}
+</div>`;
+}
+
+/* ------------------------------------------------------------------- wire */
+
+export function renderPanel(body: HTMLElement, host: Host): void {
+  const { tab } = host.state;
+  body.innerHTML =
+    tab === 'route'
+      ? routeTab(host)
+      : tab === 'command'
+        ? commandTab(host)
+        : tab === 'items'
+          ? itemsTab(host)
+          : tab === 'welds'
+            ? weldsTab(host)
+            : titleTab(host);
+
+  wire(body, host);
+}
+
+function wire(body: HTMLElement, host: Host): void {
+  const { drawing } = host.state;
+
+  // Selecting a run from the list.
+  body.querySelectorAll<HTMLElement>('[data-run-row]').forEach((row) => {
+    row.addEventListener('click', (event) => {
+      if ((event.target as HTMLElement).tagName === 'INPUT') return;
+      host.select({ kind: 'run', id: row.dataset.runRow! });
+    });
+  });
+
+  body.querySelectorAll<HTMLInputElement>('[data-run-len]').forEach((input) => {
+    input.addEventListener('change', () => {
+      const value = Number(input.value);
+      if (!Number.isFinite(value) || value <= 0) return;
+      host.edit('Change length', (d) => setRunLength(d, input.dataset.runLen!, value));
+    });
+  });
+
+  // Run editor.
+  const runEditor = body.querySelector<HTMLElement>('[data-editor="run"]');
+  if (runEditor) {
+    const id = runEditor.dataset.id!;
+    const field = (name: string) => runEditor.querySelector<HTMLInputElement & HTMLSelectElement>(`[data-f="${name}"]`);
+    field('length')?.addEventListener('change', (e) => {
+      const value = Number((e.target as HTMLInputElement).value);
+      if (value > 0) host.edit('Change length', (d) => setRunLength(d, id, value));
+    });
+    field('dn')?.addEventListener('change', (e) => {
+      const value = (e.target as HTMLSelectElement).value;
+      host.edit('Change size', (d) => {
+        const run = d.runs.find((r) => r.id === id);
+        if (!run) return;
+        run.dn = value;
+        if (!schedulesFor(value).includes(run.schedule)) run.schedule = schedulesFor(value)[0] ?? 'STD';
+      });
+    });
+    field('schedule')?.addEventListener('change', (e) => {
+      const value = (e.target as HTMLSelectElement).value;
+      host.edit('Change schedule', (d) => {
+        const run = d.runs.find((r) => r.id === id);
+        if (run) run.schedule = value;
+      });
+    });
+    field('note')?.addEventListener('change', (e) => {
+      const value = (e.target as HTMLInputElement).value;
+      host.edit('Edit note', (d) => {
+        const run = d.runs.find((r) => r.id === id);
+        if (run) run.note = value || undefined;
+      }, { keepPanel: true });
+    });
+    field('nodim')?.addEventListener('change', (e) => {
+      const value = (e.target as HTMLSelectElement).value;
+      host.edit('Toggle dimension', (d) => {
+        const run = d.runs.find((r) => r.id === id);
+        if (run) run.noDim = value === 'hide' ? true : undefined;
+      });
+    });
+    runEditor.querySelector('[data-a="split"]')?.addEventListener('click', () => {
+      const run = drawing.runs.find((r) => r.id === id);
+      if (!run) return;
+      const half = runLength(drawing, run) / 2;
+      host.edit('Split run', (d) => {
+        splitRun(d, id, half);
+      });
+    });
+    runEditor.querySelector('[data-a="delete-run"]')?.addEventListener('click', () => {
+      host.edit('Delete run', (d) => deleteRun(d, id));
+      host.select(null);
+    });
+  }
+
+  // Node editor.
+  const nodeEditor = body.querySelector<HTMLElement>('[data-editor="node"]');
+  if (nodeEditor) {
+    const id = nodeEditor.dataset.id!;
+    const field = (name: string) => nodeEditor.querySelector<HTMLInputElement & HTMLSelectElement>(`[data-f="${name}"]`);
+    for (const axis of ['e', 'n', 'u'] as const) {
+      field(axis)?.addEventListener('change', (event) => {
+        const value = Number((event.target as HTMLInputElement).value);
+        if (!Number.isFinite(value)) return;
+        host.edit('Move point', (d) => {
+          const node = d.nodes.find((n) => n.id === id);
+          if (node) node.pos = { ...node.pos, [axis]: value };
+        });
+      });
+    }
+    field('label')?.addEventListener('change', (e) => {
+      const value = (e.target as HTMLInputElement).value;
+      host.edit('Label point', (d) => {
+        const node = d.nodes.find((n) => n.id === id);
+        if (node) node.label = value || undefined;
+      }, { keepPanel: true });
+    });
+    field('terminal')?.addEventListener('change', (e) => {
+      const value = (e.target as HTMLSelectElement).value as TerminalKind;
+      host.edit('Set end type', (d) => {
+        const node = d.nodes.find((n) => n.id === id);
+        if (node) node.terminal = { kind: value, note: node.terminal?.note };
+      });
+    });
+    field('termnote')?.addEventListener('change', (e) => {
+      const value = (e.target as HTMLInputElement).value;
+      host.edit('Edit end note', (d) => {
+        const node = d.nodes.find((n) => n.id === id);
+        if (node) node.terminal = { kind: node.terminal?.kind ?? 'OPEN', note: value || undefined };
+      }, { keepPanel: true });
+    });
+    field('fitting')?.addEventListener('change', (e) => {
+      const value = (e.target as HTMLSelectElement).value;
+      host.edit('Set fitting', (d) => {
+        const node = d.nodes.find((n) => n.id === id);
+        if (node) node.fittingOverride = value === 'auto' ? undefined : (value as FittingKind);
+      });
+    });
+    nodeEditor.querySelector('[data-a="delete-node"]')?.addEventListener('click', () => {
+      host.edit('Delete point', (d) => deleteNode(d, id));
+      host.select(null);
+    });
+  }
+
+  // Component editor.
+  const compEditor = body.querySelector<HTMLElement>('[data-editor="component"]');
+  if (compEditor) {
+    const id = compEditor.dataset.id!;
+    const withComponent = (
+      label: string,
+      fn: (c: import('../model/types').InlineComponent) => void,
+      options?: { keepPanel?: boolean },
+    ) => {
+      host.edit(label, (d) => {
+        for (const run of d.runs) {
+          const comp = run.inline.find((c) => c.id === id);
+          if (comp) {
+            fn(comp);
+            run.inline.sort((a, b) => a.offset - b.offset);
+            return;
+          }
+        }
+      }, options);
+    };
+    const field = (name: string) => compEditor.querySelector<HTMLInputElement & HTMLSelectElement>(`[data-f="${name}"]`);
+    field('kind')?.addEventListener('change', (e) =>
+      withComponent('Change component', (c) => {
+        c.kind = (e.target as HTMLSelectElement).value as ComponentKind;
+      }),
+    );
+    field('offset')?.addEventListener('change', (e) => {
+      const value = Number((e.target as HTMLInputElement).value);
+      if (Number.isFinite(value)) withComponent('Move component', (c) => { c.offset = Math.max(0, value); });
+    });
+    field('dn')?.addEventListener('change', (e) =>
+      withComponent('Change component size', (c) => {
+        c.dn = (e.target as HTMLSelectElement).value;
+      }),
+    );
+    field('dn2')?.addEventListener('change', (e) =>
+      withComponent('Change reduced size', (c) => {
+        c.dn2 = (e.target as HTMLSelectElement).value;
+      }),
+    );
+    field('ends')?.addEventListener('change', (e) =>
+      withComponent('Change end preparation', (c) => {
+        c.ends = (e.target as HTMLSelectElement).value as EndType;
+      }),
+    );
+    field('tag')?.addEventListener('change', (e) =>
+      withComponent('Tag component', (c) => {
+        c.tag = (e.target as HTMLInputElement).value || undefined;
+      }, { keepPanel: true }),
+    );
+    compEditor.querySelector('[data-a="delete-component"]')?.addEventListener('click', () => {
+      host.edit('Remove component', (d) => removeComponent(d, id));
+      host.select(null);
+    });
+  }
+
+  // Commands.
+  body.querySelector('[data-a="run-commands"]')?.addEventListener('click', () => {
+    const text = body.querySelector<HTMLTextAreaElement>('#command-text')?.value ?? '';
+    host.applyCommands(text);
+  });
+  body.querySelector('[data-a="clear-commands"]')?.addEventListener('click', () => {
+    const area = body.querySelector<HTMLTextAreaElement>('#command-text');
+    if (area) area.value = '';
+    host.state.commandText = '';
+    host.state.commandErrors = [];
+    host.touch();
+  });
+  body.querySelector<HTMLTextAreaElement>('#command-text')?.addEventListener('input', (e) => {
+    host.state.commandText = (e.target as HTMLTextAreaElement).value;
+  });
+
+  // Welds.
+  body.querySelectorAll<HTMLButtonElement>('[data-weld]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const key = button.dataset.weld!;
+      host.edit('Change weld type', (d) => {
+        const current = d.weldOverrides[key]?.type ?? 'SHOP';
+        d.weldOverrides[key] = { ...d.weldOverrides[key], type: current === 'FIELD' ? 'SHOP' : 'FIELD' };
+      });
+    });
+  });
+  body.querySelector('[data-a="reset-welds"]')?.addEventListener('click', () => {
+    host.edit('Reset welds', (d) => {
+      d.weldOverrides = {};
+    });
+  });
+
+  // Exports.
+  body.querySelector('[data-a="export-bom"]')?.addEventListener('click', () => {
+    const rows = [['Item', 'Description', 'Size', 'Schedule', 'Quantity', 'Unit', 'Mass kg']];
+    host.state.analysis.bom.forEach((line, i) => {
+      rows.push([
+        String(i + 1),
+        line.description,
+        line.dn,
+        line.category === 'PIPE' ? line.schedule : '',
+        line.unit === 'm' ? line.quantity.toFixed(2) : String(Math.round(line.quantity)),
+        line.unit,
+        line.mass ? line.mass.toFixed(1) : '',
+      ]);
+    });
+    host.download(`${fileStem(host)}-bom.csv`, toCsv(rows), 'text/csv');
+  });
+  body.querySelector('[data-a="export-welds"]')?.addEventListener('click', () => {
+    const rows = [['Weld', 'Size', 'Schedule', 'Type', 'Joins']];
+    for (const w of host.state.analysis.welds) {
+      rows.push([w.number, w.dn, w.schedule, w.type, w.joins]);
+    }
+    host.download(`${fileStem(host)}-welds.csv`, toCsv(rows), 'text/csv');
+  });
+
+  // Title block.
+  body.querySelectorAll<HTMLInputElement>('[data-meta]').forEach((input) => {
+    input.addEventListener('change', () => {
+      const key = input.dataset.meta as keyof import('../model/types').Meta;
+      host.edit('Edit title block', (d) => {
+        d.meta[key] = input.value;
+      }, { keepPanel: true });
+    });
+  });
+}
+
+export function fileStem(host: Host): string {
+  const meta = host.state.drawing.meta;
+  const base = meta.lineNumber || meta.drawingNo || meta.project || 'isometric';
+  return base.replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'isometric';
+}
+
+export function toCsv(rows: string[][]): string {
+  return rows
+    .map((row) => row.map((cell) => (/[",\n]/.test(cell) ? `"${cell.replace(/"/g, '""')}"` : cell)).join(','))
+    .join('\n');
+}

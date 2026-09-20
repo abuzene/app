@@ -1,1 +1,114 @@
-# app
+# Isometric Piping
+
+A browser tool for drawing **metric piping isometrics**. Route a line by dragging
+along the six isometric directions or by typing the run lengths, and the drawing
+dimensions itself, numbers its own welds and builds its own take-off.
+
+Everything is in millimetres. Sizes are DN with outside diameters and wall
+thicknesses to ASME B36.10M; fitting take-outs are to ASME B16.9 and valve
+face-to-face dimensions to ASME B16.10 Class 150.
+
+## Running it
+
+```bash
+npm install
+npm run dev      # development server
+npm run build    # writes a single self-contained dist/index.html
+npm run smoke    # drives the built app in a browser and checks it still works
+```
+
+The build inlines everything into one HTML file, so `dist/index.html` can be
+opened straight from disk, emailed, or dropped on any static host. The drawing
+you are working on is kept in the browser's local storage, so a reload picks up
+where you left off.
+
+## Drawing
+
+**With the mouse.** Click the canvas to place the first point, then drag from any
+point along one of the six directions — north, south, east, west, up, down. The
+drag snaps to the nearest direction and to the snap increment, and the length in
+millimetres is shown as you go. Dragging from a point that already has two runs
+makes a tee. Dragging back along a run that already exists extends or splits it
+rather than laying a second pipe on top.
+
+Click a run, a point or a component to select it; the Route tab edits whatever is
+selected. `Delete` removes it, `F` zooms to fit, `Escape` deselects, `Ctrl+Z` and
+`Ctrl+Shift+Z` undo and redo. Drag empty space to pan, scroll or pinch to zoom.
+
+**By typing.** The Command tab takes a block of routing commands:
+
+```
+DN80            set the size for the runs that follow
+STD             set the schedule (also SCH10, SCH40, XS, SCH80, SCH160, XXS …)
+N 1500          route 1500 mm north — also S, E, W, U/UP, D/DOWN
++GATE           put a gate valve in the middle of the run just routed
++FLG 200        put a weld neck flange 200 mm along it
++CHECK 50%      put a check valve half way along it
+MARK tee        remember this point
+GOTO tee        carry on from it — a third run here makes a tee
+END FLG         terminate this end with a weld neck flange
+LABEL N1        label the current point
+ORIGIN 0 0 0    set the starting coordinates in mm
+```
+
+Lines that cannot be read are reported individually, so one typo does not throw
+away the rest of the block.
+
+## What the drawing works out for itself
+
+- **Fittings** from the geometry — a 90° change of direction is a long radius
+  elbow, 45° a 45° elbow, three runs at a point an equal tee, four a cross. Any
+  point can be overridden to a bend, an olet or a mitre.
+- **Dimensions**, centre to centre, placed clear of the pipe.
+- **Welds**, one per fitting leg, one either side of every welded component and
+  one at each welded end, numbered along the route. Any weld can be switched
+  between shop and field, and the choice survives further editing.
+- **Cut lengths**, being the centre-to-centre dimension less the take-out of
+  whatever sits at each end — what the fabricator actually cuts.
+- **A bill of materials**, with pipe grouped by size and schedule and its mass,
+  and every fitting, flange, valve and support counted.
+
+## Exporting
+
+The Export button produces a complete A4, A3 or A2 landscape sheet carrying the
+drawing, the bill of materials, the weld summary, the notes and a filled title
+block — as SVG, as PNG, or straight to the printer for PDF. The drawing itself
+saves and opens as JSON, and the take-off and weld schedule export as CSV.
+
+Isometrics are conventionally not to scale. The **Not to scale** toggle draws
+every run at the same length and lets the dimensions govern, which is how a
+fabrication isometric is normally presented; leave it off and the drawing stays
+proportional.
+
+## How it is put together
+
+```
+src/model/     the drawing itself, independent of how it is displayed
+  types.ts       the data model
+  iso.ts         isometric projection and the six routing axes
+  pipe-data.ts   DN sizes, wall thicknesses, fitting and valve take-outs
+  drawing.ts     connectivity, fitting inference, welds, bill of materials
+  edit.ts        graph edits — routing, splitting, moving, deleting
+  commands.ts    the typed command language
+src/render/    turning a drawing into SVG
+  renderer.ts    the drawing itself
+  symbols.ts     valve, flange and fitting symbols, shared with the palette icons
+  sheet.ts       the printable sheet: frame, tables, title block
+  style.ts       line weights and text sizes, scaled so they hold at any zoom
+src/ui/        the application shell
+```
+
+The model knows nothing about SVG and the renderer knows nothing about the DOM,
+so the same geometry drives the live canvas, the palette icons and the exported
+sheet — the symbols on the sheet cannot drift from the ones in the palette,
+because they are the same code.
+
+## Known limits
+
+- One line per drawing; there is no sheet-to-sheet continuation beyond a
+  continuation arrow and a note.
+- Runs are orthogonal. Skewed and sloping pipe is not supported.
+- Valve face-to-face dimensions are Class 150. Other classes will need their own
+  table before the cut lengths are right for them.
+- In **Not to scale** mode a closed loop cannot stay closed, because every run is
+  drawn at the same length; the first route to reach a point wins.
