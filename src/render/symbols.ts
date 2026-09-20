@@ -250,6 +250,19 @@ export function componentSymbol(kind: ComponentKind, f: Frame): string {
       return bowtie(f) + circle(f, 0, 0, s * 0.45, 'sym-solid') + stem(f) + handwheel(f);
     case 'BALL':
       return bowtie(f) + circle(f, 0, 0, s * 0.42, 'sym-hollow') + stem(f) + handwheel(f);
+    case 'BALL_ACT': {
+      const [ax, ay] = pt(f, 0, -s * 2.1);
+      return (
+        bowtie(f) +
+        circle(f, 0, 0, s * 0.42, 'sym-hollow') +
+        stem(f, 1.35) +
+        // Pneumatic actuator: the cylinder sitting on the stem, with its
+        // air connection out of the top.
+        `<rect class="sym-hollow" x="${(ax - s * 1.05).toFixed(2)}" y="${(ay - s * 0.75).toFixed(2)}" width="${(s * 2.1).toFixed(2)}" height="${(s * 1.5).toFixed(2)}" rx="${(s * 0.35).toFixed(2)}"/>` +
+        line(f, [0, -s * 2.85], [0, -s * 3.4], 'sym-line') +
+        line(f, [-s * 0.45, -s * 3.4], [s * 0.45, -s * 3.4], 'sym-line')
+      );
+    }
     case 'PLUG':
       return (
         bowtie(f) +

@@ -1,6 +1,7 @@
 import type { Analysis, BomLine } from '../model/drawing';
 import type { Drawing } from '../model/types';
 import { contentBounds, escapeText, renderDrawing } from './renderer';
+import { sizeLabel } from '../model/pipe-data';
 import { axisScreenDir } from '../model/iso';
 import { contentCss } from './style';
 
@@ -44,40 +45,60 @@ function quantityText(line: BomLine): string {
   return line.unit === 'm' ? `${line.quantity.toFixed(2)} m` : `${Math.round(line.quantity)}`;
 }
 
+/**
+ * The title block. A fabrication sheet needs to say which line it is, which
+ * revision, and who drew it — with the company's mark on it and somewhere to
+ * stamp the drawing once the line is actually built.
+ */
 function titleBlock(drawing: Drawing, x: number, y: number, w: number, h: number): string {
   const m = drawing.meta;
   let out = rect(x, y, w, h, 'block');
-  const rows = 7;
+
+  const logoW = w * 0.3;
+  const asMadeW = w * 0.26;
+  const rows = 3;
   const rowH = h / rows;
-  for (let i = 1; i < rows; i += 1) out += hline(x, x + w, y + rowH * i);
+
+  // Left: the logo panel, spanning the full height of the block.
+  out += vline(x + logoW, y, y + h);
+  if (m.logo) {
+    const pad = 3;
+    out +=
+      `<image href="${escapeText(m.logo)}" x="${(x + pad).toFixed(2)}" y="${(y + pad).toFixed(2)}" ` +
+      `width="${(logoW - pad * 2).toFixed(2)}" height="${(h - pad * 2).toFixed(2)}" ` +
+      `preserveAspectRatio="xMidYMid meet"/>`;
+  } else {
+    out += text(x + logoW / 2, y + h / 2 + 1, m.project || 'PIPING ISOMETRIC', 'tb-title', 'middle');
+  }
+
+  // Right: the AS MADE stamp, kept clear so it reads at a glance.
+  const stampX = x + w - asMadeW;
+  out += vline(stampX, y, y + h);
+  out += rect(stampX + 3, y + 3, asMadeW - 6, h - 6, 'stamp');
+  out += text(stampX + asMadeW / 2, y + h / 2 + 2, 'AS MADE', 'stamp-text', 'middle');
+
+  // Middle: the fields themselves.
+  const fieldsX = x + logoW;
+  const fieldsW = w - logoW - asMadeW;
+  for (let i = 1; i < rows; i += 1) out += hline(fieldsX, stampX, y + rowH * i);
 
   const cell = (col: number, row: number, cols: number, label: string, value: string) => {
-    const cw = w / cols;
-    const cx = x + cw * col;
+    const cw = fieldsW / cols;
+    const cx = fieldsX + cw * col;
     const cy = y + rowH * row;
     let s = col > 0 ? vline(cx, cy, cy + rowH) : '';
-    s += text(cx + 1.6, cy + rowH * 0.4, label, 'tb-label');
-    s += text(cx + 1.6, cy + rowH * 0.85, clip(value || '—', Math.floor(cw / 1.5)), 'tb-value');
+    s += text(cx + 1.6, cy + rowH * 0.38, label, 'tb-label');
+    s += text(cx + 1.6, cy + rowH * 0.84, clip(value || '—', Math.floor(cw / 1.5)), 'tb-value');
     return s;
   };
 
-  out += text(x + 1.6, y + rowH * 0.62, clip(m.project || 'PIPING ISOMETRIC', Math.floor(w / 1.8)), 'tb-title');
-  out += cell(0, 1, 2, 'CLIENT', m.client);
-  out += cell(1, 1, 2, 'SERVICE', m.service);
-  out += cell(0, 2, 1, 'LINE NUMBER', m.lineNumber);
-  out += cell(0, 3, 2, 'PIPING SPEC', m.spec);
-  out += cell(1, 3, 2, 'MATERIAL', m.material);
-  out += cell(0, 4, 3, 'INSULATION', m.insulation);
-  out += cell(1, 4, 3, 'PWHT', m.pwht);
-  out += cell(2, 4, 3, 'NDT', m.ndt);
-  out += cell(0, 5, 3, 'DESIGN PRESS.', m.designPressure);
-  out += cell(1, 5, 3, 'DESIGN TEMP.', m.designTemp);
-  out += cell(2, 5, 3, 'TEST PRESS.', m.testPressure);
-  out += cell(0, 6, 5, 'DRAWN', m.drawnBy);
-  out += cell(1, 6, 5, 'CHECKED', m.checkedBy);
-  out += cell(2, 6, 5, 'DATE', m.date);
-  out += cell(3, 6, 5, 'DWG No.', m.drawingNo);
-  out += cell(4, 6, 5, 'SH / REV', `${m.sheet} / ${m.revision}`);
+  out += cell(0, 0, 1, 'PROJECT', m.project);
+  out += cell(0, 1, 1, 'LINE NUMBER', m.lineNumber);
+  out += cell(0, 2, 5, 'DWG No.', m.drawingNo);
+  out += cell(1, 2, 5, 'SHEET', m.sheet);
+  out += cell(2, 2, 5, 'REV', m.revision);
+  out += cell(3, 2, 5, 'DRAWN', m.drawnBy);
+  out += cell(4, 2, 5, 'DATE', m.date);
   return out;
 }
 
@@ -111,7 +132,7 @@ function bomTable(bom: BomLine[], x: number, y: number, w: number, maxRows: numb
     const ty = ry + rowH * 0.7;
     out += text(xs[0] + 1.2, ty, String(i + 1), 'tb-cell');
     out += text(xs[1] + 1.2, ty, clip(line.description, Math.floor((w * cols[1]) / 1.35)), 'tb-cell');
-    out += text(xs[2] + 1.2, ty, line.dn, 'tb-cell');
+    out += text(xs[2] + 1.2, ty, sizeLabel(line.dn), 'tb-cell');
     out += text(xs[3] + 1.2, ty, line.category === 'PIPE' ? line.schedule : '—', 'tb-cell');
     out += text(xs[4] + 1.2, ty, quantityText(line), 'tb-cell');
   });
@@ -159,7 +180,7 @@ function weldTable(analysis: Analysis, x: number, y: number, w: number): { svg: 
     const ry = y + headH * 2 + rowH * i;
     if (i > 0) out += hline(x, x + w, ry, 'rule-faint');
     const ty = ry + rowH * 0.7;
-    out += text(xs[0] + 1.2, ty, row.dn, 'tb-cell');
+    out += text(xs[0] + 1.2, ty, sizeLabel(row.dn), 'tb-cell');
     out += text(xs[1] + 1.2, ty, String(row.shop), 'tb-cell');
     out += text(xs[2] + 1.2, ty, String(row.field), 'tb-cell');
     out += text(xs[3] + 1.2, ty, String(row.shop + row.field), 'tb-cell');
@@ -219,7 +240,7 @@ export function renderSheet(drawing: Drawing, analysis: Analysis, size: SheetSiz
   });
 
   // Right hand column: bill of materials, weld summary, title block.
-  const tbH = 56;
+  const tbH = 30;
   const tbY = H - MARGIN - tbH;
   const bom = bomTable(analysis.bom, dividerX, MARGIN, col, Math.floor((tbY - MARGIN - 40) / 4.6));
   const welds = weldTable(analysis, dividerX, MARGIN + bom.height + 4, col);
@@ -246,6 +267,8 @@ text { font-family: "Helvetica Neue", Arial, sans-serif; }
 .rule-strong { stroke: #12161c; stroke-width: 0.4; }
 .rule-faint { stroke: #9aa5b4; stroke-width: 0.15; }
 .tb-title { font-size: 4.2px; font-weight: 700; letter-spacing: 0.04em; }
+.stamp { fill: none; stroke: #12161c; stroke-width: 0.5; }
+.stamp-text { font-size: 5px; font-weight: 700; letter-spacing: 0.12em; }
 .tb-label { font-size: 1.9px; fill: #5b6675; letter-spacing: 0.06em; }
 .tb-value { font-size: 2.7px; fill: #12161c; }
 .tb-head { font-size: 2.1px; font-weight: 700; letter-spacing: 0.05em; }

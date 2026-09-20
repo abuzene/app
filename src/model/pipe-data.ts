@@ -71,8 +71,39 @@ const BY_DN = new Map(SIZES.map((s) => [s.dn, s]));
 
 export const DN_LIST = SIZES.map((s) => s.dn);
 
+/** Every size by its nominal inch label, for reading typed input. */
+const BY_NPS = new Map(SIZES.map((s) => [s.nps.replace(/"/g, '').replace(/\s+/g, ' ').trim(), s]));
+
 export function sizeOf(dn: string): PipeSize {
   return BY_DN.get(dn) ?? SIZES[7];
+}
+
+/**
+ * How a size is written on the drawing and in the tables: the nominal inch
+ * size, the way pipe is ordered and called on site. The internal key stays
+ * `DN…` so drawings saved before the change still open.
+ */
+export function sizeLabel(dn: string): string {
+  return sizeOf(dn).nps;
+}
+
+export const SIZE_LABELS: Record<string, string> = Object.fromEntries(
+  SIZES.map((s) => [s.dn, s.nps]),
+);
+
+/**
+ * Reads a size written any of the ways it gets typed: 3", 3in, 1 1/2", 1-1/2,
+ * or the internal DN80. Returns null when it is not a size at all.
+ */
+export function parseSize(token: string): string | null {
+  const text = token.trim().toUpperCase();
+  if (/^DN\d+$/.test(text)) return BY_DN.has(text) ? text : null;
+  const cleaned = text
+    .replace(/["”]|IN$|INCH(ES)?$/g, '')
+    .replace(/-/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return BY_NPS.get(cleaned)?.dn ?? null;
 }
 
 /** Schedules valid for a given size, in the order they should be offered. */

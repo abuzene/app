@@ -5,7 +5,7 @@ import type { AppState, Host } from './ui/types';
 import { analyse, emptyDrawing } from './model/drawing';
 import { initialCommandState, runCommands } from './model/commands';
 import { deleteNode, deleteRun, ensureNode, removeComponent, route } from './model/edit';
-import { DN_LIST, schedulesFor } from './model/pipe-data';
+import { DN_LIST, schedulesFor, sizeLabel } from './model/pipe-data';
 import { northArrow } from './render/renderer';
 import { renderSheet, type SheetSize } from './render/sheet';
 import { Canvas } from './ui/canvas';
@@ -103,6 +103,9 @@ const host: Host = {
   },
   copy(label, content) {
     void copyText(content, label);
+  },
+  pickLogo() {
+    logoInput.click();
   },
   notify(message) {
     toast = { message, until: Date.now() + 3200 };
@@ -211,7 +214,7 @@ const snapSelect = $<HTMLSelectElement>('snap');
 
 function refreshSizeSelects(): void {
   dnSelect.innerHTML = DN_LIST.map(
-    (dn) => `<option value="${dn}"${dn === state.currentDn ? ' selected' : ''}>${dn}</option>`,
+    (dn) => `<option value="${dn}"${dn === state.currentDn ? ' selected' : ''}>${sizeLabel(dn)}</option>`,
   ).join('');
   const schedules = schedulesFor(state.currentDn);
   if (!schedules.includes(state.currentSchedule)) state.currentSchedule = schedules[0] ?? 'STD';
@@ -266,6 +269,48 @@ snapSelect.addEventListener('change', () => {
     o.snap = Number(snapSelect.value) || 50;
   });
 });
+
+/* --------------------------------------------------------------- layout */
+
+/**
+ * The drawing is the point of the app, so both side panels fold away. The
+ * canvas resizes itself, so the view only needs re-fitting, not rebuilding.
+ */
+const appEl = $('app');
+const LAYOUT_KEY = 'iso-draw.layout.v1';
+
+function setLayout(cls: 'panel-hidden' | 'wide', on: boolean): void {
+  appEl.classList.toggle(cls, on);
+  if (cls === 'wide' && on) appEl.classList.remove('panel-hidden');
+  try {
+    localStorage.setItem(
+      LAYOUT_KEY,
+      JSON.stringify({ panelHidden: appEl.classList.contains('panel-hidden'), wide: appEl.classList.contains('wide') }),
+    );
+  } catch {
+    // Remembering the layout is a convenience, not a requirement.
+  }
+  $<HTMLButtonElement>('wide').textContent = appEl.classList.contains('wide') ? 'Panels' : 'Wide';
+  requestAnimationFrame(() => canvas.render());
+}
+
+$('panel-toggle').addEventListener('click', () => {
+  setLayout('panel-hidden', !appEl.classList.contains('panel-hidden'));
+});
+$('wide').addEventListener('click', () => {
+  setLayout('wide', !appEl.classList.contains('wide'));
+});
+
+try {
+  const saved = JSON.parse(localStorage.getItem(LAYOUT_KEY) ?? '{}') as {
+    panelHidden?: boolean;
+    wide?: boolean;
+  };
+  if (saved.wide) setLayout('wide', true);
+  else if (saved.panelHidden) setLayout('panel-hidden', true);
+} catch {
+  // No remembered layout; the default is fine.
+}
 
 $('undo').addEventListener('click', undo);
 $('redo').addEventListener('click', redo);
@@ -334,7 +379,40 @@ fileInput.addEventListener('change', async () => {
   fileInput.value = '';
 });
 
-$('export').addEventListener('click', openExportDialog);
+$('print').addEventListener('click', openPrintDialog);
+
+/* ------------------------------------------------------------------- logo */
+
+const logoInput = $<HTMLInputElement>('logo-input');
+const MAX_LOGO_BYTES = 600_000;
+
+logoInput.addEventListener('change', async () => {
+  const file = logoInput.files?.[0];
+  logoInput.value = '';
+  if (!file) return;
+  if (!file.type.startsWith('image/')) {
+    host.notify('That is not an image file.');
+    return;
+  }
+  if (file.size > MAX_LOGO_BYTES) {
+    host.notify('That image is too large — use one under 600 KB.');
+    return;
+  }
+  try {
+    const dataUri = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(new Error('read failed'));
+      reader.readAsDataURL(file);
+    });
+    host.edit('Add logo', (d) => {
+      d.meta.logo = dataUri;
+    });
+    host.notify('Logo added');
+  } catch {
+    host.notify('That image could not be read.');
+  }
+});
 
 /* -------------------------------------------------------------- undo/redo */
 
@@ -371,33 +449,31 @@ const embedded = (() => {
   }
 })();
 
-function openExportDialog(): void {
+/**
+ * Printing is the whole of export: the sheet goes to the printer dialog, where
+ * "Save as PDF" puts it on the machine. Everything else a fabrication drawing
+ * needs is on that sheet.
+ */
+function openPrintDialog(): void {
   const backdrop = document.createElement('div');
   backdrop.className = 'dialog-backdrop';
   backdrop.innerHTML = `
-<div class="dialog" role="dialog" aria-label="Export">
-  <h3>Export</h3>
-  <p>The sheet carries the drawing, the bill of materials, the weld summary and the title block.</p>
+<div class="dialog" role="dialog" aria-label="Print">
+  <h3>Print</h3>
+  <p>The sheet carries the drawing, the material list, the weld list and the title block. Choose <strong>Save as PDF</strong> in the printer dialog to keep a copy on this device.</p>
   <div class="row"><label>Sheet size</label><select id="sheet-size">
     <option value="A4">A4 landscape</option>
     <option value="A3" selected>A3 landscape</option>
     <option value="A2">A2 landscape</option>
   </select></div>
   <div class="btn-row">
-    <button class="btn-line solid" data-x="preview">View sheet</button>
-    <button class="btn-line" data-x="svg">Download SVG</button>
-    <button class="btn-line" data-x="png">Download PNG</button>
-    <button class="btn-line" data-x="print">Print / PDF</button>
-    <button class="btn-line" data-x="json">Drawing file</button>
-  </div>
-  <div class="btn-row">
-    <button class="btn-line" data-x="copy-svg">Copy sheet SVG</button>
-    <button class="btn-line" data-x="copy-json">Copy drawing</button>
+    <button class="btn-line solid" data-x="print">Print / Save as PDF</button>
+    <button class="btn-line" data-x="preview">View sheet first</button>
     <button class="btn-line" data-x="close">Cancel</button>
   </div>
   ${
     embedded
-      ? '<p class="empty-note" style="margin-top:12px">Downloading here asks you to confirm the file first. If a download does not arrive, use <strong>View sheet</strong> or the copy buttons.</p>'
+      ? '<p class="empty-note" style="margin-top:12px">Running inside a viewer, printing can be blocked. Installed as an app it prints straight to your printer dialog.</p>'
       : ''
   }
 </div>`;
@@ -411,33 +487,18 @@ function openExportDialog(): void {
   const sheetSize = () => (backdrop.querySelector<HTMLSelectElement>('#sheet-size')?.value ?? 'A3') as SheetSize;
 
   backdrop.querySelectorAll<HTMLButtonElement>('[data-x]').forEach((button) => {
-    button.addEventListener('click', async () => {
+    button.addEventListener('click', () => {
       const what = button.dataset.x;
       if (what === 'close') return close();
       const sheet = renderSheet(state.drawing, state.analysis, sheetSize());
       if (what === 'preview') {
         openOverlay(
           'Sheet preview',
-          `<div class="sheet-preview">${sheet}</div>
-           <p class="empty-note">Right-click the sheet to save or copy it as an image.</p>`,
+          `<div class="sheet-preview">${sheet}</div>`,
           true,
         );
-      } else if (what === 'copy-svg') {
-        await copyText(sheet, 'Sheet SVG');
-      } else if (what === 'copy-json') {
-        await copyText(JSON.stringify(state.drawing, null, 2), 'Drawing');
-      } else if (what === 'svg') {
-        host.download(`${fileStem(host)}.svg`, sheet, 'image/svg+xml');
-      } else if (what === 'png') {
-        try {
-          await exportPng(sheet, sheetSize());
-        } catch {
-          host.notify('Could not build the PNG — try the SVG instead.');
-        }
-      } else if (what === 'print') {
-        printSheet(sheet);
-      } else if (what === 'json') {
-        host.download(`${fileStem(host)}.iso.json`, JSON.stringify(state.drawing, null, 2), 'application/json');
+      } else {
+        printSheet(sheet, sheetSize());
       }
       close();
     });
@@ -450,38 +511,7 @@ const SHEET_MM: Record<SheetSize, { w: number; h: number }> = {
   A2: { w: 594, h: 420 },
 };
 
-async function exportPng(sheet: string, size: SheetSize): Promise<void> {
-  const dpi = 200;
-  const { w, h } = SHEET_MM[size];
-  const pxW = Math.round((w / 25.4) * dpi);
-  const pxH = Math.round((h / 25.4) * dpi);
-
-  const url = URL.createObjectURL(new Blob([sheet], { type: 'image/svg+xml;charset=utf-8' }));
-  try {
-    const image = new Image();
-    image.decoding = 'sync';
-    await new Promise<void>((resolve, reject) => {
-      image.onload = () => resolve();
-      image.onerror = () => reject(new Error('render failed'));
-      image.src = url;
-    });
-    const target = document.createElement('canvas');
-    target.width = pxW;
-    target.height = pxH;
-    const ctx = target.getContext('2d');
-    if (!ctx) throw new Error('no 2d context');
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, pxW, pxH);
-    ctx.drawImage(image, 0, 0, pxW, pxH);
-    const blob = await new Promise<Blob | null>((resolve) => target.toBlob(resolve, 'image/png'));
-    if (!blob) throw new Error('no blob');
-    await saveFile(blob, `${fileStem(host)}.png`);
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}
-
-function printSheet(sheet: string): void {
+function printSheet(sheet: string, size: SheetSize): void {
   const frame = document.createElement('iframe');
   frame.setAttribute('aria-hidden', 'true');
   frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
@@ -493,8 +523,11 @@ function printSheet(sheet: string): void {
     return;
   }
   doc.open();
+  const { w, h } = SHEET_MM[size];
   doc.write(
-    `<!doctype html><html><head><title>${fileStem(host)}</title><style>@page{size:auto;margin:0}html,body{margin:0;padding:0}svg{display:block;width:100%;height:auto}</style></head><body>${sheet}</body></html>`,
+    `<!doctype html><html><head><title>${fileStem(host)}</title>` +
+      `<style>@page{size:${w}mm ${h}mm;margin:0}html,body{margin:0;padding:0}` +
+      `svg{display:block;width:${w}mm;height:${h}mm}</style></head><body>${sheet}</body></html>`,
   );
   doc.close();
   const run = () => {
@@ -643,6 +676,8 @@ window.addEventListener('keydown', (event) => {
     host.select(null);
   } else if (event.key === 'f' || event.key === 'F') {
     fitView();
+  } else if (event.key === 'w' || event.key === 'W') {
+    setLayout('wide', !appEl.classList.contains('wide'));
   } else if (event.key === 'Delete' || event.key === 'Backspace') {
     const sel = state.selection;
     if (!sel) return;
@@ -658,13 +693,13 @@ window.addEventListener('keydown', (event) => {
 
 /* --------------------------------------------------------------- sample */
 
-const SAMPLE = `DN80
+const SAMPLE = `3"
 STD
 ORIGIN 0 0 0
 LABEL N1
 END FLG
 E 2400
-+GATE 600
++BALL 600
 N 1800
 MARK tee
 U 1200
@@ -672,7 +707,7 @@ E 1500
 END FLG
 GOTO tee
 E 1200
-+CHECK 50%
++BALLAIR 50%
 END CONT`;
 
 document.addEventListener('click', (event) => {

@@ -22,6 +22,7 @@ export type EndType = JointType | 'FLG' | 'PLAIN';
 
 /** Inline components sit part-way along a run, at an offset from its start node. */
 export type ComponentKind =
+  | 'BALL_ACT'
   | 'GATE'
   | 'GLOBE'
   | 'BALL'
@@ -148,25 +149,21 @@ export interface WeldOverride {
   number?: string;
 }
 
+/**
+ * What the title block carries. This is a fabrication drawing, so it names the
+ * job and who drew it and stops there — the design data a specification would
+ * carry is not what anyone building the line reads off the sheet.
+ */
 export interface Meta {
   project: string;
-  client: string;
   lineNumber: string;
   drawingNo: string;
   sheet: string;
   revision: string;
   date: string;
   drawnBy: string;
-  checkedBy: string;
-  spec: string;
-  service: string;
-  material: string;
-  insulation: string;
-  pwht: string;
-  ndt: string;
-  designPressure: string;
-  designTemp: string;
-  testPressure: string;
+  /** The company logo, held as a data URI so it travels with the drawing. */
+  logo?: string;
 }
 
 export interface DrawingOptions {

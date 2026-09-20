@@ -35,7 +35,7 @@ body {
 .toolbar {
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: 13px;
   padding: 0 14px;
   height: 52px;
   flex: 0 0 auto;
@@ -60,21 +60,22 @@ body {
 .group { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
 .group.right { margin-left: auto; }
 
-.field { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #9dabbf; }
+.field { display: flex; align-items: center; gap: 5px; font-size: 10px; color: #9dabbf; }
 .field span { letter-spacing: 0.04em; text-transform: uppercase; }
 .field select {
   font: inherit; font-size: 12px;
   background: var(--chrome-2); color: #e7ecf4;
   border: 1px solid var(--chrome-line); border-radius: 5px;
-  padding: 5px 7px;
+  padding: 5px 4px;
 }
 
 .btn {
-  font: inherit; font-size: 12px; font-weight: 550;
+  font: inherit; font-size: 12px; font-weight: 550; white-space: nowrap;
   color: #dce4ef; background: var(--chrome-2);
   border: 1px solid var(--chrome-line); border-radius: 5px;
   padding: 6px 11px; cursor: pointer;
 }
+.btn { padding: 6px 10px; }
 .btn:hover { background: #2d384a; }
 .btn:active { transform: translateY(1px); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
@@ -90,7 +91,7 @@ body {
 main { flex: 1 1 auto; display: flex; min-height: 0; }
 
 .tools {
-  flex: 0 0 64px;
+  flex: 0 0 78px;
   background: var(--panel);
   border-right: 1px solid var(--line);
   overflow-y: auto;
@@ -141,24 +142,24 @@ main { flex: 1 1 auto; display: flex; min-height: 0; }
 }
 .tool {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  width: 48px; height: 50px; margin: 3px auto; overflow: hidden;
+  width: 62px; height: 56px; margin: 3px auto; overflow: hidden;
   background: #fff; border: 1px solid var(--line); border-radius: var(--radius);
   cursor: pointer; padding: 2px 0 3px;
 }
 .tool:hover { border-color: var(--accent); background: var(--accent-soft); }
 .tool:disabled { opacity: 0.35; cursor: default; }
 .tool:disabled:hover { border-color: var(--line); background: #fff; }
-.tool svg { width: 44px; height: 31px; display: block; flex: 0 0 auto; }
+.tool svg { width: 58px; height: 36px; display: block; flex: 0 0 auto; }
 .tool svg .icon-pipe { stroke: var(--muted); stroke-width: 1.2; }
 /* Palette icons reuse the drawing symbols, so they need the same classes. */
 .tool svg .sym-line { stroke: var(--ink); stroke-width: 1.4; fill: none; stroke-linecap: round; }
-.tool svg .sym-heavy { stroke: var(--ink); stroke-width: 2.4; fill: none; }
+.tool svg .sym-heavy { stroke: var(--ink); stroke-width: 2; fill: none; }
 .tool svg .sym-fill { fill: #fff; stroke: var(--ink); stroke-width: 1.4; }
 .tool svg .sym-hollow { fill: none; stroke: var(--ink); stroke-width: 1.4; }
 .tool svg .sym-solid { fill: var(--ink); stroke: var(--ink); stroke-width: 1; }
 .tool svg .joint-bw { fill: var(--ink); stroke: var(--ink); stroke-width: 0.8; }
 .tool svg .fitting-body { fill: none; stroke: var(--ink); stroke-width: 1.4; }
-.tool-name { font-size: 8px; line-height: 9px; text-align: center; color: var(--muted); flex: 0 0 auto; }
+.tool-name { font-size: 8.5px; line-height: 10px; text-align: center; color: var(--muted); flex: 0 0 auto; }
 
 /* ---------- side panel ---------- */
 
@@ -168,7 +169,36 @@ main { flex: 1 1 auto; display: flex; min-height: 0; }
   background: var(--panel);
   border-left: 1px solid var(--line);
   min-height: 0;
+  position: relative;
 }
+
+/* The handle stays put when the panel folds away, so it can be brought back. */
+.panel-toggle {
+  position: absolute; left: -15px; top: 14px; z-index: 5;
+  width: 15px; height: 46px; padding: 0; cursor: pointer;
+  background: var(--panel); border: 1px solid var(--line); border-right: none;
+  border-radius: 5px 0 0 5px;
+}
+.panel-toggle::before {
+  content: ''; display: block; width: 5px; height: 5px; margin: 0 auto;
+  border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted);
+  transform: rotate(-45deg);
+}
+.panel-toggle:hover { background: var(--accent-soft); }
+.panel-toggle:hover::before { border-color: var(--accent); }
+
+/* Folded: the panel keeps only its handle. */
+#app.panel-hidden .panel { flex-basis: 0; border-left: none; overflow: visible; }
+#app.panel-hidden .panel .tabs,
+#app.panel-hidden .panel .tab-body { display: none; }
+#app.panel-hidden .panel-toggle::before { transform: rotate(135deg); }
+
+/* Wide: nothing but the drawing. */
+#app.wide .tools { display: none; }
+#app.wide .panel { flex-basis: 0; border-left: none; overflow: visible; }
+#app.wide .panel .tabs,
+#app.wide .panel .tab-body { display: none; }
+#app.wide .panel-toggle { display: none; }
 
 .tabs { display: flex; border-bottom: 1px solid var(--line); flex: 0 0 auto; }
 .tabs button {
@@ -245,6 +275,12 @@ tr.clickable { cursor: pointer; }
 .btn-line.solid { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn-line.solid:hover { background: #0a55bb; color: #fff; }
 
+.logo-preview {
+  border: 1px solid var(--line); border-radius: var(--radius); padding: 10px;
+  background: #fff; display: flex; align-items: center; justify-content: center; min-height: 70px;
+}
+.logo-preview img { max-width: 100%; max-height: 90px; display: block; }
+
 .totals { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 10px; }
 .totals strong { color: var(--ink); font-family: var(--mono); }
 
@@ -262,7 +298,7 @@ tr.clickable { cursor: pointer; }
 .dialog h3 { margin: 0 0 4px; font-size: 15px; }
 .dialog p { margin: 0 0 14px; font-size: 12.5px; color: var(--muted); line-height: 1.5; }
 
-@media (max-width: 1000px) {
+@media (max-width: 1280px) {
   .panel { flex-basis: 300px; }
   .toggles { display: none; }
 }

@@ -60,9 +60,10 @@ await page.waitForTimeout(200);
 check('bill of materials has lines', await page.locator('#tab-body tbody tr').count(), (v) => v >= 5, 'at least 5');
 const bom = await page.locator('#tab-body').innerText();
 check('take-off lists pipe', bom, (v) => /PIPE, SMLS/.test(v), 'a seamless pipe line');
+check('sizes are written in inches', bom, (v) => /3"/.test(v) && !/DN80/.test(v), '3" and no DN80');
 check('take-off lists elbows', bom, (v) => /90 ELBOW LR/.test(v), 'a 90 degree elbow line');
 check('take-off lists the tee', bom, (v) => /EQUAL TEE/.test(v), 'an equal tee line');
-check('take-off lists the gate valve', bom, (v) => /GATE VALVE/.test(v), 'a gate valve line');
+check('take-off lists the ball valve', bom, (v) => /BALL VALVE/.test(v), 'a ball valve line');
 
 // Weld schedule.
 await page.click('#tabs button:has-text("Welds")');
@@ -111,6 +112,8 @@ check('a length can be typed', await page.locator('#tab-body .run-list input[dat
 // Palette.
 await page.locator('#tab-body .run-list tbody tr').first().click();
 await page.waitForTimeout(200);
+check('the palette is cut to the fittings and the ball valves', await page.locator('.tool').count(), (v) => v === 11, '11');
+check('the actuated ball valve is there', await page.locator('.tool[data-kind="BALL_ACT"]').count(), (v) => v === 1, '1');
 await page.locator('.tool[data-kind="BALL"]').click();
 await page.waitForTimeout(300);
 const withBall = await page.locator('#canvas .component').count();
@@ -145,21 +148,22 @@ await page.waitForTimeout(250);
 check('title fields survive editing each other', await page.inputValue('[data-meta="lineNumber"]'), (v) => v === '80-P-1201-A1A', 'the line number');
 check('a second title field is kept', await page.inputValue('[data-meta="project"]'), (v) => v === 'Smoke Test Plant', 'the project name');
 
-// Export.
-await page.click('#export');
+// Print: the sheet is inspected through its preview, since the only output now
+// is the printer dialog.
+await page.click('#print');
 await page.waitForTimeout(250);
-const download = page.waitForEvent('download');
-await page.click('[data-x="svg"]');
-const file = await download;
-const svgPath = join(out, 'sheet.svg');
-await file.saveAs(svgPath);
-const svg = await readFile(svgPath, 'utf8');
-check('export is named after the line number', file.suggestedFilename(), (v) => v === '80-p-1201-a1a.svg', '80-p-1201-a1a.svg');
+await page.click('[data-x="preview"]');
+await page.waitForTimeout(600);
+const svg = await page.locator('.sheet-preview').innerHTML();
 check('sheet is A3 landscape', svg, (v) => /viewBox="0 0 420 297"/.test(v), 'a 420x297 viewBox');
 check('sheet carries the title block', svg, (v) => v.includes('Smoke Test Plant') && v.includes('80-P-1201-A1A'), 'the project name and line number');
-check('sheet carries the bill of materials', svg, (v) => v.includes('DESCRIPTION'), 'a BOM header');
+check('sheet carries the AS MADE stamp', svg, (v) => v.includes('AS MADE'), 'an AS MADE stamp');
+check('sheet carries the material list', svg, (v) => v.includes('DESCRIPTION'), 'a material list header');
 check('sheet carries the weld summary', svg, (v) => v.includes('WELD SUMMARY'), 'a weld summary');
 check('sheet states the units', svg, (v) => v.includes('ALL DIMENSIONS IN MILLIMETRES'), 'the millimetre note');
+check('sheet has no design data on it', svg, (v) => !/DESIGN PRESS|PWHT|INSULATION/.test(v), 'none of the specification fields');
+await page.click('[data-close]');
+await page.waitForTimeout(250);
 
 // Reload to prove the drawing persists.
 await page.reload();
@@ -231,7 +235,51 @@ await page.waitForTimeout(500);
 check('a reducing tee is drawn as its triangle', await page.locator('#canvas .fitting-body').count(), (v) => v === 1, '1');
 await page.click('#tabs button:has-text("Items")');
 await page.waitForTimeout(300);
-check('the reducing tee is taken off with its branch size', await page.locator('#tab-body').innerText(), (v) => /REDUCING TEE DN80 x DN50/.test(v), 'REDUCING TEE DN80 x DN50');
+check('the reducing tee is taken off with its branch size', await page.locator('#tab-body').innerText(), (v) => /REDUCING TEE 3" x 2"/.test(v), 'REDUCING TEE 3" x 2"');
+
+// A flange picked against the end of a line terminates it; it must not land
+// half way along the last run.
+page.once('dialog', (d) => d.accept());
+await page.click('#new');
+await page.waitForTimeout(400);
+await page.click('#tabs button:has-text("Command")');
+await page.waitForTimeout(200);
+await page.fill('#command-text', '3"\nSTD\nORIGIN 0 0 0\nE 2000');
+await page.click('[data-a="run-commands"]');
+await page.waitForTimeout(500);
+
+// Select the far end of the line, then pick a weld neck flange.
+const ends = await page.locator('#canvas circle.hit-dot[data-node]').all();
+const endBoxes = [];
+for (const h of ends) endBoxes.push({ h, box: await h.boundingBox() });
+endBoxes.sort((a, b) => b.box.x - a.box.x);
+await endBoxes[0].h.click();
+await page.waitForTimeout(300);
+await page.locator('.tool[data-kind="FLG_WN"]').click();
+await page.waitForTimeout(400);
+await page.click('#tabs button:has-text("Items")');
+await page.waitForTimeout(300);
+const flangeBom = await page.locator('#tab-body').innerText();
+check('a flange on the line end is taken off once', flangeBom, (v) => /WELD NECK FLANGE/.test(v), 'a weld neck flange');
+await page.click('#tabs button:has-text("Route")');
+await page.waitForTimeout(300);
+await endBoxes[0].h.click();
+await page.waitForTimeout(300);
+check(
+  'the flange became the end of the line, not a mid-run item',
+  await page.locator('#tab-body [data-f="terminal"]').inputValue(),
+  (v) => v === 'FLG_WN',
+  'FLG_WN as the end type',
+);
+
+// Both panels fold away so the drawing can fill the screen.
+const panelWidth = async () => (await page.locator('.panel').boundingBox()).width;
+const beforeFold = await panelWidth();
+await page.click('#wide');
+await page.waitForTimeout(400);
+check('wide mode gives the drawing the whole width', await panelWidth(), (v) => v < beforeFold, `less than ${Math.round(beforeFold)}`);
+await page.click('#wide');
+await page.waitForTimeout(400);
 
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 

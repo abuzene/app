@@ -1,6 +1,6 @@
 import type { Axis, ComponentKind, Drawing, TerminalKind } from './types';
 import { addComponent, ensureNode, route, runLength } from './edit';
-import { schedulesFor } from './pipe-data';
+import { parseSize, schedulesFor } from './pipe-data';
 
 export interface CommandState {
   currentNode: string | null;
@@ -48,6 +48,9 @@ const COMPONENT_ALIAS: Record<string, ComponentKind> = {
   GLOBE: 'GLOBE',
   BALL: 'BALL',
   BV: 'BALL',
+  BALLAIR: 'BALL_ACT',
+  BALL_ACT: 'BALL_ACT',
+  ACT: 'BALL_ACT',
   CHECK: 'CHECK',
   NRV: 'CHECK',
   BUTTERFLY: 'BUTTERFLY',
@@ -97,15 +100,16 @@ const TERMINAL_ALIAS: Record<string, TerminalKind> = {
   EQUIPMENT: 'EQUIPMENT',
 };
 
-export const COMMAND_HELP = `DN80            set the size for following runs
+export const COMMAND_HELP = `3"              set the size for following runs (also 1 1/2", DN80)
 STD | SCH40 | XS | SCH80 ...   set the schedule
 N 1500          route 1500 mm north  (also S E W U/UP D/DOWN)
-+GATE           add a gate valve at the middle of the last run
++BALL           add a ball valve at the middle of the last run
++BALLAIR 50%    add an air actuated ball valve half way along it
 +FLG 200        add a weld neck flange 200 mm along the last run
-+CHECK 50%      add a check valve half way along the last run
++RED            add a concentric reducer  (+ECC for eccentric)
 MARK t1         remember this point as 't1'
 GOTO t1         continue routing from 't1' — creates a tee
-END FLG         terminate this end with a weld neck flange
+END FLG         terminate this end with a weld neck flange  (also CAP, BLIND, CONT)
 LABEL N1        label the current point
 ORIGIN 0,0,0    set the start coordinates in mm
 # comment`;
@@ -138,10 +142,11 @@ export function runCommands(drawing: Drawing, text: string, state: CommandState)
     const head = tokens[0].toUpperCase();
     const fail = (message: string) => errors.push({ line: index + 1, text: raw.trim(), message });
 
-    // Size.
-    if (/^DN\d+$/.test(head) && tokens.length === 1) {
-      next.dn = head;
-      if (!schedulesFor(head).includes(next.schedule)) next.schedule = schedulesFor(head)[0] ?? 'STD';
+    // Size, written the way it is called on site: 3", 1 1/2", or DN80.
+    const sized = parseSize(line);
+    if (sized) {
+      next.dn = sized;
+      if (!schedulesFor(sized).includes(next.schedule)) next.schedule = schedulesFor(sized)[0] ?? 'STD';
       applied += 1;
       return;
     }

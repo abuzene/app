@@ -20,7 +20,7 @@
             <select id="dn"></select>
           </label>
           <label class="field">
-            <span>Schedule</span>
+            <span>Sch</span>
             <select id="schedule"></select>
           </label>
           <label class="field">
@@ -59,10 +59,11 @@
         </div>
 
         <div class="group right">
+          <button id="wide" class="btn" title="Hide the panels and fill the screen with the drawing (W)">Wide</button>
           <button id="new" class="btn">New</button>
           <button id="open" class="btn">Open</button>
           <button id="save" class="btn">Save</button>
-          <button id="export" class="btn primary">Export</button>
+          <button id="print" class="btn primary">Print</button>
         </div>
       </header>
 
@@ -82,6 +83,7 @@
         </section>
 
         <aside class="panel">
+          <button class="panel-toggle" id="panel-toggle" title="Show or hide this panel" aria-label="Show or hide the panel"></button>
           <nav class="tabs" id="tabs"></nav>
           <div class="tab-body" id="tab-body"></div>
         </aside>
@@ -89,6 +91,7 @@
     </div>
 
     <input type="file" id="file-input" accept="application/json,.iso.json,.json" hidden />
+    <input type="file" id="logo-input" accept="image/png,image/jpeg,image/svg+xml,image/webp" hidden />
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

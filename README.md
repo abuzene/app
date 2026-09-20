@@ -1,28 +1,39 @@
 # Isometric Piping
 
-A browser tool for drawing **metric piping isometrics**. Route a line by dragging
-along the six isometric directions or by typing the run lengths, and the drawing
-dimensions itself, numbers its own welds and builds its own take-off.
+A tool for drawing **piping isometrics for fabrication**. Route a line by
+dragging along the six isometric directions or by typing the run lengths, and
+the drawing dimensions itself, numbers its own welds, builds its own material
+list and prints as a sheet you can work from.
 
-Everything is in millimetres. Sizes are DN with outside diameters and wall
-thicknesses to ASME B36.10M; fitting take-outs are to ASME B16.9 and valve
-face-to-face dimensions to ASME B16.10 Class 150.
+Pipe is called by nominal size in inches, the way it is ordered; every dimension
+on the drawing is in millimetres. Outside diameters and wall thicknesses follow
+ASME B36.10M, fitting take-outs ASME B16.9 and valve face-to-face dimensions
+ASME B16.10 Class 150.
 
-## Running it
+## Installing it
 
 ```bash
 npm install
+npm run app       # builds dist/ as an installable app
+```
+
+Serve `dist/` (or open `dist/index.html`) and the browser offers to install it.
+Installed, it gets its own window and icon, opens with no address bar, and works
+with no network at all — the service worker caches the whole app on first run.
+That matters on a site or a shop floor, and it is also what makes printing feel
+like printing from any other program.
+
+```bash
 npm run dev       # development server
-npm run build     # writes a single self-contained dist/index.html
-npm run artifact  # also writes dist/artifact.html for embedded hosts
+npm run build     # just the single self-contained dist/index.html
+npm run artifact  # dist/artifact.html, for hosts that supply their own page shell
 npm run smoke     # drives the built app in a browser and checks it still works
 npm run symbols   # redraws reference/symbols.svg from the drawing code
 ```
 
-The build inlines everything into one HTML file, so `dist/index.html` can be
-opened straight from disk, emailed, or dropped on any static host. The drawing
-you are working on is kept in the browser's local storage, so a reload picks up
-where you left off.
+The build inlines everything into one HTML file, so `dist/index.html` also works
+opened straight from disk or emailed. The drawing you are working on is kept in
+the browser's local storage, so a reload picks up where you left off.
 
 ## Drawing
 
@@ -37,15 +48,18 @@ Click a run, a point or a component to select it; the Route tab edits whatever i
 selected. `Delete` removes it, `F` zooms to fit, `Escape` deselects, `Ctrl+Z` and
 `Ctrl+Shift+Z` undo and redo. Drag empty space to pan, scroll or pinch to zoom.
 
+Press **W** or the Wide button to fold both side panels away and give the
+drawing the whole screen; the panel handle brings it back.
+
 **By typing.** The Command tab takes a block of routing commands:
 
 ```
-DN80            set the size for the runs that follow
+3"              set the size for the runs that follow (also 1 1/2", DN80)
 STD             set the schedule (also SCH10, SCH40, XS, SCH80, SCH160, XXS …)
 N 1500          route 1500 mm north — also S, E, W, U/UP, D/DOWN
-+GATE           put a gate valve in the middle of the run just routed
++BALL           put a ball valve in the middle of the run just routed
++BALLAIR 50%    put an air actuated ball valve half way along it
 +FLG 200        put a weld neck flange 200 mm along it
-+CHECK 50%      put a check valve half way along it
 MARK tee        remember this point
 GOTO tee        carry on from it — a third run here makes a tee
 END FLG         terminate this end with a weld neck flange
@@ -90,22 +104,19 @@ so they stay out of the weld schedule and its numbering.
   between shop and field, and the choice survives further editing.
 - **Cut lengths**, being the centre-to-centre dimension less the take-out of
   whatever sits at each end — what the fabricator actually cuts.
-- **A bill of materials**, with pipe grouped by size and schedule and its mass,
-  and every fitting, flange, valve and support counted.
+- **A material list**, with pipe grouped by size and schedule, and every
+  fitting, flange and valve counted.
 
-## Exporting
+## Printing
 
-The Export button produces a complete A4, A3 or A2 landscape sheet carrying the
-drawing, the bill of materials, the weld summary, the notes and a filled title
-block — as SVG, as PNG, or straight to the printer for PDF. The drawing itself
-saves and opens as JSON, and the take-off and weld schedule export as CSV.
+Print produces a complete A4, A3 or A2 landscape sheet: the drawing, the
+material list, the weld summary, the notes, and a title block carrying your logo
+and an AS MADE stamp. Choose Save as PDF in the printer dialog to keep a copy on
+the machine. View sheet shows it first without printing.
 
-Some embedded viewers refuse downloads a page starts for itself. Where a
-mediated save is offered the app uses it; otherwise **View sheet** renders the
-finished sheet in the app and the copy buttons put the SVG, the drawing or
-either table on the clipboard, so there is always a way to get the work out.
-`npm run artifact` writes the same app without its document wrapper, which is
-what those hosts expect to be handed.
+Printing is the whole of output — everything a fabrication drawing needs is on
+that sheet. The drawing itself still saves and opens as a file so no work is
+lost, and the material list and weld list copy to the clipboard for ordering.
 
 Isometrics are conventionally not to scale. The **Not to scale** toggle draws
 every run at the same length and lets the dimensions govern, which is how a
@@ -142,5 +153,7 @@ because they are the same code.
 - Runs are orthogonal. Skewed and sloping pipe is not supported.
 - Valve face-to-face dimensions are Class 150. Other classes will need their own
   table before the cut lengths are right for them.
+- The palette carries the fittings, the flanges and the two ball valves. Other
+  valves still open in drawings that use them, but are no longer offered.
 - In **Not to scale** mode a closed loop cannot stay closed, because every run is
   drawn at the same length; the first route to reach a point wins.

@@ -38,4 +38,6 @@ export interface Host {
   /** Puts text on the clipboard, falling back to showing it for manual copying. */
   copy(label: string, content: string): void;
   notify(message: string): void;
+  /** Asks for an image file and stores it in the title block. */
+  pickLogo(): void;
 }

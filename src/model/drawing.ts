@@ -11,7 +11,7 @@ import type {
   Weld,
 } from './types';
 import { add, angleBetween, direction, length3, scale3, sub } from './iso';
-import { componentTakeout, fittingTakeout, massPerMetre, sizeOf } from './pipe-data';
+import { componentTakeout, fittingTakeout, sizeLabel } from './pipe-data';
 import { flangeJoint, isFlange } from '../render/symbols';
 
 let counter = 0;
@@ -23,23 +23,12 @@ export function uid(prefix: string): string {
 export function emptyMeta(): Meta {
   return {
     project: '',
-    client: '',
     lineNumber: '',
     drawingNo: '',
     sheet: '1 of 1',
     revision: '0',
     date: new Date().toISOString().slice(0, 10),
     drawnBy: '',
-    checkedBy: '',
-    spec: '',
-    service: '',
-    material: 'ASTM A106 Gr.B',
-    insulation: 'NONE',
-    pwht: 'NO',
-    ndt: '',
-    designPressure: '',
-    designTemp: '',
-    testPressure: '',
   };
 }
 
@@ -87,7 +76,6 @@ export interface BomLine {
   /** Metres for pipe, otherwise a count. */
   quantity: number;
   unit: 'm' | 'off';
-  mass: number;
 }
 
 export interface RunLengths {
@@ -158,6 +146,7 @@ export const COMPONENT_LABEL: Record<string, string> = {
   GATE: 'GATE VALVE',
   GLOBE: 'GLOBE VALVE',
   BALL: 'BALL VALVE',
+  BALL_ACT: 'BALL VALVE, AIR ACTUATED',
   CHECK: 'CHECK VALVE',
   BUTTERFLY: 'BUTTERFLY VALVE',
   PLUG: 'PLUG VALVE',
@@ -476,12 +465,11 @@ export function analyse(drawing: Drawing): Analysis {
     const metres = mm / 1000;
     bom.push({
       category: 'PIPE',
-      description: `PIPE, SMLS, ${sizeOf(dn).od.toFixed(1)} mm OD x ${schedule}`,
+      description: `PIPE, SMLS, ${sizeLabel(dn)} x ${schedule}`,
       dn,
       schedule,
       quantity: metres,
       unit: 'm',
-      mass: metres * massPerMetre(dn, schedule),
     });
   }
 
@@ -502,12 +490,11 @@ export function analyse(drawing: Drawing): Analysis {
         category: 'FITTING',
         description:
           info.fitting === 'TEE_REDUCING' && branch
-            ? `${fittingLabel(info.fitting)} ${dn} x ${branch.dn}`
+            ? `${fittingLabel(info.fitting)} ${sizeLabel(dn)} x ${sizeLabel(branch.dn)}`
             : fittingLabel(info.fitting),
         dn,
         schedule,
         unit: 'off',
-        mass: 0,
       });
     }
     if (info.degree === 1 && info.node.terminal && info.node.terminal.kind !== 'OPEN') {
@@ -518,8 +505,7 @@ export function analyse(drawing: Drawing): Analysis {
           description: TERMINAL_LABEL[kind],
           dn: info.runs[0]?.dn ?? 'DN80',
           schedule: info.runs[0]?.schedule ?? 'STD',
-          unit: 'off',
-          mass: 0,
+        unit: 'off',
         });
       }
     }
@@ -530,9 +516,9 @@ export function analyse(drawing: Drawing): Analysis {
       const dn = comp.dn ?? run.dn;
       const isReducer = comp.kind === 'RED_CONC' || comp.kind === 'RED_ECC';
       const description = isReducer
-        ? `${COMPONENT_LABEL[comp.kind]} ${dn} x ${comp.dn2 ?? dn}`
+        ? `${COMPONENT_LABEL[comp.kind]} ${sizeLabel(dn)} x ${sizeLabel(comp.dn2 ?? dn)}`
         : COMPONENT_LABEL[comp.kind] ?? comp.kind;
-      tally({ category: categoryOf(comp.kind), description, dn, schedule: run.schedule, unit: 'off', mass: 0 });
+      tally({ category: categoryOf(comp.kind), description, dn, schedule: run.schedule, unit: 'off' });
     }
   }
 

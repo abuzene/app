@@ -2,7 +2,7 @@ import type { ComponentKind, EndType, FittingKind, JointType, TerminalKind } fro
 import type { Host, TabId } from './types';
 import { COMPONENT_LABEL, TERMINAL_LABEL, fittingLabel } from '../model/drawing';
 import { COMMAND_HELP } from '../model/commands';
-import { DN_LIST, schedulesFor } from '../model/pipe-data';
+import { DN_LIST, SIZE_LABELS, schedulesFor, sizeLabel } from '../model/pipe-data';
 import { axisBetween } from '../model/iso';
 import { deleteNode, deleteRun, removeComponent, runLength, setRunLength, splitRun } from '../model/edit';
 
@@ -72,7 +72,7 @@ function runProperties(host: Host, runId: string): string {
 <div class="section" data-editor="run" data-id="${run.id}">
   <h3>Run — ${runDirection(host, run.id)}</h3>
   <div class="row"><label>Length</label><input type="number" data-f="length" step="1" min="1" value="${Math.round(lengths?.centre ?? 0)}" /></div>
-  <div class="row"><label>Size</label><select data-f="dn">${options(DN_LIST, run.dn)}</select></div>
+  <div class="row"><label>Size</label><select data-f="dn">${options(DN_LIST, run.dn, SIZE_LABELS)}</select></div>
   <div class="row"><label>Schedule</label><select data-f="schedule">${options(schedulesFor(run.dn), run.schedule)}</select></div>
   <div class="row"><label>Note</label><input type="text" data-f="note" value="${esc(run.note ?? '')}" placeholder="optional" /></div>
   <div class="row"><label>Dimension</label><select data-f="nodim">${options(['show', 'hide'], run.noDim ? 'hide' : 'show')}</select></div>
@@ -128,8 +128,8 @@ function componentProperties(host: Host, compId: string): string {
   <h3>${esc(COMPONENT_LABEL[comp.kind] ?? comp.kind)}</h3>
   <div class="row"><label>Type</label><select data-f="kind">${options(COMPONENT_KINDS, comp.kind, COMPONENT_LABEL)}</select></div>
   <div class="row"><label>Position</label><input type="number" data-f="offset" step="1" min="0" max="${Math.round(total)}" value="${Math.round(comp.offset)}" /></div>
-  <div class="row"><label>Size</label><select data-f="dn">${options(DN_LIST, comp.dn ?? run.dn)}</select></div>
-  ${isReducer ? `<div class="row"><label>Reduces to</label><select data-f="dn2">${options(DN_LIST, comp.dn2 ?? run.dn)}</select></div>` : ''}
+  <div class="row"><label>Size</label><select data-f="dn">${options(DN_LIST, comp.dn ?? run.dn, SIZE_LABELS)}</select></div>
+  ${isReducer ? `<div class="row"><label>Reduces to</label><select data-f="dn2">${options(DN_LIST, comp.dn2 ?? run.dn, SIZE_LABELS)}</select></div>` : ''}
   <div class="row"><label>Ends</label><select data-f="ends">${options(['auto', ...END_TYPES], comp.ends ?? 'auto', { auto: `Drawing default (${host.state.drawing.options.joint})` })}</select></div>
   <div class="row"><label>Tag</label><input type="text" data-f="tag" value="${esc(comp.tag ?? '')}" placeholder="e.g. HV-101" /></div>
   <p class="empty-note">Measured ${mm(comp.offset)} mm from the start of a ${mm(total)} mm run.</p>
@@ -151,7 +151,7 @@ function runList(host: Host): string {
       return `<tr class="clickable${selected ? ' is-selected' : ''}" data-run-row="${run.id}">
   <td class="num">${i + 1}</td>
   <td>${runDirection(host, run.id)}</td>
-  <td>${esc(run.dn)}</td>
+  <td>${esc(sizeLabel(run.dn))}</td>
   <td class="len num"><input type="number" step="1" min="1" data-run-len="${run.id}" value="${Math.round(lengths?.centre ?? 0)}" /></td>
   <td class="num">${mm(lengths?.cut ?? 0)}</td>
 </tr>`;
@@ -219,14 +219,14 @@ function itemsTab(host: Host): string {
       (line, i) => `<tr>
   <td class="num">${i + 1}</td>
   <td>${esc(line.description)}</td>
-  <td>${esc(line.dn)}</td>
+  <td>${esc(sizeLabel(line.dn))}</td>
   <td class="num">${line.unit === 'm' ? line.quantity.toFixed(2) : Math.round(line.quantity)}</td>
   <td>${line.unit}</td>
 </tr>`,
     )
     .join('');
-  const mass = bom.reduce((sum, l) => sum + l.mass, 0);
   const pipe = bom.filter((l) => l.category === 'PIPE').reduce((sum, l) => sum + l.quantity, 0);
+  const items = bom.filter((l) => l.unit === 'off').reduce((sum, l) => sum + l.quantity, 0);
   return `
 <div class="section">
   <h3>Bill of materials</h3>
@@ -236,9 +236,9 @@ function itemsTab(host: Host): string {
   </table>
   <div class="totals">
     <span>Pipe <strong>${pipe.toFixed(2)} m</strong></span>
-    <span>Pipe mass <strong>${mass.toFixed(1)} kg</strong></span>
+    <span>Items <strong>${Math.round(items)}</strong></span>
   </div>
-  <div class="btn-row"><button class="btn-line" data-a="export-bom">Export CSV</button><button class="btn-line" data-a="copy-bom">Copy CSV</button></div>
+  <div class="btn-row"><button class="btn-line" data-a="copy-bom">Copy list</button></div>
 </div>`;
 }
 
@@ -253,7 +253,7 @@ function weldsTab(host: Host): string {
     .map(
       (w) => `<tr>
   <td>${esc(w.number)}</td>
-  <td>${esc(w.dn)}</td>
+  <td>${esc(sizeLabel(w.dn))}</td>
   <td>${esc(w.joint)}</td>
   <td>${esc(w.joins)}</td>
   <td><button class="pill${w.type === 'FIELD' ? ' field' : ''}" data-weld="${esc(w.key)}">${w.type === 'FIELD' ? 'FIELD' : 'SHOP'}</button></td>
@@ -275,8 +275,7 @@ function weldsTab(host: Host): string {
     <span>Total <strong>${welds.length}</strong></span>
   </div>
   <div class="btn-row">
-    <button class="btn-line" data-a="export-welds">Export CSV</button>
-    <button class="btn-line" data-a="copy-welds">Copy CSV</button>
+    <button class="btn-line" data-a="copy-welds">Copy list</button>
     <button class="btn-line" data-a="reset-welds">Reset all to shop</button>
   </div>
 </div>`;
@@ -286,23 +285,12 @@ function weldsTab(host: Host): string {
 
 const META_FIELDS: { key: keyof import('../model/types').Meta; label: string; placeholder?: string }[] = [
   { key: 'project', label: 'Project' },
-  { key: 'client', label: 'Client' },
-  { key: 'lineNumber', label: 'Line number', placeholder: '6"-P-1201-A1A-IH' },
+  { key: 'lineNumber', label: 'Line number', placeholder: '6"-P-1201' },
   { key: 'drawingNo', label: 'Drawing no.' },
   { key: 'sheet', label: 'Sheet' },
   { key: 'revision', label: 'Revision' },
   { key: 'date', label: 'Date' },
   { key: 'drawnBy', label: 'Drawn by' },
-  { key: 'checkedBy', label: 'Checked by' },
-  { key: 'spec', label: 'Piping spec' },
-  { key: 'service', label: 'Service' },
-  { key: 'material', label: 'Material' },
-  { key: 'insulation', label: 'Insulation' },
-  { key: 'pwht', label: 'PWHT' },
-  { key: 'ndt', label: 'NDT' },
-  { key: 'designPressure', label: 'Design press.', placeholder: 'barg' },
-  { key: 'designTemp', label: 'Design temp.', placeholder: '°C' },
-  { key: 'testPressure', label: 'Test press.', placeholder: 'barg' },
 ];
 
 function titleTab(host: Host): string {
@@ -314,6 +302,18 @@ function titleTab(host: Host): string {
     (f) =>
       `<div class="row"><label>${esc(f.label)}</label><input type="text" data-meta="${f.key}" value="${esc(String(meta[f.key] ?? ''))}" placeholder="${esc(f.placeholder ?? '')}" /></div>`,
   ).join('')}
+</div>
+<div class="section">
+  <h3>Logo</h3>
+  ${
+    meta.logo
+      ? `<div class="logo-preview"><img src="${esc(meta.logo)}" alt="Company logo" /></div>`
+      : '<p class="empty-note">Add your logo and it prints in the corner of every sheet. It is saved with the drawing.</p>'
+  }
+  <div class="btn-row">
+    <button class="btn-line" data-a="pick-logo">${meta.logo ? 'Replace logo' : 'Add logo'}</button>
+    ${meta.logo ? '<button class="btn-line danger" data-a="clear-logo">Remove</button>' : ''}
+  </div>
 </div>`;
 }
 
@@ -554,16 +554,15 @@ function wire(body: HTMLElement, host: Host): void {
 
   // Exports.
   const bomCsv = () => {
-    const rows = [['Item', 'Description', 'Size', 'Schedule', 'Quantity', 'Unit', 'Mass kg']];
+    const rows = [['Item', 'Description', 'Size', 'Schedule', 'Quantity', 'Unit']];
     host.state.analysis.bom.forEach((line, i) => {
       rows.push([
         String(i + 1),
         line.description,
-        line.dn,
+        sizeLabel(line.dn),
         line.category === 'PIPE' ? line.schedule : '',
         line.unit === 'm' ? line.quantity.toFixed(2) : String(Math.round(line.quantity)),
         line.unit,
-        line.mass ? line.mass.toFixed(1) : '',
       ]);
     });
     return toCsv(rows);
@@ -571,22 +570,24 @@ function wire(body: HTMLElement, host: Host): void {
   const weldCsv = () => {
     const rows = [['Weld', 'Size', 'Schedule', 'Preparation', 'Type', 'Joins']];
     for (const w of host.state.analysis.welds) {
-      rows.push([w.number, w.dn, w.schedule, w.joint, w.type, w.joins]);
+      rows.push([w.number, sizeLabel(w.dn), w.schedule, w.joint, w.type, w.joins]);
     }
     return toCsv(rows);
   };
 
-  body.querySelector('[data-a="export-bom"]')?.addEventListener('click', () => {
-    host.download(`${fileStem(host)}-bom.csv`, bomCsv(), 'text/csv');
-  });
   body.querySelector('[data-a="copy-bom"]')?.addEventListener('click', () => {
     host.copy('Bill of materials', bomCsv());
   });
-  body.querySelector('[data-a="export-welds"]')?.addEventListener('click', () => {
-    host.download(`${fileStem(host)}-welds.csv`, weldCsv(), 'text/csv');
-  });
   body.querySelector('[data-a="copy-welds"]')?.addEventListener('click', () => {
     host.copy('Weld schedule', weldCsv());
+  });
+
+  // Logo.
+  body.querySelector('[data-a="pick-logo"]')?.addEventListener('click', () => host.pickLogo());
+  body.querySelector('[data-a="clear-logo"]')?.addEventListener('click', () => {
+    host.edit('Remove logo', (d) => {
+      d.meta.logo = undefined;
+    });
   });
 
   // Title block.
