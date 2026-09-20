@@ -12,9 +12,10 @@ face-to-face dimensions to ASME B16.10 Class 150.
 
 ```bash
 npm install
-npm run dev      # development server
-npm run build    # writes a single self-contained dist/index.html
-npm run smoke    # drives the built app in a browser and checks it still works
+npm run dev       # development server
+npm run build     # writes a single self-contained dist/index.html
+npm run artifact  # also writes dist/artifact.html for embedded hosts
+npm run smoke     # drives the built app in a browser and checks it still works
 ```
 
 The build inlines everything into one HTML file, so `dist/index.html` can be
@@ -74,6 +75,13 @@ The Export button produces a complete A4, A3 or A2 landscape sheet carrying the
 drawing, the bill of materials, the weld summary, the notes and a filled title
 block — as SVG, as PNG, or straight to the printer for PDF. The drawing itself
 saves and opens as JSON, and the take-off and weld schedule export as CSV.
+
+Some embedded viewers refuse downloads a page starts for itself. Where a
+mediated save is offered the app uses it; otherwise **View sheet** renders the
+finished sheet in the app and the copy buttons put the SVG, the drawing or
+either table on the clipboard, so there is always a way to get the work out.
+`npm run artifact` writes the same app without its document wrapper, which is
+what those hosts expect to be handed.
 
 Isometrics are conventionally not to scale. The **Not to scale** toggle draws
 every run at the same length and lets the dimensions govern, which is how a

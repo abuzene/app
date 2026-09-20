@@ -99,7 +99,10 @@ const host: Host = {
   },
   download(filename, content, mime) {
     const blob = new Blob([content], { type: `${mime};charset=utf-8` });
-    triggerDownload(blob, filename);
+    void saveFile(blob, filename);
+  },
+  copy(label, content) {
+    void copyText(content, label);
   },
   notify(message) {
     toast = { message, until: Date.now() + 3200 };
@@ -340,6 +343,15 @@ function redo(): void {
 
 /* ---------------------------------------------------------------- exports */
 
+/** True when the app is embedded, where page-initiated downloads are inert. */
+const embedded = (() => {
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
+})();
+
 function openExportDialog(): void {
   const backdrop = document.createElement('div');
   backdrop.className = 'dialog-backdrop';
@@ -353,12 +365,22 @@ function openExportDialog(): void {
     <option value="A2">A2 landscape</option>
   </select></div>
   <div class="btn-row">
-    <button class="btn-line solid" data-x="svg">SVG</button>
-    <button class="btn-line" data-x="png">PNG</button>
+    <button class="btn-line solid" data-x="preview">View sheet</button>
+    <button class="btn-line" data-x="svg">Download SVG</button>
+    <button class="btn-line" data-x="png">Download PNG</button>
     <button class="btn-line" data-x="print">Print / PDF</button>
     <button class="btn-line" data-x="json">Drawing file</button>
+  </div>
+  <div class="btn-row">
+    <button class="btn-line" data-x="copy-svg">Copy sheet SVG</button>
+    <button class="btn-line" data-x="copy-json">Copy drawing</button>
     <button class="btn-line" data-x="close">Cancel</button>
   </div>
+  ${
+    embedded
+      ? '<p class="empty-note" style="margin-top:12px">Downloading here asks you to confirm the file first. If a download does not arrive, use <strong>View sheet</strong> or the copy buttons.</p>'
+      : ''
+  }
 </div>`;
   document.body.appendChild(backdrop);
 
@@ -374,7 +396,18 @@ function openExportDialog(): void {
       const what = button.dataset.x;
       if (what === 'close') return close();
       const sheet = renderSheet(state.drawing, state.analysis, sheetSize());
-      if (what === 'svg') {
+      if (what === 'preview') {
+        openOverlay(
+          'Sheet preview',
+          `<div class="sheet-preview">${sheet}</div>
+           <p class="empty-note">Right-click the sheet to save or copy it as an image.</p>`,
+          true,
+        );
+      } else if (what === 'copy-svg') {
+        await copyText(sheet, 'Sheet SVG');
+      } else if (what === 'copy-json') {
+        await copyText(JSON.stringify(state.drawing, null, 2), 'Drawing');
+      } else if (what === 'svg') {
         host.download(`${fileStem(host)}.svg`, sheet, 'image/svg+xml');
       } else if (what === 'png') {
         try {
@@ -423,7 +456,7 @@ async function exportPng(sheet: string, size: SheetSize): Promise<void> {
     ctx.drawImage(image, 0, 0, pxW, pxH);
     const blob = await new Promise<Blob | null>((resolve) => target.toBlob(resolve, 'image/png'));
     if (!blob) throw new Error('no blob');
-    triggerDownload(blob, `${fileStem(host)}.png`);
+    await saveFile(blob, `${fileStem(host)}.png`);
   } finally {
     URL.revokeObjectURL(url);
   }
@@ -452,6 +485,92 @@ function printSheet(sheet: string): void {
   };
   if (doc.readyState === 'complete') setTimeout(run, 60);
   else frame.addEventListener('load', () => setTimeout(run, 60));
+}
+
+/** Full-screen overlay used to show something the page cannot hand over as a file. */
+function openOverlay(title: string, body: string, wide = false): HTMLElement {
+  const backdrop = document.createElement('div');
+  backdrop.className = 'dialog-backdrop';
+  backdrop.innerHTML = `<div class="dialog${wide ? ' wide' : ''}" role="dialog" aria-label="${title}">
+  <h3>${title}</h3>
+  ${body}
+  <div class="btn-row"><button class="btn-line" data-close>Close</button></div>
+</div>`;
+  document.body.appendChild(backdrop);
+  const close = () => backdrop.remove();
+  backdrop.addEventListener('click', (event) => {
+    if (event.target === backdrop || (event.target as HTMLElement).hasAttribute('data-close')) close();
+  });
+  return backdrop;
+}
+
+/**
+ * Copies text to the clipboard. Where the clipboard is unavailable — some
+ * embedded viewers withhold it — the text is shown ready to select instead, so
+ * there is always a way to get the drawing out.
+ */
+async function copyText(text: string, label: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+    host.notify(`${label} copied to the clipboard`);
+    return;
+  } catch {
+    const overlay = openOverlay(
+      label,
+      `<p>Your browser would not let the page reach the clipboard. Select all of this and copy it.</p>
+       <textarea class="command" readonly style="min-height:240px"></textarea>`,
+      true,
+    );
+    const area = overlay.querySelector('textarea');
+    if (area) {
+      area.value = text;
+      area.focus();
+      area.select();
+    }
+  }
+}
+
+/**
+ * The claude.ai artifact viewer refuses downloads a page starts for itself and
+ * offers a mediated `downloads` capability instead. It is absent everywhere
+ * else, including when the file is opened straight from disk, so the ordinary
+ * anchor download stays as the fallback.
+ */
+interface SaveCapability {
+  save(request: { filename: string; data: Blob }): Promise<{ status: string }>;
+}
+
+let savePromise: Promise<SaveCapability | null> | null = null;
+
+function saveCapability(): Promise<SaveCapability | null> {
+  if (!savePromise) {
+    const claude = (window as unknown as { claude?: { use?(name: string): Promise<unknown> } }).claude;
+    savePromise = claude?.use
+      ? claude.use('downloads').then((c) => (c as SaveCapability | null) ?? null, () => null)
+      : Promise.resolve(null);
+  }
+  return savePromise;
+}
+
+async function saveFile(blob: Blob, filename: string): Promise<void> {
+  const downloads = await saveCapability();
+  if (downloads) {
+    try {
+      await downloads.save({ filename, data: blob });
+      return;
+    } catch (error) {
+      const code = (error as { code?: string } | null)?.code;
+      // The viewer simply said no; nothing failed and nothing needs saying.
+      if (code === 'declined') return;
+      if (code === 'rate_limited') {
+        host.notify('A save is already waiting for you — finish that one first.');
+        return;
+      }
+      host.notify('That file could not be saved here. Use View sheet or the copy buttons instead.');
+      return;
+    }
+  }
+  triggerDownload(blob, filename);
 }
 
 function triggerDownload(blob: Blob, filename: string): void {

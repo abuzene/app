@@ -35,5 +35,7 @@ export interface Host {
   setTab(tab: TabId): void;
   applyCommands(text: string): void;
   download(filename: string, content: string, mime: string): void;
+  /** Puts text on the clipboard, falling back to showing it for manual copying. */
+  copy(label: string, content: string): void;
   notify(message: string): void;
 }

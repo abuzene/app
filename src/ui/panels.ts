@@ -231,7 +231,7 @@ function itemsTab(host: Host): string {
     <span>Pipe <strong>${pipe.toFixed(2)} m</strong></span>
     <span>Pipe mass <strong>${mass.toFixed(1)} kg</strong></span>
   </div>
-  <div class="btn-row"><button class="btn-line" data-a="export-bom">Export CSV</button></div>
+  <div class="btn-row"><button class="btn-line" data-a="export-bom">Export CSV</button><button class="btn-line" data-a="copy-bom">Copy CSV</button></div>
 </div>`;
 }
 
@@ -268,6 +268,7 @@ function weldsTab(host: Host): string {
   </div>
   <div class="btn-row">
     <button class="btn-line" data-a="export-welds">Export CSV</button>
+    <button class="btn-line" data-a="copy-welds">Copy CSV</button>
     <button class="btn-line" data-a="reset-welds">Reset all to shop</button>
   </div>
 </div>`;
@@ -536,7 +537,7 @@ function wire(body: HTMLElement, host: Host): void {
   });
 
   // Exports.
-  body.querySelector('[data-a="export-bom"]')?.addEventListener('click', () => {
+  const bomCsv = () => {
     const rows = [['Item', 'Description', 'Size', 'Schedule', 'Quantity', 'Unit', 'Mass kg']];
     host.state.analysis.bom.forEach((line, i) => {
       rows.push([
@@ -549,14 +550,27 @@ function wire(body: HTMLElement, host: Host): void {
         line.mass ? line.mass.toFixed(1) : '',
       ]);
     });
-    host.download(`${fileStem(host)}-bom.csv`, toCsv(rows), 'text/csv');
-  });
-  body.querySelector('[data-a="export-welds"]')?.addEventListener('click', () => {
+    return toCsv(rows);
+  };
+  const weldCsv = () => {
     const rows = [['Weld', 'Size', 'Schedule', 'Type', 'Joins']];
     for (const w of host.state.analysis.welds) {
       rows.push([w.number, w.dn, w.schedule, w.type, w.joins]);
     }
-    host.download(`${fileStem(host)}-welds.csv`, toCsv(rows), 'text/csv');
+    return toCsv(rows);
+  };
+
+  body.querySelector('[data-a="export-bom"]')?.addEventListener('click', () => {
+    host.download(`${fileStem(host)}-bom.csv`, bomCsv(), 'text/csv');
+  });
+  body.querySelector('[data-a="copy-bom"]')?.addEventListener('click', () => {
+    host.copy('Bill of materials', bomCsv());
+  });
+  body.querySelector('[data-a="export-welds"]')?.addEventListener('click', () => {
+    host.download(`${fileStem(host)}-welds.csv`, weldCsv(), 'text/csv');
+  });
+  body.querySelector('[data-a="copy-welds"]')?.addEventListener('click', () => {
+    host.copy('Weld schedule', weldCsv());
   });
 
   // Title block.
