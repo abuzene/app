@@ -23,7 +23,10 @@ export function contentCss({ k, u, dark = false }: ContentStyleOptions): string 
   const dim = dark ? '#8fa3bd' : '#4a5568';
 
   return `
-.grid, .dim, .weld, .preview, .preview-text, .node-label, .tag, .note { pointer-events: none; }
+/* Marks and fitting bodies are drawn over the pipe, so they must not take the
+   clicks meant for the point or the run underneath them. */
+.grid, .dim, .weld, .olet, .fitting-body, .preview, .preview-text,
+.node-label, .tag, .note { pointer-events: none; }
 .grid line { stroke: ${faint}; stroke-width: ${w(0.6)}; }
 .pipe { stroke: ${ink}; stroke-width: ${w(2.4)}; stroke-linecap: round; fill: none; }
 .pipe.selected { stroke: ${accent}; stroke-width: ${w(4)}; }

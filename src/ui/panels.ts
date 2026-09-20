@@ -1,6 +1,6 @@
 import type { ComponentKind, EndType, FittingKind, JointType, TerminalKind } from '../model/types';
 import type { Host, TabId } from './types';
-import { COMPONENT_LABEL, TERMINAL_LABEL, fittingLabel } from '../model/drawing';
+import { COMPONENT_LABEL, TERMINAL_LABEL, fittingLabel, oletLabel } from '../model/drawing';
 import { COMMAND_HELP } from '../model/commands';
 import { DN_LIST, SIZE_LABELS, schedulesFor, sizeLabel } from '../model/pipe-data';
 import { axisBetween } from '../model/iso';
@@ -92,9 +92,19 @@ function nodeProperties(host: Host, nodeId: string): string {
   const isEnd = (info?.degree ?? 0) <= 1;
   const fitting = info?.fitting ?? 'NONE';
 
+  const isOlet = fitting === 'OLET';
+  const nodeJoint = node.joint ?? host.state.drawing.options.joint;
+  const heading = isOlet
+    ? oletLabel(nodeJoint)
+    : fitting === 'NONE'
+      ? isEnd
+        ? 'line end'
+        : 'joint'
+      : fittingLabel(fitting);
+
   return `
 <div class="section" data-editor="node" data-id="${node.id}">
-  <h3>Point — ${esc(fitting === 'NONE' ? (isEnd ? 'line end' : 'joint') : fittingLabel(fitting))}</h3>
+  <h3>Point — ${esc(heading)}</h3>
   <div class="row"><label>Label</label><input type="text" data-f="label" value="${esc(node.label ?? '')}" placeholder="e.g. N1" /></div>
   <div class="row"><label>East</label><input type="number" data-f="e" step="1" value="${Math.round(node.pos.e)}" /></div>
   <div class="row"><label>North</label><input type="number" data-f="n" step="1" value="${Math.round(node.pos.n)}" /></div>
@@ -105,9 +115,17 @@ function nodeProperties(host: Host, nodeId: string): string {
          <div class="row"><label>End note</label><input type="text" data-f="termnote" value="${esc(node.terminal?.note ?? '')}" placeholder="e.g. TO V-101 N3" /></div>`
       : `<div class="row"><label>Fitting</label><select data-f="fitting">${options(['auto', ...FITTINGS], node.fittingOverride ?? 'auto', { auto: `Automatic (${fittingLabel(fitting) || 'none'})` })}</select></div>`
   }
-  <div class="row"><label>Joint</label><select data-f="joint">${options(['auto', ...JOINTS], node.joint ?? 'auto', { ...JOINT_LABEL, auto: `Drawing default (${JOINT_LABEL[host.state.drawing.options.joint] ?? 'butt weld'})` })}</select></div>
-  <p class="empty-note">Drag from this point on the drawing to route a new run. ${
-    (info?.degree ?? 0) >= 2 ? 'Routing from a point that already has two runs creates a tee.' : ''
+  ${
+    isOlet
+      ? `<div class="row"><label>Olet type</label><select data-f="joint">${options(JOINTS, nodeJoint, { BW: 'Weldolet', SW: 'Sockolet', THD: 'Threadolet' })}</select></div>`
+      : `<div class="row"><label>Joint</label><select data-f="joint">${options(['auto', ...JOINTS], node.joint ?? 'auto', { ...JOINT_LABEL, auto: `Drawing default (${JOINT_LABEL[host.state.drawing.options.joint] ?? 'butt weld'})` })}</select></div>`
+  }
+  <p class="empty-note">${
+    isOlet
+      ? 'Drag from this point to route the branch. The header keeps its full length — an olet is welded to its wall, not cut into it.'
+      : `Drag from this point on the drawing to route a new run. ${
+          (info?.degree ?? 0) >= 2 ? 'Routing from a point that already has two runs creates a tee.' : ''
+        }`
   }</p>
   <div class="btn-row">
     <button class="btn-line danger" data-a="delete-node">Delete point and its runs</button>

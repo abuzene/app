@@ -50,6 +50,14 @@ Click a run, a point or a component to select it; the Route tab edits whatever i
 selected. `Delete` removes it, `F` zooms to fit, `Escape` deselects, `Ctrl+Z` and
 `Ctrl+Shift+Z` undo and redo. Drag empty space to pan, scroll or pinch to zoom.
 
+**Branching off a header.** Route the header first, select it, then pick
+Weldolet, Sockolet or Threadolet and drag from the olet to route the branch. An
+olet is welded to the header wall rather than cut into it, so the header stays
+one continuous pipe and keeps its full cut length — only the branch pays for the
+fitting. The olet type sets how the branch is joined, which is how a butt welded
+header carries a threaded branch: a weldolet has two welds, a threadolet only
+one, and the take-off names both sizes.
+
 Press **W** or the Wide button to fold both side panels away and give the
 drawing the whole screen; the panel handle brings it back.
 
@@ -98,8 +106,9 @@ so they stay out of the weld schedule and its numbering.
 - **Fittings** from the geometry — a 90° change of direction is a long radius
   elbow, 45° a 45° elbow, three runs at a point a tee, four a cross. A branch of
   a different size makes it a reducing tee, drawn as the triangle across its
-  three joints and taken off with the branch size named. Any point can be
-  overridden to a bend, an olet or a mitre.
+  three joints and taken off with the branch size named. A point marked as an
+  olet is drawn as the saddle on the header instead. Any point can be overridden
+  to a bend or a mitre.
 - **Dimensions**, centre to centre, placed clear of the pipe.
 - **Welds**, one per fitting leg, one either side of every welded component and
   one at each welded end, numbered along the route. Any weld can be switched

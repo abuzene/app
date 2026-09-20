@@ -112,7 +112,7 @@ check('a length can be typed', await page.locator('#tab-body .run-list input[dat
 // Palette.
 await page.locator('#tab-body .run-list tbody tr').first().click();
 await page.waitForTimeout(200);
-check('the palette is cut to the fittings and the ball valves', await page.locator('.tool').count(), (v) => v === 11, '11');
+check('the palette is cut to the fittings, ball valves and olets', await page.locator('.tool').count(), (v) => v === 14, '14');
 check('the actuated ball valve is there', await page.locator('.tool[data-kind="BALL_ACT"]').count(), (v) => v === 1, '1');
 await page.locator('.tool[data-kind="BALL"]').click();
 await page.waitForTimeout(300);
@@ -280,6 +280,100 @@ await page.waitForTimeout(400);
 check('wide mode gives the drawing the whole width', await panelWidth(), (v) => v < beforeFold, `less than ${Math.round(beforeFold)}`);
 await page.click('#wide');
 await page.waitForTimeout(400);
+
+// An olet is welded to the header wall, so the header keeps its full length
+// and the branch pays for the fitting.
+page.once('dialog', (d) => d.accept());
+await page.click('#new');
+await page.waitForTimeout(400);
+await page.click('#tabs button:has-text("Command")');
+await page.waitForTimeout(200);
+await page.fill('#command-text', '6"\nSTD\nORIGIN 0 0 0\nE 4000');
+await page.click('[data-a="run-commands"]');
+await page.waitForTimeout(500);
+await page.click('#tabs button:has-text("Route")');
+await page.waitForTimeout(300);
+
+const headerCut = async () => {
+  const cells = await page.locator('#tab-body .run-list tbody tr').all();
+  let total = 0;
+  for (const row of cells) {
+    const size = await row.locator('td').nth(2).innerText();
+    if (size !== '6"') continue;
+    total += Number((await row.locator('td.num').last().innerText()).replace(/,/g, ''));
+  }
+  return total;
+};
+const cutBefore = await headerCut();
+check('header starts at its full length', cutBefore, (v) => v === 4000, '4000');
+
+await page.locator('#tab-body .run-list tbody tr').first().click();
+await page.waitForTimeout(250);
+await page.locator('.tool[data-olet="BW"]').click();
+await page.waitForTimeout(500);
+check('the header is still whole before the branch is drawn', await headerCut(), (v) => v === 4000, '4000');
+
+// Route a 1" branch off the olet.
+const oletHandle = await page.locator('#canvas .node.selected circle.hit-dot').boundingBox();
+await page.selectOption('#dn', 'DN25');
+await page.waitForTimeout(250);
+await page.mouse.move(oletHandle.x + oletHandle.width / 2, oletHandle.y + oletHandle.height / 2);
+await page.mouse.down();
+await page.mouse.move(oletHandle.x + 130, oletHandle.y - 95, { steps: 14 });
+await page.waitForTimeout(150);
+await page.mouse.up();
+await page.waitForTimeout(600);
+
+check('the olet saddle is drawn on the header', await page.locator('#canvas .olet').count(), (v) => v === 1, '1');
+check('the header loses no length to the olet', await headerCut(), (v) => v === 4000, '4000');
+
+await page.click('#tabs button:has-text("Items")');
+await page.waitForTimeout(300);
+const oletBom = await page.locator('#tab-body').innerText();
+check('the olet is taken off with both sizes', oletBom, (v) => /WELDOLET 6" x 1"/.test(v), 'WELDOLET 6" x 1"');
+check('no tee is taken off for the branch', oletBom, (v) => !/TEE/.test(v), 'no tee');
+
+await page.click('#tabs button:has-text("Welds")');
+await page.waitForTimeout(300);
+const oletWelds = await page.locator('#tab-body tbody tr').allInnerTexts();
+check('a weldolet has two welds: header and branch', oletWelds.length, (v) => v === 2, '2');
+check('one of them joins the header', oletWelds.join(' '), (v) => /HEADER \/ WELDOLET/.test(v), 'a header weld');
+check('the other joins the branch', oletWelds.join(' '), (v) => /BRANCH \/ WELDOLET/.test(v), 'a branch weld');
+
+// Switching the olet type changes the branch connection, not the header.
+await page.click('#tabs button:has-text("Route")');
+await page.waitForTimeout(250);
+
+// Find the olet by asking each point what it is, rather than by position.
+// Selecting redraws the canvas, so each handle is looked up afresh.
+let oletFound = false;
+const pointCount = await page.locator('#canvas circle.hit-dot[data-node]').count();
+for (let i = 0; i < pointCount; i += 1) {
+  await page.locator('#canvas circle.hit-dot[data-node]').nth(i).click({ force: true });
+  await page.waitForTimeout(250);
+  const heading = await page.locator('#tab-body h3').first().innerText();
+  if (/OLET/.test(heading)) {
+    oletFound = true;
+    break;
+  }
+}
+check('the olet names itself in the point editor', oletFound, (v) => v === true, 'a point reading WELDOLET');
+
+if (oletFound) {
+  await page.locator('#tab-body [data-f="joint"]').selectOption('THD');
+  await page.waitForTimeout(500);
+  await page.click('#tabs button:has-text("Items")');
+  await page.waitForTimeout(300);
+  check('switching it makes it a threadolet', await page.locator('#tab-body').innerText(), (v) => /THREADOLET 6" x 1"/.test(v), 'THREADOLET 6" x 1"');
+  await page.click('#tabs button:has-text("Welds")');
+  await page.waitForTimeout(300);
+  check(
+    'a threadolet welds to the header only',
+    await page.locator('#tab-body tbody tr').count(),
+    (v) => v === 1,
+    '1 — the threaded branch is not a weld',
+  );
+}
 
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 

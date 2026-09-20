@@ -1,18 +1,27 @@
-import type { ComponentKind, Run, TerminalKind } from '../model/types';
+import type { ComponentKind, JointType, Run, TerminalKind } from '../model/types';
 import type { Host } from './types';
 import { COMPONENT_LABEL } from '../model/drawing';
-import { addComponent, runLength } from '../model/edit';
-import { componentSymbol, type Frame } from '../render/symbols';
+import { addComponent, runLength, splitRun } from '../model/edit';
+import { componentSymbol, oletSymbol, type Frame } from '../render/symbols';
+
+/** Olets are fittings on the header, not items sitting in the line. */
+type OletTool = { olet: JointType };
+type Tool = ComponentKind | OletTool;
+
+function isOlet(tool: Tool): tool is OletTool {
+  return typeof tool === 'object';
+}
 
 interface ToolGroup {
   label: string;
-  kinds: ComponentKind[];
+  kinds: Tool[];
 }
 
 const GROUPS: ToolGroup[] = [
   { label: 'Flanges', kinds: ['FLG_WN', 'FLG_SO', 'FLG_SW', 'FLG_THD', 'FLG_LAP', 'FLG_BLIND'] },
   { label: 'Fittings', kinds: ['RED_CONC', 'RED_ECC', 'CAP'] },
   { label: 'Valves', kinds: ['BALL', 'BALL_ACT'] },
+  { label: 'Branch', kinds: [{ olet: 'BW' }, { olet: 'SW' }, { olet: 'THD' }] },
 ];
 
 const SHORT: Partial<Record<ComponentKind, string>> = {
@@ -29,6 +38,20 @@ const SHORT: Partial<Record<ComponentKind, string>> = {
   RED_ECC: 'Ecc',
   CAP: 'Cap',
 };
+
+const OLET_SHORT: Record<JointType, string> = { BW: 'Weldolet', SW: 'Sockolet', THD: 'Thredolet' };
+
+/** The olet icon shows the saddle on a length of header, branch going up. */
+function oletIcon(): string {
+  const f: Frame = { cx: 29, cy: 26, dx: 0, dy: -1, nx: 1, ny: 0, s: 7 };
+  return (
+    `<svg viewBox="0 0 58 36" aria-hidden="true">` +
+    `<line class="icon-pipe" x1="4" y1="26" x2="54" y2="26"/>` +
+    `<line class="sym-line" x1="29" y1="26" x2="29" y2="5"/>` +
+    oletSymbol(f) +
+    `</svg>`
+  );
+}
 
 /** The palette icons are the drawing symbols themselves, so nothing can drift. */
 function icon(kind: ComponentKind): string {
@@ -117,25 +140,65 @@ function place(host: Host, kind: ComponentKind): void {
   if (addedId) host.select({ kind: 'component', id: addedId });
 }
 
+/**
+ * Puts an olet on the header: the run is broken at that point so the branch has
+ * somewhere to leave from, but the header is still one pipe as far as the cut
+ * lengths and the take-off are concerned.
+ */
+function placeOlet(host: Host, joint: JointType): void {
+  const run = targetRun(host);
+  if (!run) {
+    host.notify('Select the header run first, then pick an olet.');
+    return;
+  }
+  const at = runLength(host.state.drawing, run) / 2;
+  let nodeId: string | null = null;
+  host.edit(`Add ${OLET_SHORT[joint].toLowerCase()}`, (d) => {
+    nodeId = splitRun(d, run.id, at);
+    if (!nodeId) return;
+    const node = d.nodes.find((n) => n.id === nodeId);
+    if (node) {
+      node.fittingOverride = 'OLET';
+      node.joint = joint;
+    }
+  });
+  if (nodeId) {
+    host.select({ kind: 'node', id: nodeId });
+    host.notify('Now drag from the olet to route the branch.');
+  }
+}
+
 export function renderTools(container: HTMLElement, host: Host): void {
-  const run = hasTarget(host);
+  const enabled = hasTarget(host);
   container.innerHTML = GROUPS.map(
     (group) =>
       `<div class="tool-group-label">${group.label}</div>` +
       group.kinds
-        .map(
-          (kind) =>
-            `<button class="tool" data-kind="${kind}" title="${COMPONENT_LABEL[kind]}"${run ? '' : ' disabled'}>` +
-            icon(kind) +
-            `<span class="tool-name">${SHORT[kind] ?? kind}</span>` +
-            `</button>`,
-        )
+        .map((tool, i) => {
+          if (isOlet(tool)) {
+            return (
+              `<button class="tool" data-olet="${tool.olet}" title="${OLET_SHORT[tool.olet]}"${enabled ? '' : ' disabled'}>` +
+              oletIcon() +
+              `<span class="tool-name">${OLET_SHORT[tool.olet]}</span>` +
+              `</button>`
+            );
+          }
+          void i;
+          return (
+            `<button class="tool" data-kind="${tool}" title="${COMPONENT_LABEL[tool]}"${enabled ? '' : ' disabled'}>` +
+            icon(tool) +
+            `<span class="tool-name">${SHORT[tool] ?? tool}</span>` +
+            `</button>`
+          );
+        })
         .join(''),
   ).join('');
 
   container.querySelectorAll<HTMLButtonElement>('.tool').forEach((button) => {
     button.addEventListener('click', () => {
-      place(host, button.dataset.kind as ComponentKind);
+      const olet = button.dataset.olet as JointType | undefined;
+      if (olet) placeOlet(host, olet);
+      else place(host, button.dataset.kind as ComponentKind);
     });
   });
 }

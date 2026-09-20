@@ -1,8 +1,8 @@
 import type { Analysis } from '../model/drawing';
 import type { Axis, Drawing, Vec3 } from '../model/types';
-import { COMPONENT_LABEL, TERMINAL_LABEL, fittingLabel } from '../model/drawing';
+import { COMPONENT_LABEL, TERMINAL_LABEL, fittingLabel, oletLegs } from '../model/drawing';
 import { AXIS_VECTOR, axisScreenDir, project, scale3, add } from '../model/iso';
-import { componentSymbol, frameFor, jointMark, terminalSymbol } from './symbols';
+import { componentSymbol, frameFor, jointMark, oletSymbol, terminalSymbol } from './symbols';
 
 export interface ViewBox {
   x: number;
@@ -298,6 +298,20 @@ export function renderDrawing(state: RenderState): string {
     welds += `</g>`;
   });
 
+  // An olet is drawn as the saddle on the header where the branch leaves it.
+  let olets = '';
+  for (const [nodeId, info] of analysis.nodeInfo) {
+    if (info.fitting !== 'OLET') continue;
+    const legs = oletLegs(info);
+    if (!legs) continue;
+    const here = paper(nodeId);
+    const branchOther = legs.branch.from === nodeId ? legs.branch.to : legs.branch.from;
+    const out = paper(branchOther);
+    if (!here || !out) continue;
+    const f = frameFor(here.x, here.y, out.x, out.y, 0, size);
+    olets += `<g class="olet">${oletSymbol(f)}</g>`;
+  }
+
   // A reducing tee is drawn as the triangle across its three joints.
   let tees = '';
   for (const [nodeId, info] of analysis.nodeInfo) {
@@ -308,7 +322,7 @@ export function renderDrawing(state: RenderState): string {
     if (corners.length < 3) continue;
     tees += `<polygon class="fitting-body" points="${corners.map((c) => `${c.x.toFixed(2)},${c.y.toFixed(2)}`).join(' ')}"/>`;
   }
-  welds = tees + welds;
+  welds = olets + tees + welds;
 
   // Drag preview.
   let preview = '';

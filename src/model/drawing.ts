@@ -11,7 +11,7 @@ import type {
   Weld,
 } from './types';
 import { add, angleBetween, direction, length3, scale3, sub } from './iso';
-import { componentTakeout, fittingTakeout, sizeLabel } from './pipe-data';
+import { componentTakeout, fittingTakeout, oletTakeout, sizeLabel } from './pipe-data';
 import { flangeJoint, isFlange } from '../render/symbols';
 
 let counter = 0;
@@ -101,6 +101,11 @@ export interface Analysis {
 }
 
 function inferFitting(legs: Vec3[], runs: Run[], override?: FittingKind): FittingKind {
+  // An olet needs a branch: delete the branch and the header closes back up to
+  // a plain butt joint rather than keeping a fitting that is no longer there.
+  if (override === 'OLET' && legs.length < 3) {
+    return legs.length === 2 ? 'NONE' : 'NONE';
+  }
   if (override) return override;
   if (legs.length <= 1) return 'NONE';
   if (legs.length === 2) {
@@ -119,6 +124,27 @@ function inferFitting(legs: Vec3[], runs: Run[], override?: FittingKind): Fittin
   return 'CROSS';
 }
 
+/** What an olet is called, which follows how its branch is joined. */
+export function oletLabel(joint: JointType): string {
+  if (joint === 'SW') return 'SOCKOLET';
+  if (joint === 'THD') return 'THREADOLET';
+  return 'WELDOLET';
+}
+
+/**
+ * At an olet the two collinear runs are the header and the odd one out is the
+ * branch. Returns null when the node is not shaped like an olet at all.
+ */
+export function oletLegs(info: NodeInfo): { header: Run[]; branch: Run } | null {
+  if (info.runs.length !== 3 || info.legs.length !== 3) return null;
+  for (let i = 0; i < 3; i += 1) {
+    const others = [0, 1, 2].filter((k) => k !== i);
+    const deviation = 180 - angleBetween(info.legs[others[0]], info.legs[others[1]]);
+    if (deviation < 1) return { header: [info.runs[others[0]], info.runs[others[1]]], branch: info.runs[i] };
+  }
+  return null;
+}
+
 export function fittingLabel(kind: FittingKind): string {
   switch (kind) {
     case 'ELBOW_90':
@@ -134,6 +160,7 @@ export function fittingLabel(kind: FittingKind): string {
     case 'CROSS':
       return 'CROSS';
     case 'OLET':
+      // Named properly by oletLabel, which knows how the branch is joined.
       return 'OLET';
     case 'MITRE':
       return 'MITRE BEND';
@@ -256,6 +283,21 @@ function layout(drawing: Drawing, nodeById: Map<string, IsoNode>, adjacency: Map
   return display;
 }
 
+/**
+ * How much length a run loses at one of its ends. Everywhere but an olet this
+ * is just the fitting's take-out; at an olet the header runs lose nothing,
+ * because the olet sits on the header rather than in it, and the branch pays
+ * for the whole thing.
+ */
+function endTakeout(info: NodeInfo | undefined, run: Run): number {
+  if (!info) return 0;
+  if (info.fitting !== 'OLET') return fittingTakeout(info.fitting, run.dn);
+  const legs = oletLegs(info);
+  if (!legs) return 0;
+  if (legs.branch.id !== run.id) return 0;
+  return oletTakeout(legs.header[0]?.dn ?? run.dn, run.dn);
+}
+
 export function analyse(drawing: Drawing): Analysis {
   const nodeById = new Map(drawing.nodes.map((n) => [n.id, n]));
   const adjacency = new Map<string, Run[]>();
@@ -290,9 +332,9 @@ export function analyse(drawing: Drawing): Analysis {
     const b = nodeById.get(run.to);
     if (!a || !b) continue;
     const centre = length3(sub(b.pos, a.pos));
-    const fromFitting = nodeInfo.get(run.from)?.fitting ?? 'NONE';
-    const toFitting = nodeInfo.get(run.to)?.fitting ?? 'NONE';
-    let cut = centre - fittingTakeout(fromFitting, run.dn) - fittingTakeout(toFitting, run.dn);
+    const fromInfo = nodeInfo.get(run.from);
+    const toInfo = nodeInfo.get(run.to);
+    let cut = centre - endTakeout(fromInfo, run) - endTakeout(toInfo, run);
     for (const end of [a, b]) {
       if (end.terminal && (end.terminal.kind === 'FLG_WN' || end.terminal.kind === 'FLG_SO')) {
         cut -= componentTakeout(end.terminal.kind, run.dn);
@@ -354,7 +396,13 @@ export function analyse(drawing: Drawing): Analysis {
     ] as const) {
       const info = nodeInfo.get(node.id);
       if (!info) continue;
-      const nodeJoint = node.joint ?? defaultJoint;
+      // An olet's joint type belongs to its branch. Until the branch is drawn
+      // there is no olet, so the header closes up with the drawing's own joint
+      // rather than wearing a mark for a fitting that is not there.
+      const nodeJoint =
+        node.fittingOverride === 'OLET' && info.fitting !== 'OLET'
+          ? defaultJoint
+          : node.joint ?? defaultJoint;
       const takeout = fittingTakeout(info.fitting, run.dn);
       const distance = atStart ? takeout : total - takeout;
       const pos = add(a.pos, scale3(dir, distance));
@@ -376,6 +424,42 @@ export function analyse(drawing: Drawing): Analysis {
             idx,
             atStart ? 0 : total,
           );
+        }
+      } else if (info.fitting === 'OLET') {
+        const legs = oletLegs(info);
+        if (legs) {
+          const isBranch = legs.branch.id === run.id;
+          if (isBranch) {
+            // The branch joint: this is what makes it a weldolet, sockolet or
+            // threadolet, so it follows the node's joint type.
+            const distance2 = atStart
+              ? oletTakeout(legs.header[0]?.dn ?? run.dn, run.dn)
+              : total - oletTakeout(legs.header[0]?.dn ?? run.dn, run.dn);
+            pushJoint(
+              `n:${node.id}:branch`,
+              nodeJoint,
+              run.dn,
+              run.schedule,
+              `BRANCH / ${oletLabel(nodeJoint)}`,
+              add(a.pos, scale3(dir, distance2)),
+              facing,
+              idx,
+              distance2,
+            );
+          } else {
+            // The olet is welded to the header wall whatever its branch is.
+            pushJoint(
+              `n:${node.id}:header`,
+              'BW',
+              legs.header[0]?.dn ?? run.dn,
+              run.schedule,
+              `HEADER / ${oletLabel(nodeJoint)}`,
+              node.pos,
+              facing,
+              idx,
+              distance,
+            );
+          }
         }
       } else if (info.fitting === 'NONE') {
         pushJoint(
@@ -482,6 +566,20 @@ export function analyse(drawing: Drawing): Analysis {
   };
 
   for (const info of nodeInfo.values()) {
+    if (info.fitting === 'OLET') {
+      const legs = oletLegs(info);
+      const joint = info.node.joint ?? drawing.options.joint ?? 'BW';
+      if (legs) {
+        tally({
+          category: 'FITTING',
+          description: `${oletLabel(joint)} ${sizeLabel(legs.header[0].dn)} x ${sizeLabel(legs.branch.dn)}`,
+          dn: legs.header[0].dn,
+          schedule: legs.header[0].schedule,
+          unit: 'off',
+        });
+      }
+      continue;
+    }
     if (info.fitting !== 'NONE' && info.degree > 1) {
       const dn = info.runs[0]?.dn ?? 'DN80';
       const schedule = info.runs[0]?.schedule ?? 'STD';

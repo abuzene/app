@@ -220,6 +220,24 @@ function eccentricReducer(f: Frame): string {
   );
 }
 
+/**
+ * An olet: the saddle that sits on the header wall where the branch leaves it.
+ * The frame runs along the branch, away from the header, so the saddle widens
+ * back down onto the pipe it is welded to.
+ */
+export function oletSymbol(f: Frame): string {
+  const s = f.s;
+  return poly(
+    [
+      pt(f, 0, -s * 0.95),
+      pt(f, 0, s * 0.95),
+      pt(f, s * 0.85, s * 0.45),
+      pt(f, s * 0.85, -s * 0.45),
+    ],
+    'sym-fill',
+  );
+}
+
 /* -------------------------------------------------------- inline components */
 
 /** The two opposed triangles that read as a valve body on an isometric. */

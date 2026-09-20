@@ -212,6 +212,21 @@ export function reducerLength(large: string, small: string): number {
 }
 
 /** Take-out at a node for the fitting that connectivity implies. */
+/**
+ * How much of the branch an olet occupies, measured from the header centreline
+ * to the branch weld: half the header, plus the height the olet stands off it.
+ * The header itself loses nothing — an olet is welded to its wall, not cut into
+ * it — which is the whole reason to use one.
+ */
+export function oletTakeout(headerDn: string, branchDn: string): number {
+  const header = sizeOf(headerDn);
+  const branch = sizeOf(branchDn);
+  // Olet height runs roughly with the branch size; this tracks the
+  // manufacturers' tables closely enough for a cut length.
+  const height = Math.max(22, Math.round(branch.od * 0.55));
+  return Math.round(header.od / 2 + height);
+}
+
 export function fittingTakeout(fitting: string, dn: string): number {
   const size = sizeOf(dn);
   switch (fitting) {
