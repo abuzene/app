@@ -17,7 +17,10 @@ npm install
 npm run app       # builds dist/ as an installable app
 ```
 
-Serve `dist/` (or open `dist/index.html`) and the browser offers to install it.
+That one command writes everything: `dist/index.html`, the manifest, icon and
+service worker that make it installable, and `dist/artifact.html` for hosts that
+supply their own page shell. Serve `dist/` (or open `dist/index.html`) and the
+browser offers to install it.
 Installed, it gets its own window and icon, opens with no address bar, and works
 with no network at all — the service worker caches the whole app on first run.
 That matters on a site or a shop floor, and it is also what makes printing feel
@@ -26,7 +29,6 @@ like printing from any other program.
 ```bash
 npm run dev       # development server
 npm run build     # just the single self-contained dist/index.html
-npm run artifact  # dist/artifact.html, for hosts that supply their own page shell
 npm run smoke     # drives the built app in a browser and checks it still works
 npm run symbols   # redraws reference/symbols.svg from the drawing code
 ```

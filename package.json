@@ -9,9 +9,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "smoke": "node scripts/smoke.mjs",
-    "artifact": "npm run build && node scripts/artifact.mjs",
     "symbols": "node scripts/symbol-sheet.mjs",
-    "app": "npm run build && node scripts/pwa.mjs"
+    "app": "npm run build && node scripts/artifact.mjs && node scripts/pwa.mjs"
   },
   "devDependencies": {
     "playwright": "^1.63.0",
