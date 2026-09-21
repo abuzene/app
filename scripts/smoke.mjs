@@ -131,7 +131,7 @@ check('a length can be typed', await page.locator('#tab-body .run-list input[dat
 // Palette.
 await page.locator('#tab-body .run-list tbody tr').first().click();
 await page.waitForTimeout(200);
-check('the palette carries the fittings, ball valves, tee, olets and marks', await page.locator('.tool').count(), (v) => v === 17, '17');
+check('the palette carries the fittings, ball valves, tee, olets, marks and a weld', await page.locator('.tool').count(), (v) => v === 18, '18');
 check('and no slip-on or lap joint flange, which are not used here', await page.locator('.tool[data-kind="FLG_SO"], .tool[data-kind="FLG_LAP"]').count(), (v) => v === 0, '0');
 check('a tee can be placed on a header', await page.locator('.tool[data-branch="TEE"]').count(), (v) => v === 1, '1');
 check('the actuated ball valve is there', await page.locator('.tool[data-kind="BALL_ACT"]').count(), (v) => v === 1, '1');
@@ -1856,6 +1856,37 @@ check('the weld list counts it out', await page.locator('#tab-body').innerText()
 await page.click('[data-restore-weld]');
 await page.waitForTimeout(300);
 check('and welds it after all on request', await page.locator('#tab-body').innerText(), (v) => /Total 3/.test(v) && !/Not welded/.test(v), 'Total 3, nothing not welded');
+
+/* --------------------------------------------- a butt weld put in the pipe */
+
+// A weld from the palette cuts the picked run in two at a plain point,
+// welded pipe to pipe, with the dimension up to it open for typing.
+await startNewDrawing();
+await page.click('#tabs button:has-text("Command")');
+await page.fill('#command-text', '3"\nSTD\nORIGIN 0 0 0\nE 3000\nN 1500');
+await page.click('[data-a="run-commands"]');
+await page.waitForTimeout(500);
+await page.keyboard.press('Escape');
+await page.click('#tabs button:has-text("Route")');
+await page.waitForTimeout(150);
+await page.locator('#tab-body .run-list tbody tr').first().click();
+await page.waitForTimeout(200);
+const weldsBeforeSplice = await page.evaluate(() => document.querySelectorAll('#canvas .weld .joint-bw').length);
+await page.locator('.tool[data-weld="BW"]').click();
+await page.waitForTimeout(400);
+check('a weld from the palette cuts the run in two', await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).runs.length), (v) => v === 3, '3');
+check('and adds a pipe-to-pipe weld', await page.evaluate(() => document.querySelectorAll('#canvas .weld .joint-bw').length), (v) => v === weldsBeforeSplice + 1, `${weldsBeforeSplice + 1}`);
+check('opening the dimension up to it for typing', await page.locator('.dim-editor').count(), (v) => v === 1, '1');
+check('with the value of that side', await page.locator('.dim-editor').inputValue(), (v) => v === '1500', '1500');
+for (const k of ['⌫', '⌫', '⌫', '⌫', '1', '0', '0', '0']) await page.locator(`.dim-keypad [data-key="${k}"]`).dispatchEvent('pointerdown', { bubbles: true });
+await page.locator('.dim-keypad [data-key="OK"]').dispatchEvent('pointerdown', { bubbles: true });
+await page.waitForTimeout(400);
+check('typing one side moves the weld and the other side follows', await page.evaluate(() => [...document.querySelectorAll('#canvas .dim-text')].map((t) => t.textContent).join(' ')), (v) => /\b1000\b/.test(v) && /\b2000\b/.test(v), '1000 and 2000');
+await page.click('#tabs button:has-text("Welds")');
+await page.waitForTimeout(200);
+check('the weld list has it as pipe to pipe', await page.locator('#tab-body').innerText(), (v) => /PIPE \/ PIPE/.test(v), 'PIPE / PIPE');
+await page.click('#tabs button:has-text("Route")');
+await page.waitForTimeout(150);
 
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 

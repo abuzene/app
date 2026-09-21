@@ -98,7 +98,9 @@ ships, and the decisions already taken, so they are not re-litigated.
   the steel.
 - Palette (`src/ui/tools.ts`): Flanges WN/SW/Thd/Blind (SO and Lap removed
   on request), Fittings, Valves (Ball, Ball air), Branch (tee, olets), Marks
-  (Support, L50 support, AG/UG). Two columns on tablets so all fit.
+  (Support, L50 support, AG/UG), Joints (a BW weld: `placeWeld` splits the
+  run at a plain point, welded pipe to pipe, dimension opened). Two columns
+  on tablets so all fit.
 - Supports and the AG/UG mark are **notes, not material**: no BOM line, no
   welds. Supports are numbered along the line unless named.
 - Printing happens from the page itself (`#print-root`, `@page` size); a

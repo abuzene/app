@@ -7,7 +7,7 @@ import { isFlange } from '../render/symbols';
 import { componentSymbol, jointMark, oletSymbol, type Frame } from '../render/symbols';
 
 /** Branch fittings act on the header, they do not sit in the line. */
-type BranchTool = { branch: 'TEE' } | { olet: JointType };
+type BranchTool = { branch: 'TEE' } | { olet: JointType } | { weld: 'BW' };
 type Tool = ComponentKind | BranchTool;
 
 function isBranch(tool: Tool): tool is BranchTool {
@@ -25,6 +25,7 @@ const GROUPS: ToolGroup[] = [
   { label: 'Valves', kinds: ['BALL', 'BALL_ACT'] },
   { label: 'Branch', kinds: [{ branch: 'TEE' }, { olet: 'BW' }, { olet: 'SW' }, { olet: 'THD' }] },
   { label: 'Marks', kinds: ['SUPPORT', 'SUPPORT_L', 'GROUND'] },
+  { label: 'Joints', kinds: [{ weld: 'BW' }] },
 ];
 
 const SHORT: Partial<Record<ComponentKind, string>> = {
@@ -109,6 +110,22 @@ function oletIcon(): string {
       `<line class="sym-line" x1="${ICON_CX}" y1="${ICON_CY + 5}" x2="${ICON_CX}" y2="${ICON_CY - 13}"/>` +
       oletSymbol(f),
   );
+}
+
+/** A butt weld in a straight length of pipe: pipe to pipe. */
+function weldIcon(): string {
+  const f: Frame = {
+    cx: ICON_CX,
+    cy: ICON_CY,
+    dx: EAST.x,
+    dy: EAST.y,
+    nx: NORTH.x,
+    ny: NORTH.y,
+    ux: UP.x,
+    uy: UP.y,
+    s: 5.2,
+  };
+  return iconSvg(stub(EAST) + jointMark(f, 'BW'));
 }
 
 /** A tee: a branch off a header, with a joint mark on each of its three ends. */
@@ -344,6 +361,36 @@ function placeBranch(host: Host, tool: BranchTool): void {
  * Something put into a drawn line is placed by typing the length up to it;
  * the far side takes the rest. So the piece ending at the new point opens.
  */
+/**
+ * A butt weld in a straight length of pipe — where two lengths are joined,
+ * a shop or field splice. The run is cut in two at the middle with a plain
+ * point between, which the analysis welds pipe to pipe; the dimension up
+ * to it opens for typing, and the point slides along the line by dragging.
+ */
+function placeWeld(host: Host): void {
+  const run = targetRun(host);
+  if (!run) {
+    host.notify('Select the run to put the weld in first.');
+    return;
+  }
+  const at = runLength(host.state.drawing, run) / 2;
+  let nodeId: string | null = null;
+  host.edit('Add weld', (d) => {
+    nodeId = splitRun(d, run.id, at);
+    const node = nodeId ? d.nodes.find((n) => n.id === nodeId) : undefined;
+    if (node) {
+      node.fittingOverride = undefined;
+      node.joint = 'BW';
+    }
+  });
+  if (!nodeId) {
+    host.notify('The run is too short to cut there.');
+    return;
+  }
+  host.select({ kind: 'node', id: nodeId });
+  openDimensionUpTo(host, nodeId);
+}
+
 function openDimensionUpTo(host: Host, nodeId: string): void {
   const before = host.state.drawing.runs.find((r) => r.to === nodeId);
   if (!before) return;
@@ -359,6 +406,14 @@ export function renderTools(container: HTMLElement, host: Host): void {
       group.kinds
         .map((tool) => {
           if (isBranch(tool)) {
+            if ('weld' in tool) {
+              return (
+                `<button class="tool" data-weld="BW" title="Butt weld in the pipe"${enabled ? '' : ' disabled'}>` +
+                weldIcon() +
+                `<span class="tool-name">Weld</span>` +
+                `</button>`
+              );
+            }
             const olet = 'olet' in tool;
             const name = olet ? OLET_SHORT[tool.olet] : 'Tee';
             const attr = olet ? `data-olet="${tool.olet}"` : 'data-branch="TEE"';
@@ -382,7 +437,8 @@ export function renderTools(container: HTMLElement, host: Host): void {
   container.querySelectorAll<HTMLButtonElement>('.tool').forEach((button) => {
     button.addEventListener('click', () => {
       const olet = button.dataset.olet as JointType | undefined;
-      if (olet) placeBranch(host, { olet });
+      if (button.dataset.weld) placeWeld(host);
+      else if (olet) placeBranch(host, { olet });
       else if (button.dataset.branch === 'TEE') placeBranch(host, { branch: 'TEE' });
       else place(host, button.dataset.kind as ComponentKind);
     });
