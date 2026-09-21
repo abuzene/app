@@ -84,7 +84,14 @@ ships, and the decisions already taken, so they are not re-litigated.
 - Supports and the AG/UG mark are **notes, not material**: no BOM line, no
   welds. Supports are numbered along the line unless named.
 - Printing happens from the page itself (`#print-root`, `@page` size); a
-  hidden iframe printed blank on iPad.
+  hidden iframe printed blank on iPad. The sheet is **pinned** (`position:
+  fixed`, 100%/100%) to the page box, never laid out with vw/vh: iOS keeps
+  its own margins and footers and its vw/vh are not the printable area, so
+  a 100vh sheet spilled on to a second page. The print dialog has a
+  **Paper** choice (landscape / upright, upright by default on a tablet);
+  upright turns the sheet itself (a rotated `<g>` in a portrait viewBox)
+  because iOS ignores `@page size` and Chromium evaluates the print
+  `orientation` media query before applying it — do not rely on that query.
 - The toolbar pads for the iPad status bar (`env(safe-area-inset-top)`).
 
 ## Where things live

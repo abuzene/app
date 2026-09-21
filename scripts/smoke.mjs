@@ -1565,7 +1565,7 @@ await page.click('[data-x="print"]');
 await page.waitForTimeout(400);
 check('Print prints the page', await page.evaluate(() => window.__printed), (v) => v === 1, '1');
 check('the sheet is in the page, ready to print', await page.locator('#print-root svg').count(), (v) => v === 1, '1');
-check('at the chosen sheet size', await page.evaluate(() => document.getElementById('print-page')?.textContent), (v) => /size: 297mm 210mm/.test(v), '@page size 297mm 210mm');
+check('at the chosen sheet size', await page.evaluate(() => document.getElementById('print-page')?.textContent), (v) => /A4 landscape/.test(v), '@page size A4 landscape');
 await page.emulateMedia({ media: 'print' });
 check('on paper the app is hidden', await page.evaluate(() => getComputedStyle(document.getElementById('app')).display), (v) => v === 'none', 'none');
 check('and the sheet is shown', await page.evaluate(() => getComputedStyle(document.getElementById('print-root')).display), (v) => v === 'block', 'block');
@@ -1643,13 +1643,17 @@ const pdfPages = (buf) => (buf.toString('latin1').match(/\/Type\s*\/Page[^s]/g) 
 check('the sheet prints on one page at its own size', pdfPages(await page.pdf({ preferCSSPageSize: true })), (v) => v === 1, '1');
 check('and on one page of A4 portrait', pdfPages(await page.pdf({ format: 'A4' })), (v) => v === 1, '1');
 check('and on one page of Letter', pdfPages(await page.pdf({ format: 'Letter', landscape: true })), (v) => v === 1, '1');
-// On upright paper the sheet is turned to lie along the page, filling it.
-await page.evaluate(() => {
-  document.getElementById('print-page').textContent = '@page { margin: 0 }';
-});
-const upright = await page.pdf({ format: 'A4' });
-check('and on one page of upright A4, turned to fit', pdfPages(upright), (v) => v === 1, '1');
-check('where it fills the page', upright.length, (v) => v > 20000, 'a page with the sheet drawn on it');
+// Told the paper is upright — a tablet's default — the sheet is turned to
+// lie along the page, and the page asked for is upright too.
+await page.click('#print');
+await page.waitForTimeout(200);
+await page.selectOption('#sheet-paper', 'upright');
+await page.click('[data-x="print"]');
+await page.waitForTimeout(300);
+check('upright paper turns the sheet', await page.evaluate(() => document.querySelector('#print-root svg')?.getAttribute('viewBox')), (v) => v === '0 0 297 420', '0 0 297 420');
+check('and asks for an upright page', await page.evaluate(() => document.getElementById('print-page')?.textContent), (v) => /A3 portrait/.test(v), 'A3 portrait');
+const upright = await page.pdf({ format: 'A4', margin: { top: '15mm', bottom: '15mm', left: '12mm', right: '12mm' } });
+check('and prints on one page of upright A4 with the printer\'s own margins', pdfPages(upright), (v) => v === 1, '1');
 
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 

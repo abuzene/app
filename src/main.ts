@@ -1101,6 +1101,11 @@ function openPrintDialog(): void {
     <option value="A3" selected>A3 landscape</option>
     <option value="A2">A2 landscape</option>
   </select></div>
+  <div class="row"><label>Paper</label><select id="sheet-paper">
+    <option value="landscape"${tabletPrinter ? '' : ' selected'}>Landscape, as the sheet is</option>
+    <option value="upright"${tabletPrinter ? ' selected' : ''}>Upright — the sheet is turned to fill it</option>
+  </select></div>
+  <p class="empty-note">A tablet prints on upright paper unless told otherwise, so the sheet is turned to lie along it; a printer fed landscape paper takes the sheet as it is.</p>
   <div class="row"><label>Drawing scale</label><select id="sheet-scale">
     ${[0, 5, 10, 15, 20, 25, 33, 40, 50, 75, 100]
       .map((r) => `<option value="${r}"${(state.drawing.options.sheetScale ?? 15) === r ? ' selected' : ''}>${r === 0 ? 'Fit to the sheet' : `1:${r}`}</option>`)
@@ -1126,6 +1131,7 @@ function openPrintDialog(): void {
   });
 
   const sheetSize = () => (backdrop.querySelector<HTMLSelectElement>('#sheet-size')?.value ?? 'A3') as SheetSize;
+  const upright = () => backdrop.querySelector<HTMLSelectElement>('#sheet-paper')?.value === 'upright';
   // The scale is the drawing's own, kept with it, and sizes the symbols on screen too.
   backdrop.querySelector<HTMLSelectElement>('#sheet-scale')?.addEventListener('change', (event) => {
     const value = Number((event.target as HTMLSelectElement).value);
@@ -1146,7 +1152,7 @@ function openPrintDialog(): void {
           true,
         );
       } else {
-        printSheet(sheet, sheetSize());
+        printSheet(sheet, sheetSize(), upright());
       }
       close();
     });
@@ -1166,7 +1172,10 @@ const SHEET_MM: Record<SheetSize, { w: number; h: number }> = {
  * It used to be printed from a hidden frame, which an iPad prints as a blank
  * page — the frame has no size on screen, and that is the size it prints at.
  */
-function printSheet(sheet: string, size: SheetSize): void {
+/** A tablet's printer gives upright paper unless told otherwise. */
+const tabletPrinter = /iPad|iPhone|Android/.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
+
+function printSheet(sheet: string, size: SheetSize, upright = false): void {
   const { w, h } = SHEET_MM[size];
   let root = document.getElementById('print-root');
   if (!root) {
@@ -1183,9 +1192,18 @@ function printSheet(sheet: string, size: SheetSize): void {
   }
   // Where the browser honours it, the paper is the sheet itself; elsewhere
   // the sheet is fitted to the paper by the print stylesheet.
-  const named = size === 'A4' ? 'A4 landscape' : size === 'A3' ? 'A3 landscape' : `${w}mm ${h}mm`;
-  page.textContent = `@page { size: ${named}; size: ${w}mm ${h}mm; margin: 0; }`;
-  root.innerHTML = sheet;
+  // Where the browser honours it the paper is the sheet's own; a tablet takes
+  // no notice, keeps its own margins and footers, and gives upright paper
+  // unless told otherwise. So on upright paper the sheet itself is turned to
+  // lie along the page, and either way it is fitted to the printable area.
+  const orient = upright ? 'portrait' : 'landscape';
+  const named = size === 'A4' ? `A4 ${orient}` : size === 'A3' ? `A3 ${orient}` : upright ? `${h}mm ${w}mm` : `${w}mm ${h}mm`;
+  page.textContent = `@page { size: ${named}; margin: 0; }`;
+  const turned = sheet
+    .replace(/<svg([^>]*)viewBox="0 0 ([\d.]+) ([\d.]+)"([^>]*)width="[^"]*" height="[^"]*"/, (_m, a, sw, sh, b) =>
+      `<svg${a}viewBox="0 0 ${sh} ${sw}"${b}width="${sh}mm" height="${sw}mm"><g transform="translate(${sh} 0) rotate(90)">`)
+    .replace(/<\/svg>\s*$/, '</g></svg>');
+  root.innerHTML = upright ? turned : sheet;
 
   // The page title is what "Save as PDF" names the file.
   const title = document.title;
