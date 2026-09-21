@@ -25,10 +25,25 @@ export interface CanvasCallbacks {
   onStretchRun(runId: string, end: 'from' | 'to', paper: { x: number; y: number }, commit: boolean): void;
   /** Moves a weld number tag; the offset is from the weld, in paper units. */
   onSlideTag(key: string, offset: { dx: number; dy: number }, commit: boolean): void;
+  /** Moves a dimension: the drag so far, in paper units, and the dimension's frame. */
+  onSlideDim(key: string, delta: { dx: number; dy: number }, frame: DimFrame, commit: boolean): void;
+}
+
+/** How a dimension lies, as its figure's target carries it. */
+export interface DimFrame {
+  nx: number;
+  ny: number;
+  ux: number;
+  uy: number;
+  len: number;
+  off: number;
+  along: number;
 }
 
 interface DragState {
-  kind: 'pan' | 'route' | 'slide-component' | 'slide-node' | 'stretch' | 'slide-tag';
+  kind: 'pan' | 'route' | 'slide-component' | 'slide-node' | 'stretch' | 'slide-tag' | 'slide-dim';
+  /** The dimension being moved. */
+  dim?: DimFrame;
   /** Which end of the run a stretch moves. */
   end?: 'from' | 'to';
   /** Where a dragged tag's weld is, in paper units. */
@@ -255,18 +270,23 @@ export class Canvas {
     // A dimension figure is tapped to be typed over. The box opens on the
     // touch itself, which is when a tablet lets a keyboard come up; the mouse
     // events that would follow and take focus back are not let through.
+    // ... and dragged, it moves: out from the pipe, across to the other side,
+    // or along the line, the box going away as the drag starts.
     if (!panRequested && dimEl) {
       event.preventDefault();
       // The box opens under the pointer, so the lift is kept coming here.
       this.capture(event.pointerId);
+      const num = (name: string) => Number(dimEl.getAttribute(name));
       this.drag = {
-        kind: 'pan',
+        kind: 'slide-dim',
         pointerId: event.pointerId,
         startClientX: event.clientX,
         startClientY: event.clientY,
         startView,
         moved: false,
         opened: true,
+        targetId: dimEl.getAttribute('data-dim')!,
+        dim: { nx: num('data-nx'), ny: num('data-ny'), ux: num('data-ux'), uy: num('data-uy'), len: num('data-len'), off: num('data-off'), along: num('data-along') },
       };
       const [runId, index] = dimEl.getAttribute('data-dim')!.split(':');
       this.cb.onEditDimension(runId, Number(index), event.clientX, event.clientY);
@@ -508,6 +528,13 @@ export class Canvas {
     const dyScreen = event.clientY - drag.startClientY;
     if (Math.abs(dxScreen) > 2 || Math.abs(dyScreen) > 2) drag.moved = true;
 
+    if (drag.kind === 'slide-dim') {
+      if (!drag.moved) return;
+      const here = this.toPaper(event.clientX, event.clientY);
+      const from = this.toPaper(drag.startClientX, drag.startClientY);
+      this.cb.onSlideDim(drag.targetId!, { dx: here.x - from.x, dy: here.y - from.y }, drag.dim!, false);
+      return;
+    }
     if (drag.kind === 'slide-component' || drag.kind === 'slide-node' || drag.kind === 'stretch' || drag.kind === 'slide-tag') {
       if (!drag.moved) return;
       const here = this.toPaper(event.clientX, event.clientY);
@@ -601,6 +628,13 @@ export class Canvas {
     this.svg.classList.remove('panning');
     if (this.svg.hasPointerCapture(event.pointerId)) this.svg.releasePointerCapture(event.pointerId);
 
+    if (drag.kind === 'slide-dim' && drag.moved) {
+      const here = this.toPaper(event.clientX, event.clientY);
+      const from = this.toPaper(drag.startClientX, drag.startClientY);
+      this.cb.onSlideDim(drag.targetId!, { dx: here.x - from.x, dy: here.y - from.y }, drag.dim!, true);
+      this.cb.onHover(null);
+      return;
+    }
     if ((drag.kind === 'slide-component' || drag.kind === 'slide-node' || drag.kind === 'stretch' || drag.kind === 'slide-tag') && drag.moved) {
       const here = this.toPaper(event.clientX, event.clientY);
       if (drag.kind === 'slide-component') this.cb.onSlideComponent(drag.targetId!, here, true);

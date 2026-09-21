@@ -72,7 +72,17 @@ ships, and the decisions already taken, so they are not re-litigated.
   are on thin leaders and are **draggable** (`itemOverrides`,
   `weldOverrides[key].tag`). Support callouts drag the same way
   (`itemOverrides['sup:<id>']`).
-- Weld numbers are editable (typed on the drawing or in the Welds tab).
+- Weld numbers are editable (typed on the drawing or in the Welds tab). A
+  joint can be marked **not welded** (`weldOverrides[key].skip`: hollow
+  mark, no number, numbering runs on, off the list; "No weld here" on the
+  weld keypad, "Weld after all" in the Welds tab).
+- **Dimensions** are moved by dragging their figure (`dimOverrides[key]`
+  `offset`/`along`, the figure's hit carries the frame) and hidden with the
+  keypad's "Hide this dimension"; the run panel's Dimension: show clears it.
+- A run can be **fittings joined directly** (`run.direct`, HUD "No pipe —
+  fittings touch", panel Pipe select, `setRunDirect`): pulled in to the sum
+  of the take-outs, one weld mid-run "ELBOW / OLET", cut 0, no pipe on the
+  list.
 - Dimensions are typed on the drawing: tap the figure. The editor opens on
   **pointerdown** (iOS only shows a keyboard inside the touch gesture) with a
   **keypad** beside it, above the tap, and the canvas captures the pointer so

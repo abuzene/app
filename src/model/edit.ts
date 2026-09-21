@@ -1,6 +1,6 @@
 import type { Axis, ComponentKind, Drawing, EndType, FlangeKind, InlineComponent, IsoNode, Run, Vec3 } from './types';
 import { add, axisBetween, equals3, length3, scale3, step, sub } from './iso';
-import { dimensionStops, isValve, uid } from './drawing';
+import { dimensionStops, fittingsTouchLength, isValve, uid, type Analysis } from './drawing';
 import { componentTakeout } from './pipe-data';
 
 /** Finds an existing node at a position, so that routes join rather than overlap. */
@@ -351,6 +351,21 @@ export function splitRun(drawing: Drawing, runId: string, distance: number): str
  * corrected. If the far side loops back to the near side the branch cannot move
  * independently, so only the node itself is moved and the loop re-closes.
  */
+/**
+ * Joins the fittings at a run's two ends to each other directly, with no
+ * pipe between — an elbow welded straight to an olet, say. The run stays,
+ * as the fittings' centre-to-centre distance, and is pulled in to exactly
+ * that: the sum of the two take-outs. Off again, the run is a pipe as before.
+ */
+export function setRunDirect(drawing: Drawing, analysis: Analysis, runId: string, direct: boolean): void {
+  const run = drawing.runs.find((r) => r.id === runId);
+  if (!run) return;
+  run.direct = direct || undefined;
+  if (!direct) return;
+  const touch = fittingsTouchLength(analysis, run);
+  if (touch > 0 && Math.abs(runLength(drawing, run) - touch) > 0.5) stretchRun(drawing, runId, touch, 'to');
+}
+
 export function setRunLength(drawing: Drawing, runId: string, length: number): boolean {
   return stretchRun(drawing, runId, length, 'to');
 }

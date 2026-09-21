@@ -1,5 +1,5 @@
 import type { Analysis } from '../model/drawing';
-import type { Axis, Drawing, Run, Vec3 } from '../model/types';
+import type { Axis, DimOverride, Drawing, Run, Vec3 } from '../model/types';
 import { COMPONENT_LABEL, TERMINAL_LABEL, dimensionStops, fittingLabel, isMark, isSupport, isValve, oletLegs, resolveEnds } from '../model/drawing';
 import { componentTakeout, sizeLabel, valveFlangeKind } from '../model/pipe-data';
 import { AXIS_VECTOR, axisBetween, axisScreenDir, project, scale3, add } from '../model/iso';
@@ -231,6 +231,7 @@ function renderDimension(
   size: number,
   id: string,
   hitR: number,
+  place?: DimOverride,
 ): { svg: string; hit: string; at: Pt } {
   const len = Math.hypot(b.x - a.x, b.y - a.y);
   if (len < 1) return { svg: '', hit: '', at: a };
@@ -247,7 +248,10 @@ function renderDimension(
     ny = -ny;
   }
 
-  const off = size * 2.6;
+  // Moved by hand, the line sits where it was put — the other side of the
+  // pipe when dragged across — and the figure where it was slid to.
+  const off = place?.offset ?? size * 2.6;
+  const along = Math.max(0.08, Math.min(0.92, place?.along ?? 0.5));
   const gap = size * 0.5;
   const ax = a.x + nx * off;
   const ay = a.y + ny * off;
@@ -264,8 +268,8 @@ function renderDimension(
   // Keep the text upright rather than letting it read upside down.
   let angle = (Math.atan2(by - ay, bx - ax) * 180) / Math.PI;
   if (angle > 90 || angle < -90) angle += 180;
-  const tx = (ax + bx) / 2;
-  const ty = (ay + by) / 2;
+  const tx = ax + (bx - ax) * along;
+  const ty = ay + (by - ay) * along;
 
   // The figure sits a little off the line; that is also where it is tapped
   // to be typed over.
@@ -285,7 +289,9 @@ function renderDimension(
       // Clear of the dimension line, never sitting across it.
       `<text class="dim-text" x="${tx.toFixed(2)}" y="${(ty - lift).toFixed(2)}" transform="rotate(${angle.toFixed(1)} ${tx.toFixed(2)} ${ty.toFixed(2)})">${escapeText(text)}</text>` +
       `</g>`,
-    hit: `<circle class="hit-dot" data-dim="${id}" cx="${textX.toFixed(2)}" cy="${textY.toFixed(2)}" r="${Math.max(size * 1.2, hitR * 0.6).toFixed(2)}"/>`,
+    // The figure's target carries the dimension's frame, so a drag of it can
+    // be turned into a new distance from the pipe and place along it.
+    hit: `<circle class="hit-dot" data-dim="${id}" data-nx="${nx.toFixed(4)}" data-ny="${ny.toFixed(4)}" data-ux="${dx.toFixed(4)}" data-uy="${dy.toFixed(4)}" data-len="${len.toFixed(2)}" data-off="${off.toFixed(2)}" data-along="${along.toFixed(3)}" cx="${textX.toFixed(2)}" cy="${textY.toFixed(2)}" r="${Math.max(size * 1.2, hitR * 0.6).toFixed(2)}"/>`,
   };
 }
 
@@ -402,7 +408,9 @@ export function renderDrawing(state: RenderState): string {
       for (let i = 0; i + 1 < stops.length; i += 1) {
         const span = stops[i + 1] - stops[i];
         if (span < 0.5) continue;
-        const dim = renderDimension(at(stops[i]), at(stops[i + 1]), centroid, formatMm(span), size, `${run.id}:${i}`, hitR);
+        const place = drawing.dimOverrides?.[`${run.id}:${i}`];
+        if (place?.hidden) continue;
+        const dim = renderDimension(at(stops[i]), at(stops[i + 1]), centroid, formatMm(span), size, `${run.id}:${i}`, hitR, place);
         dims += dim.svg;
         dimHits += dim.hit;
         figures.push(dim.at);
@@ -626,14 +634,15 @@ export function renderDrawing(state: RenderState): string {
     }
     jointPoints.set(joint.key, { x: f.cx, y: f.cy });
     const selectedWeld = sel?.kind === 'weld' && sel.key === joint.key;
-    welds += `<g class="weld${selectedWeld ? ' selected' : ''}">${jointMark(f, joint.joint, joint.facing)}</g>`;
+    // A joint marked as not welded is drawn hollow: still a joint, not a weld.
+    welds += `<g class="weld${selectedWeld ? ' selected' : ''}${joint.skipped ? ' no-weld' : ''}">${jointMark(f, joint.joint, joint.facing)}</g>`;
     // The mark is a touch target unless it sits on a point, whose own target
     // it would otherwise cover; the number tag is always one.
     const onPoint = [...analysis.nodeById.keys()].some((id) => {
       const q = paper(id);
       return q && Math.hypot(q.x - f.cx, q.y - f.cy) < size * 0.6;
     });
-    if (joint.number && !onPoint) {
+    if ((joint.number || joint.skipped) && !onPoint) {
       weldHits += `<circle class="hit-dot" data-weld="${joint.key}" cx="${f.cx.toFixed(2)}" cy="${f.cy.toFixed(2)}" r="${Math.max(size * 0.9, hitR * 0.4).toFixed(2)}"/>`;
     }
     if (drawing.options.showWelds && joint.number) {

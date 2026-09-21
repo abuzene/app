@@ -5,7 +5,7 @@ import { COMMAND_HELP } from '../model/commands';
 import { DN_LIST, SIZE_LABELS, defaultValveEnds, schedulesFor, sizeLabel } from '../model/pipe-data';
 import { axisBetween } from '../model/iso';
 import { projectsOf } from '../model/library';
-import { deleteNode, deleteRun, removeComponent, runLength, setRunLength, splitRun } from '../model/edit';
+import { deleteNode, deleteRun, removeComponent, runLength, setRunDirect, setRunLength, splitRun } from '../model/edit';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'route', label: 'Route' },
@@ -79,6 +79,7 @@ function runProperties(host: Host, runId: string): string {
   <div class="row"><label>Schedule</label><select data-f="schedule">${options(schedulesFor(run.dn), run.schedule)}</select></div>
   <div class="row"><label>Note</label><input type="text" data-f="note" value="${esc(run.note ?? '')}" placeholder="optional" /></div>
   <div class="row"><label>Dimension</label><select data-f="nodim">${options(['show', 'hide'], run.noDim ? 'hide' : 'show')}</select></div>
+  <div class="row"><label>Pipe</label><select data-f="direct">${options(['pipe', 'touch'], run.direct ? 'touch' : 'pipe', { pipe: 'A pipe between the fittings', touch: 'None — fittings joined directly' })}</select></div>
   <p class="empty-note">Cut length after take-outs: <strong>${mm(lengths?.cut ?? 0)} mm</strong></p>
   <div class="btn-row">
     <button class="btn-line" data-a="split">Split in half</button>
@@ -381,7 +382,18 @@ function weldsTab(host: Host): string {
     acc[w.joint] = (acc[w.joint] ?? 0) + 1;
     return acc;
   }, {});
-  return `
+  const skipped = host.state.analysis.joints.filter((j) => j.skipped);
+  const notWelded =
+    skipped.length === 0
+      ? ''
+      : `<div class="section">
+  <h3>Not welded</h3>
+  <p class="empty-note">Joints marked as not welded: on the drawing but not numbered or counted.</p>
+  <table><tbody>${skipped
+    .map((w) => `<tr><td>${esc(sizeLabel(w.dn))}</td><td>${esc(w.joins)}</td><td><button class="btn-line" data-restore-weld="${esc(w.key)}">Weld after all</button></td></tr>`)
+    .join('')}</tbody></table>
+</div>`;
+  return `${notWelded}
 <div class="section">
   <h3>Weld list</h3>
   <p class="empty-note">Numbered along the route; type over any number to set it by hand. Threaded joints are marked on the drawing but are not welds.</p>
@@ -608,7 +620,17 @@ function wire(body: HTMLElement, host: Host): void {
       host.edit('Toggle dimension', (d) => {
         const run = d.runs.find((r) => r.id === id);
         if (run) run.noDim = value === 'hide' ? true : undefined;
+        // Shown again means every piece of it, including any hidden by hand.
+        if (value === 'show' && d.dimOverrides) {
+          for (const key of Object.keys(d.dimOverrides)) {
+            if (key.startsWith(`${id}:`)) delete d.dimOverrides[key].hidden;
+          }
+        }
       });
+    });
+    field('direct')?.addEventListener('change', (e) => {
+      const on = (e.target as HTMLSelectElement).value === 'touch';
+      host.edit(on ? 'Fittings touch' : 'Pipe between fittings', (d) => setRunDirect(d, host.state.analysis, id, on));
     });
     runEditor.querySelector('[data-a="split"]')?.addEventListener('click', () => {
       const run = drawing.runs.find((r) => r.id === id);
@@ -830,6 +852,14 @@ function wire(body: HTMLElement, host: Host): void {
   };
   body.querySelectorAll<HTMLInputElement>('[data-weld-no]').forEach((input) => {
     input.addEventListener('change', () => renumber(input.dataset.weldNo!, input.value));
+  });
+  body.querySelectorAll<HTMLElement>('[data-restore-weld]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const key = button.dataset.restoreWeld!;
+      host.edit('Weld here', (d) => {
+        if (d.weldOverrides[key]) delete d.weldOverrides[key].skip;
+      });
+    });
   });
   body.querySelectorAll<HTMLElement>('[data-weld-row]').forEach((row) => {
     row.addEventListener('click', (event) => {

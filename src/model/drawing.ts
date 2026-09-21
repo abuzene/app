@@ -173,6 +173,14 @@ export function oletLegs(info: NodeInfo): { header: Run[]; branch: Run } | null 
   return null;
 }
 
+/**
+ * The centre-to-centre length at which the fittings at a run's two ends
+ * touch: the sum of their take-outs. Zero when neither end is a fitting.
+ */
+export function fittingsTouchLength(analysis: Analysis, run: Run): number {
+  return endTakeout(analysis.nodeInfo.get(run.from), run) + endTakeout(analysis.nodeInfo.get(run.to), run);
+}
+
 export function fittingLabel(kind: FittingKind): string {
   switch (kind) {
     case 'ELBOW_90':
@@ -415,6 +423,8 @@ export function analyse(drawing: Drawing): Analysis {
     const fromInfo = nodeInfo.get(run.from);
     const toInfo = nodeInfo.get(run.to);
     let cut = centre - endTakeout(fromInfo, run) - endTakeout(toInfo, run);
+    // Fittings joined to each other directly: there is no pipe to cut.
+    if (run.direct) cut = -1;
     for (const end of [a, b]) {
       if (end.terminal && (end.terminal.kind === 'FLG_WN' || end.terminal.kind === 'FLG_SO' || end.terminal.kind === 'TRANSITION')) {
         cut -= componentTakeout(end.terminal.kind, run.dn);
@@ -473,6 +483,27 @@ export function analyse(drawing: Drawing): Analysis {
     if (!dir) continue;
     const idx = runIndex.get(run.id) ?? 0;
     const total = length3(sub(b.pos, a.pos));
+
+    // Fittings joined directly: the one weld is where they meet, between the
+    // two, and neither fitting has a pipe weld of its own on this run.
+    if (run.direct) {
+      const name = (id: string) => {
+        const info = nodeInfo.get(id);
+        return info && info.fitting !== 'NONE' ? fittingLabel(info.fitting) : 'PIPE';
+      };
+      pushJoint(
+        `d:${run.id}`,
+        a.joint ?? defaultJoint,
+        run.dn,
+        run.schedule,
+        `${name(run.from)} / ${name(run.to)}`,
+        add(a.pos, scale3(dir, total / 2)),
+        1,
+        idx,
+        total / 2,
+      );
+      continue;
+    }
 
     for (const [node, atStart] of [
       [a, true],
@@ -645,7 +676,10 @@ export function analyse(drawing: Drawing): Analysis {
   let weldNumber = 0;
   const joints: Weld[] = ordered.map((j) => {
     const override = drawing.weldOverrides[j.key];
-    const welded = j.joint !== 'THD';
+    // A joint marked as not welded after all keeps its mark, and the numbers
+    // run on past it.
+    const skipped = !!override?.skip;
+    const welded = j.joint !== 'THD' && !skipped;
     if (welded) weldNumber += 1;
     const number = welded ? override?.number ?? `W${weldNumber}` : '';
     return {
@@ -657,11 +691,12 @@ export function analyse(drawing: Drawing): Analysis {
       joins: j.joins,
       pos: j.pos,
       facing: j.facing,
+      skipped: skipped || undefined,
       anchor: j.anchor,
       reach: j.reach,
     };
   });
-  const welds = joints.filter((j) => j.joint !== 'THD');
+  const welds = joints.filter((j) => j.joint !== 'THD' && !j.skipped);
 
   // Material list, and the item number each thing on the drawing carries.
   //
@@ -680,7 +715,8 @@ export function analyse(drawing: Drawing): Analysis {
     pipeTotals.set(key, (pipeTotals.get(key) ?? 0) + cut);
     const a = nodeById.get(run.from);
     const b = nodeById.get(run.to);
-    if (a && b) {
+    // No pipe between fittings joined directly, so nothing to balloon.
+    if (a && b && !run.direct) {
       instances.push({
         key: `run:${run.id}`,
         bomKey: pipeKey(run.dn, run.schedule),

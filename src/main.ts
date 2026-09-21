@@ -6,7 +6,7 @@ import { analyse, dimensionStops, emptyDrawing, uid } from './model/drawing';
 import { loadLibrary, removeDrawing, renumberProject, sheetNumber, upsertDrawing, worthKeeping } from './model/library';
 import { add, length3, scale3, sub } from './model/iso';
 import { initialCommandState, runCommands } from './model/commands';
-import { applyDimension, deleteNode, deleteRun, ensureNode, removeComponent, route, stretchRun } from './model/edit';
+import { applyDimension, deleteNode, deleteRun, ensureNode, removeComponent, route, setRunDirect, stretchRun } from './model/edit';
 import { DN_LIST, schedulesFor, sizeLabel } from './model/pipe-data';
 import { northArrow, paperOf, toPaper } from './render/renderer';
 import { renderSheet, type SheetSize } from './render/sheet';
@@ -193,32 +193,79 @@ function openDimensionEditor(runId: string, index: number, clientX: number, clie
   const stops = dimensionStops(state.drawing, run);
   if (index + 1 >= stops.length) return;
   const current = Math.round(stops[index + 1] - stops[index]);
-  openInlineEditor(String(current), 'numeric', clientX, clientY, (text) => {
-    const value = Number(text);
-    if (!Number.isFinite(value) || value <= 0 || Math.round(value) === current) return;
-    let refused: string | null = null;
-    host.edit('Set dimension', (d) => {
-      refused = applyDimension(d, runId, index, Math.round(value));
-    });
-    if (refused) {
-      undoStack.pop();
-      host.notify(refused);
-    }
-  });
+  const key = `${runId}:${index}`;
+  openInlineEditor(
+    String(current),
+    'numeric',
+    clientX,
+    clientY,
+    (text) => {
+      const value = Number(text);
+      if (!Number.isFinite(value) || value <= 0 || Math.round(value) === current) return;
+      let refused: string | null = null;
+      host.edit('Set dimension', (d) => {
+        refused = applyDimension(d, runId, index, Math.round(value));
+      });
+      if (refused) {
+        undoStack.pop();
+        host.notify(refused);
+      }
+    },
+    [
+      {
+        label: 'Hide this dimension',
+        act: () => {
+          host.edit('Hide dimension', (d) => {
+            d.dimOverrides = { ...d.dimOverrides, [key]: { ...d.dimOverrides?.[key], hidden: true } };
+          });
+          host.notify('Dimension hidden. The run\'s panel brings it back.');
+        },
+      },
+    ],
+  );
 }
 
 /** A weld number, typed over right on the drawing. */
 function openWeldEditor(key: string, clientX: number, clientY: number): void {
   const weld = state.analysis.joints.find((j) => j.key === key);
   if (!weld) return;
-  openInlineEditor(weld.number, 'text', clientX, clientY, (text) => {
-    const number = text.trim();
-    if (number === weld.number) return;
-    host.edit('Renumber weld', (d) => {
-      if (number) d.weldOverrides[key] = { ...d.weldOverrides[key], number };
-      else if (d.weldOverrides[key]) delete d.weldOverrides[key].number;
-    });
-  });
+  openInlineEditor(
+    weld.number,
+    'text',
+    clientX,
+    clientY,
+    (text) => {
+      const number = text.trim();
+      if (number === weld.number) return;
+      host.edit('Renumber weld', (d) => {
+        // A number typed on a joint marked as not welded makes it a weld again.
+        if (number) d.weldOverrides[key] = { ...d.weldOverrides[key], number, skip: undefined };
+        else if (d.weldOverrides[key]) delete d.weldOverrides[key].number;
+      });
+    },
+    weld.skipped
+      ? [
+          {
+            label: 'Weld here after all',
+            act: () => {
+              host.edit('Weld here', (d) => {
+                if (d.weldOverrides[key]) delete d.weldOverrides[key].skip;
+              });
+            },
+          },
+        ]
+      : [
+          {
+            label: 'No weld here',
+            act: () => {
+              host.edit('No weld', (d) => {
+                d.weldOverrides[key] = { ...d.weldOverrides[key], number: undefined, skip: true };
+              });
+              host.notify('Marked as not welded: no number, not on the list. Tap it again to weld it after all.');
+            },
+          },
+        ],
+  );
 }
 
 /**
@@ -231,6 +278,7 @@ function openInlineEditor(
   clientX: number,
   clientY: number,
   onCommit: (text: string) => void,
+  extras: { label: string; act: () => void }[] = [],
 ): void {
   closeDimensionEditor();
   const wrap = svg.parentElement as HTMLElement;
@@ -270,11 +318,21 @@ function openInlineEditor(
   const keypad = document.createElement('div');
   keypad.className = `dim-keypad ${mode}`;
   const keys = mode === 'numeric' ? ['7', '8', '9', '4', '5', '6', '1', '2', '3', '⌫', '0', 'OK'] : ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', 'W', 'F', 'S', 'T', 'A', 'B', '-', '/', '⌫', 'OK'];
-  keypad.innerHTML = keys.map((k) => `<button type="button" data-key="${k}"${k === 'OK' ? ' class="ok"' : ''}>${k}</button>`).join('');
+  keypad.innerHTML =
+    keys.map((k) => `<button type="button" data-key="${k}"${k === 'OK' ? ' class="ok"' : ''}>${k}</button>`).join('') +
+    // What else can be done to the thing being typed over, across the bottom.
+    extras.map((x, i) => `<button type="button" class="wide" data-extra="${i}">${x.label}</button>`).join('');
   keypad.style.left = `${left}px`;
   keypad.style.top = `${roomAbove ? top - keypadH - 8 : top + 44}px`;
   keypad.addEventListener('pointerdown', (event) => {
     event.preventDefault();
+    const extra = (event.target as HTMLElement).closest<HTMLElement>('[data-extra]')?.dataset.extra;
+    if (extra !== undefined) {
+      done = true;
+      closeDimensionEditor();
+      extras[Number(extra)]?.act();
+      return;
+    }
     const key = (event.target as HTMLElement).closest<HTMLElement>('[data-key]')?.dataset.key;
     if (!key) return;
     if (key === 'OK') {
@@ -475,6 +533,32 @@ const canvas = new Canvas(svg, {
     renderCanvasOnly();
     hoverMessage = schematic ? 'drawn length — type the dimension for the real one' : `${Math.round(length)} mm`;
     renderHud();
+  },
+
+  /**
+   * Moves a dimension: out from the pipe or across to its other side, and
+   * along the line, from where its figure was dragged. The box that opened
+   * on the touch goes as soon as the drag is under way.
+   */
+  onSlideDim(key, delta, frame, commit) {
+    closeDimensionEditor();
+    const offset = frame.off + delta.dx * frame.nx + delta.dy * frame.ny;
+    const along = Math.max(0.08, Math.min(0.92, frame.along + (delta.dx * frame.ux + delta.dy * frame.uy) / Math.max(frame.len, 1)));
+    const apply = (d: Drawing) => {
+      d.dimOverrides = { ...d.dimOverrides, [key]: { ...d.dimOverrides?.[key], offset, along } };
+    };
+    if (commit) {
+      if (tagFrom) {
+        Object.assign(state.drawing, JSON.parse(tagFrom) as Drawing);
+        tagFrom = null;
+      }
+      host.edit('Move dimension', apply);
+      return;
+    }
+    if (!tagFrom) tagFrom = snapshot();
+    apply(state.drawing);
+    recompute();
+    renderCanvasOnly();
   },
 
   /** Moves a weld number tag or an item balloon; the leader stays on what it points at. */
@@ -740,6 +824,12 @@ function renderHud(): void {
   if (sel?.kind === 'node' && canvas.drawingFrom !== sel.id) {
     parts.push('<button class="hud-stop" id="hud-draw-from" type="button">Draw from here</button>');
   }
+  if (sel?.kind === 'run') {
+    // Fitting welded straight to fitting, no pipe between: the run stays as
+    // their centre-to-centre, but there is nothing to cut and one weld.
+    const run = state.drawing.runs.find((r) => r.id === sel.id);
+    if (run) parts.push(`<button class="hud-stop" id="hud-direct" type="button">${run.direct ? 'Pipe here after all' : 'No pipe — fittings touch'}</button>`);
+  }
   if (sel && sel.kind !== 'weld') {
     const what = sel.kind === 'run' ? 'run' : sel.kind === 'node' ? 'point' : 'item';
     parts.push(`<button class="hud-stop hud-delete" id="hud-delete" type="button">Delete ${what}</button>`);
@@ -753,6 +843,13 @@ function renderHud(): void {
   hudEl.innerHTML = parts.join('');
   hudEl.querySelector('#hud-stop')?.addEventListener('click', stopDrawing);
   hudEl.querySelector('#hud-delete')?.addEventListener('click', deleteSelection);
+  hudEl.querySelector('#hud-direct')?.addEventListener('click', () => {
+    if (state.selection?.kind !== 'run') return;
+    const id = state.selection.id;
+    const on = !state.drawing.runs.find((r) => r.id === id)?.direct;
+    host.edit(on ? 'Fittings touch' : 'Pipe between fittings', (d) => setRunDirect(d, state.analysis, id, on));
+    host.notify(on ? 'The fittings are joined directly: one weld, no pipe to cut.' : 'A pipe between the fittings again.');
+  });
   hudEl.querySelector('#hud-update')?.addEventListener('click', () => location.reload());
   hudEl.querySelector('#hud-draw-from')?.addEventListener('click', () => {
     if (state.selection?.kind === 'node') host.continueFrom(state.selection.id);

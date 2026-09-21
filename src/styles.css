@@ -156,6 +156,7 @@ main { flex: 1 1 auto; display: flex; min-height: 0; }
 .dim-keypad.text { width: 250px; grid-template-columns: repeat(5, 1fr); }
 .dim-keypad button:active { background: var(--accent-soft); }
 .dim-keypad button.ok { background: var(--accent); color: #fff; border-color: var(--accent); }
+.dim-keypad button.wide { grid-column: 1 / -1; font: 600 13px var(--font); padding: 7px 0; }
 
 .empty-hint {
   top: 50%; left: 50%; transform: translate(-50%, -50%);

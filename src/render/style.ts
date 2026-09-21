@@ -71,6 +71,8 @@ export function contentCss({ k, u, symbol = 4, dark = false }: ContentStyleOptio
 .weld.selected .weld-box { stroke: ${accent}; stroke-width: ${w(1.4)}; }
 .weld.selected .weld-no { fill: ${accent}; font-weight: 700; }
 .weld.selected .joint-bw { fill: ${accent}; stroke: ${accent}; }
+.weld.no-weld .joint-bw { fill: ${dark ? '#0d1117' : '#ffffff'}; }
+.weld.no-weld.selected .joint-bw { fill: ${dark ? '#0d1117' : '#ffffff'}; stroke: ${accent}; }
 .weld-leader { stroke: ${dim}; stroke-width: ${w(0.7)}; fill: none; }
 .branch-note { fill: ${ink}; font-size: ${t(0.75)}px; pointer-events: none;
   paint-order: stroke fill; stroke: ${dark ? '#0d1117' : '#ffffff'}; stroke-width: ${w(2.6)}; stroke-linejoin: round; }

@@ -1550,7 +1550,7 @@ await pen('mousePressed', figure.x + figure.width / 2, figure.y + figure.height 
 await page.waitForTimeout(80);
 check('the dimension box opens on the touch, not the lift', await page.locator('.dim-editor').count(), (v) => v === 1, '1');
 check('and is focused', await page.evaluate(() => document.activeElement?.className), (v) => v === 'dim-editor', 'dim-editor');
-check('with a number keypad beside it', await page.locator('.dim-keypad button').count(), (v) => v === 12, '12');
+check('with a number keypad beside it', await page.locator('.dim-keypad [data-key]').count(), (v) => v === 12, '12');
 await pen('mouseReleased', figure.x + figure.width / 2, figure.y + figure.height / 2);
 await page.waitForTimeout(150);
 check('the box stays open when the pencil lifts', await page.locator('.dim-editor').count(), (v) => v === 1, '1');
@@ -1771,6 +1771,91 @@ await page.click('[data-a="toggle-projects"]');
 await page.waitForTimeout(200);
 check('and all of them on request', await page.locator('#tab-body .project').count(), (v) => v >= 6, 'at least 6');
 await page.evaluate(() => localStorage.removeItem('iso-draw.library.v1'));
+
+/* ------------------- dimensions moved or hidden, fittings touching, no weld */
+
+await startNewDrawing();
+await page.click('#tabs button:has-text("Command")');
+await page.fill('#command-text', '3"\nSTD\nORIGIN 0 0 0\nE 2000\nN 600\nU 1500');
+await page.click('[data-a="run-commands"]');
+await page.waitForTimeout(500);
+await page.keyboard.press('Escape');
+await page.keyboard.press('f');
+await page.waitForTimeout(300);
+await page.click('#tabs button:has-text("Route")');
+await page.waitForTimeout(150);
+const drawingNow = () => page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')));
+// A dimension figure dragged with the pencil moves the whole dimension.
+const figure2 = await page.evaluate(() => {
+  const r = document.querySelector('#canvas [data-dim]').getBoundingClientRect();
+  return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+});
+const dimLineBefore = await page.evaluate(() => document.querySelector('#canvas .dim-line').getAttribute('y1'));
+await pen('mousePressed', figure2.x, figure2.y);
+await page.waitForTimeout(60);
+await pen('mouseMoved', figure2.x + 20, figure2.y + 30);
+await pen('mouseMoved', figure2.x + 40, figure2.y + 60);
+await page.waitForTimeout(60);
+check('dragging a dimension figure closes the typing box', await page.locator('.dim-editor').count(), (v) => v === 0, '0');
+await pen('mouseReleased', figure2.x + 40, figure2.y + 60);
+await page.waitForTimeout(300);
+check('and moves the dimension line', await page.evaluate(() => document.querySelector('#canvas .dim-line').getAttribute('y1')), (v) => v !== dimLineBefore, `not ${dimLineBefore}`);
+check('keeping the place with the drawing', Object.keys((await drawingNow()).dimOverrides ?? {}).length, (v) => v === 1, '1');
+// Tapped, the keypad offers to hide it; the run's panel shows it again.
+const figure3 = await page.evaluate(() => {
+  const r = document.querySelector('#canvas [data-dim]').getBoundingClientRect();
+  return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+});
+await penTap(figure3.x, figure3.y);
+check('the dimension keypad offers to hide it', await page.locator('.dim-keypad [data-extra="0"]').innerText(), (v) => /Hide/.test(v), 'Hide this dimension');
+await page.locator('.dim-keypad [data-extra="0"]').dispatchEvent('pointerdown', { bubbles: true });
+await page.waitForTimeout(300);
+check('and hidden it is gone', await page.locator('#canvas .dim').count(), (v) => v === 2, '2');
+await page.locator('#tab-body .run-list tbody tr').first().click();
+await page.waitForTimeout(200);
+await page.selectOption('#tab-body [data-f="nodim"]', 'show');
+await page.waitForTimeout(300);
+check('the run panel brings it back', await page.locator('#canvas .dim').count(), (v) => v === 3, '3');
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
+// The run between two elbows: fittings joined directly, no pipe.
+await page.locator('#tab-body .run-list tbody tr').nth(1).click();
+await page.waitForTimeout(200);
+check('a picked run offers to join its fittings directly', await page.locator('#hud-direct').innerText(), (v) => /fittings touch/.test(v), 'No pipe — fittings touch');
+await page.click('#hud-direct');
+await page.waitForTimeout(400);
+const touching = await drawingNow();
+const runN = touching.runs[1];
+const nA = touching.nodes.find((n) => n.id === runN.from).pos;
+const nB = touching.nodes.find((n) => n.id === runN.to).pos;
+check('the run is pulled in to the two take-outs', Math.round(Math.hypot(nB.e - nA.e, nB.n - nA.n, nB.u - nA.u)), (v) => v === 228, '228 (two 3" LR elbows)');
+await page.click('#tabs button:has-text("Welds")');
+await page.waitForTimeout(200);
+check('with one weld, fitting to fitting', await page.locator('#tab-body').innerText(), (v) => /90 ELBOW LR \/ 90 ELBOW LR/.test(v) && /Total 3/.test(v), 'ELBOW / ELBOW and a total of 3');
+await page.click('#tabs button:has-text("Items")');
+await page.waitForTimeout(200);
+check('and no pipe for it on the list', await page.locator('#tab-body').innerText(), (v) => /PIPE, SMLS, 3" x STD\t3"\tSTD\t3\.27/.test(v), '3.27 m — the two runs either side');
+await page.click('#tabs button:has-text("Route")');
+await page.waitForTimeout(200);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
+// A joint marked as not welded: hollow, unnumbered, off the list, and back again.
+const noWeldHit = await page.evaluate(() => {
+  const r = document.querySelector('#canvas [data-weld]:not([data-weld-tag])').getBoundingClientRect();
+  return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+});
+await penTap(noWeldHit.x, noWeldHit.y);
+check('the weld keypad offers no weld here', await page.locator('.dim-keypad [data-extra="0"]').innerText(), (v) => /No weld/.test(v), 'No weld here');
+await page.locator('.dim-keypad [data-extra="0"]').dispatchEvent('pointerdown', { bubbles: true });
+await page.waitForTimeout(300);
+check('the numbers run on past it', await page.evaluate(() => [...document.querySelectorAll('#canvas .weld-no')].map((t) => t.textContent).join(' ')), (v) => v === 'W1 W2', 'W1 W2');
+check('and the joint is drawn hollow', await page.locator('#canvas .weld.no-weld').count(), (v) => v === 1, '1');
+await page.click('#tabs button:has-text("Welds")');
+await page.waitForTimeout(200);
+check('the weld list counts it out', await page.locator('#tab-body').innerText(), (v) => /Total 2/.test(v), 'Total 2');
+await page.click('[data-restore-weld]');
+await page.waitForTimeout(300);
+check('and welds it after all on request', await page.locator('#tab-body').innerText(), (v) => /Total 3/.test(v) && !/Not welded/.test(v), 'Total 3, nothing not welded');
 
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 

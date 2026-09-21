@@ -135,6 +135,11 @@ export interface Run {
   inline: InlineComponent[];
   /** Suppresses the automatic length dimension for this run. */
   noDim?: boolean;
+  /**
+   * The fittings at each end are joined to each other directly, with no pipe
+   * between: one weld where they meet, no cut length, no pipe on the list.
+   */
+  direct?: boolean;
   note?: string;
   /**
    * How long the run is drawn when the sheet is not to scale, in the same
@@ -165,6 +170,8 @@ export interface Weld {
   pos: Vec3;
   /** Which way a one-sided symbol at this joint should face. */
   facing: 1 | -1;
+  /** Marked as not welded after all: drawn hollow, not numbered or counted. */
+  skipped?: boolean;
   /**
    * What the weld belongs to, and how far out from it the mark is drawn. A
    * weld mark is part of the fitting's symbol: it sits on the symbol's end,
@@ -190,6 +197,8 @@ export type WeldReach =
 
 export interface WeldOverride {
   number?: string;
+  /** No weld here after all: the joint is marked but not numbered or counted. */
+  skip?: boolean;
   /** Where the number tag was dragged to, in paper units from the weld. */
   tag?: { dx: number; dy: number };
 }
@@ -258,4 +267,14 @@ export interface Drawing {
   weldOverrides: Record<string, WeldOverride>;
   /** Where an item balloon was dragged to, in paper units from the item, by item key. */
   itemOverrides?: Record<string, { dx: number; dy: number }>;
+  /** Dimensions moved or hidden by hand, by "runId:piece". */
+  dimOverrides?: Record<string, DimOverride>;
+}
+
+export interface DimOverride {
+  hidden?: boolean;
+  /** How far from the pipe the dimension line sits, in paper units; negative is the other side. */
+  offset?: number;
+  /** Where along the line the figure sits, 0 to 1. */
+  along?: number;
 }
