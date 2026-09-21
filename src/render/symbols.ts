@@ -384,24 +384,44 @@ export function groundSymbol(f: Frame, agSide: Facing = 1): string {
  * post standing down to a base plate on the ground, and the support called
  * out by name beside it — "SUPPORT A".
  */
-export function supportSymbol(f: Frame, tag?: string): string {
+/**
+ * A pipe support as the sheets draw it: the U-bolt over the pipe and the
+ * clamp as a cross on it, then either a post standing down to a base plate
+ * on the ground, or — the simple one — an L50 angle under the pipe. The
+ * callout beside it is drawn by the renderer, since it can be dragged.
+ */
+export function supportSymbol(f: Frame, kind: 'SUPPORT' | 'SUPPORT_L' = 'SUPPORT'): string {
   const s = f.s;
-  const foot = -s * 3;
   const clamp = line(f, [-s * 0.9, 0, 0], [s * 0.9, 0, 0], 'sym-face') + line(f, [0, -s * 0.9, 0], [0, s * 0.9, 0], 'sym-face');
+  // The U-bolt: a bow over the pipe, its legs coming down either side.
+  const [ux1, uy1] = pt(f, 0, -s * 0.55, s * 0.15);
+  const [ux2, uy2] = pt(f, 0, s * 0.55, s * 0.15);
+  const [uc1, uc2] = [pt(f, 0, -s * 0.55, s * 1.25), pt(f, 0, s * 0.55, s * 1.25)];
+  const bolt = `<path class="sym-line" d="M ${ux1.toFixed(2)} ${uy1.toFixed(2)} C ${uc1[0].toFixed(2)} ${uc1[1].toFixed(2)} ${uc2[0].toFixed(2)} ${uc2[1].toFixed(2)} ${ux2.toFixed(2)} ${uy2.toFixed(2)}"/>`;
+  if (kind === 'SUPPORT_L') {
+    // The angle: one leg down from the pipe, the other along the ground.
+    const foot = -s * 1.7;
+    return (
+      line(f, [0, -s * 0.15, 0], [0, -s * 0.15, foot], 'sym-heavy') +
+      line(f, [0, -s * 0.15, foot], [0, s * 1.3, foot], 'sym-heavy') +
+      clamp +
+      bolt
+    );
+  }
+  const foot = -s * 3;
   const post = line(f, [0, 0, 0], [0, 0, foot], 'sym-heavy');
   const plate = poly(
     [pt(f, -s * 0.9, -s * 0.9, foot), pt(f, s * 0.9, -s * 0.9, foot), pt(f, s * 0.9, s * 0.9, foot), pt(f, -s * 0.9, s * 0.9, foot)],
     'sym-fill',
   );
-  const name = `SUPPORT${tag ? ` ${tag}` : ''}`;
-  // The callout: its leader runs from the words to the post.
-  const [ax, ay] = pt(f, 0, 0, foot * 0.5);
-  const [tx, ty] = pt(f, 0, -s * 3.2, foot * 0.5);
-  const [ex, ey] = pt(f, 0, -s * 3.5, foot * 0.5);
-  const leader = `<line class="sym-thin" x1="${ax.toFixed(2)}" y1="${ay.toFixed(2)}" x2="${tx.toFixed(2)}" y2="${ty.toFixed(2)}"/>`;
-  const anchor = f.nx < 0 ? 'start' : 'end';
-  const label = `<text class="sym-text" x="${ex.toFixed(2)}" y="${ey.toFixed(2)}" text-anchor="${anchor}" dominant-baseline="middle" font-size="${(s * 0.85).toFixed(2)}">${name}</text>`;
-  return plate + post + clamp + leader + label;
+  return plate + post + clamp + bolt;
+}
+
+/** Where a support's callout leader lands on it, and where the words go unless moved. */
+export function supportCallout(f: Frame, kind: 'SUPPORT' | 'SUPPORT_L'): { anchor: [number, number]; label: [number, number] } {
+  const s = f.s;
+  const at = kind === 'SUPPORT_L' ? -s * 0.85 : -s * 1.5;
+  return { anchor: pt(f, 0, 0, at), label: pt(f, 0, -s * 3.6, at) };
 }
 
 /* -------------------------------------------------------- inline components */
@@ -543,7 +563,9 @@ export function componentSymbol(kind: ComponentKind, f: Frame, reach?: number): 
     case 'INSTRUMENT':
       return line(f, [0, 0, 0], [0, 0, s * 1.6], 'sym-line') + circle(f, 0, 0, s * 0.85, 'sym-hollow', s * 2.4);
     case 'SUPPORT':
-      return supportSymbol(f);
+      return supportSymbol(f, 'SUPPORT');
+    case 'SUPPORT_L':
+      return supportSymbol(f, 'SUPPORT_L');
     case 'GROUND':
       return groundSymbol(f, 1);
     case 'ANCHOR':

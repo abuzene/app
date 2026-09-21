@@ -24,7 +24,7 @@ const GROUPS: ToolGroup[] = [
   { label: 'Fittings', kinds: ['RED_CONC', 'RED_ECC', 'CAP', 'TRANSITION'] },
   { label: 'Valves', kinds: ['BALL', 'BALL_ACT'] },
   { label: 'Branch', kinds: [{ branch: 'TEE' }, { olet: 'BW' }, { olet: 'SW' }, { olet: 'THD' }] },
-  { label: 'Marks', kinds: ['SUPPORT', 'GROUND'] },
+  { label: 'Marks', kinds: ['SUPPORT', 'SUPPORT_L', 'GROUND'] },
 ];
 
 const SHORT: Partial<Record<ComponentKind, string>> = {
@@ -42,6 +42,7 @@ const SHORT: Partial<Record<ComponentKind, string>> = {
   CAP: 'Cap',
   TRANSITION: 'PE/CS',
   SUPPORT: 'Support',
+  SUPPORT_L: 'L50',
   GROUND: 'AG/UG',
 };
 

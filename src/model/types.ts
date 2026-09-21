@@ -49,6 +49,8 @@ export type ComponentKind =
   | 'SUPPORT'
   | 'ANCHOR'
   | 'GUIDE'
+  /** The simple support: an L50 angle with a clamp. */
+  | 'SUPPORT_L'
   /** Where the line goes into or comes out of the ground: the AG/UG mark. */
   | 'GROUND';
 

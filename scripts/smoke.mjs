@@ -131,7 +131,7 @@ check('a length can be typed', await page.locator('#tab-body .run-list input[dat
 // Palette.
 await page.locator('#tab-body .run-list tbody tr').first().click();
 await page.waitForTimeout(200);
-check('the palette carries the fittings, ball valves, tee, olets and marks', await page.locator('.tool').count(), (v) => v === 16, '16');
+check('the palette carries the fittings, ball valves, tee, olets and marks', await page.locator('.tool').count(), (v) => v === 17, '17');
 check('and no slip-on or lap joint flange, which are not used here', await page.locator('.tool[data-kind="FLG_SO"], .tool[data-kind="FLG_LAP"]').count(), (v) => v === 0, '0');
 check('a tee can be placed on a header', await page.locator('.tool[data-branch="TEE"]').count(), (v) => v === 1, '1');
 check('the actuated ball valve is there', await page.locator('.tool[data-kind="BALL_ACT"]').count(), (v) => v === 1, '1');
@@ -227,7 +227,7 @@ await page.keyboard.press('Escape');
 const dots = () => page.locator('#canvas .joint-bw').count();
 const buttWeldDots = await dots();
 check('butt welds are drawn as filled dots', buttWeldDots, (v) => v === 3, '3 — two elbow legs and one at the cap');
-check('a butt welded cap shows its body', await page.locator('#canvas .node .sym-hollow').count(), (v) => v >= 1, 'at least 1');
+check('a butt welded cap shows its body', await page.locator('#canvas .node path.sym-fill').count(), (v) => v >= 1, 'at least 1');
 
 await page.selectOption('#joint', 'SW');
 await page.waitForTimeout(500);
@@ -1481,7 +1481,7 @@ await page.waitForTimeout(300);
 await page.click('#tabs button:has-text("Route")');
 await page.waitForTimeout(150);
 check('a support is drawn with its post and plate', await page.locator('#canvas .component polygon.sym-fill').count(), (v) => v >= 1, 'a base plate');
-check('and called out by name', await page.locator('#canvas .component text.sym-text', { hasText: 'SUPPORT' }).count(), (v) => v === 1, '1');
+check('and called out by name', await page.locator('#canvas .callout-text', { hasText: 'SUPPORT' }).count(), (v) => v === 1, '1');
 check('the AG/UG mark carries both labels', await page.locator('#canvas .component text.sym-text', { hasText: /^(AG|UG)$/ }).count(), (v) => v === 2, '2');
 await page.click('#tabs button:has-text("Welds")');
 await page.waitForTimeout(250);
@@ -1497,7 +1497,7 @@ await page.waitForTimeout(250);
 await page.locator('#tab-body [data-f="tag"]').fill('B');
 await page.locator('#tab-body [data-f="tag"]').dispatchEvent('change');
 await page.waitForTimeout(300);
-check('the support name is drawn beside it', await page.locator('#canvas .component text.sym-text', { hasText: 'SUPPORT B' }).count(), (v) => v === 1, '1');
+check('the support name is drawn beside it', await page.locator('#canvas .callout-text', { hasText: 'SUPPORT B' }).count(), (v) => v === 1, '1');
 await page.keyboard.press('Escape');
 await page.waitForTimeout(150);
 
@@ -1571,6 +1571,53 @@ check('on paper the app is hidden', await page.evaluate(() => getComputedStyle(d
 check('and the sheet is shown', await page.evaluate(() => getComputedStyle(document.getElementById('print-root')).display), (v) => v === 'block', 'block');
 await page.emulateMedia({ media: 'screen' });
 check('on screen the sheet stays out of the way', await page.evaluate(() => getComputedStyle(document.getElementById('print-root')).display), (v) => v === 'none', 'none');
+
+/* ---------------- numbered supports, the L50 angle, a set-size valve, SW flanges */
+
+await startNewDrawing();
+await page.click('#tabs button:has-text("Command")');
+await page.waitForTimeout(200);
+await page.fill('#command-text', '2"\nSTD\nORIGIN 0 0 0\nEND FLG\nE 3000\n+SUPPORT 600\n+BALL 1500\n+L50 2400\nN 2000\n+SUPPORT 1000\nEND CONT');
+await page.click('[data-a="run-commands"]');
+await page.waitForTimeout(500);
+await page.keyboard.press('Escape');
+await page.keyboard.press('f');
+await page.waitForTimeout(300);
+await page.click('#tabs button:has-text("Route")');
+await page.waitForTimeout(150);
+check(
+  'supports are numbered along the line, the angle one saying so',
+  await page.evaluate(() => [...document.querySelectorAll('#canvas .callout-text')].map((t) => t.textContent).join(' | ')),
+  (v) => v === 'SUPPORT 1 | SUPPORT 2 L50 | SUPPORT 3',
+  'SUPPORT 1 | SUPPORT 2 L50 | SUPPORT 3',
+);
+check('the palette carries the L50 support', await page.locator('.tool[data-kind="SUPPORT_L"]').count(), (v) => v === 1, '1');
+// A valve is a set size, whatever its true length: at 2" a ball valve is
+// 178 mm face to face, which to scale would be longer than the symbol.
+const valveBox = await page.locator('#canvas g.component').nth(1).boundingBox();
+const supportBox = await page.locator('#canvas g.component').nth(0).boundingBox();
+check('a valve is drawn a set size, not stretched to its true length', valveBox.width / supportBox.width, (v) => v < 1.6, 'less than 1.6x a support wide');
+// The support's name drags like a balloon.
+const calloutHit = await page.locator('#canvas [data-balloon^="sup:"]').first().boundingBox();
+const calloutBefore = Number(await page.evaluate(() => document.querySelector('#canvas .callout-text').getAttribute('x')));
+await page.mouse.move(calloutHit.x + calloutHit.width / 2, calloutHit.y + calloutHit.height / 2);
+await page.mouse.down();
+await page.mouse.move(calloutHit.x + calloutHit.width / 2 - 70, calloutHit.y + calloutHit.height / 2 - 60, { steps: 8 });
+await page.mouse.up();
+await page.waitForTimeout(300);
+check('a support name can be dragged', Math.abs(Number(await page.evaluate(() => document.querySelector('#canvas .callout-text').getAttribute('x'))) - calloutBefore), (v) => v > 10, 'moved');
+// In socket weld mode a flanged valve bolts between socket weld flanges.
+await page.keyboard.press('Escape');
+await page.selectOption('#joint', 'SW');
+await page.waitForTimeout(400);
+await page.click('#tabs button:has-text("Items")');
+await page.waitForTimeout(250);
+check('a flanged valve on a socket welded line takes socket weld flanges', await page.locator('#tab-body').innerText(), (v) => /SOCKET WELD FLANGE\t2"\tSTD\t2/.test(v), 'SOCKET WELD FLANGE x 2');
+await page.click('#tabs button:has-text("Welds")');
+await page.waitForTimeout(250);
+check('and they are socket welded to the pipe', (await page.locator('#tab-body').innerText().then((t) => t.match(/SW\tPIPE \/ BALL VALVE/g) ?? [])).length, (v) => v === 2, '2');
+await page.selectOption('#joint', 'BW');
+await page.waitForTimeout(300);
 
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 

@@ -1,9 +1,9 @@
 import type { Analysis } from '../model/drawing';
 import type { Axis, Drawing, Run, Vec3 } from '../model/types';
-import { COMPONENT_LABEL, TERMINAL_LABEL, dimensionStops, fittingLabel, isMark, isValve, oletLegs, resolveEnds } from '../model/drawing';
-import { componentTakeout, sizeLabel } from '../model/pipe-data';
+import { COMPONENT_LABEL, TERMINAL_LABEL, dimensionStops, fittingLabel, isMark, isSupport, isValve, oletLegs, resolveEnds } from '../model/drawing';
+import { componentTakeout, sizeLabel, valveFlangeKind } from '../model/pipe-data';
 import { AXIS_VECTOR, axisBetween, axisScreenDir, project, scale3, add } from '../model/iso';
-import { componentSymbol, flangeHub, flangeSymbol, frameFor, gasketLine, groundSymbol, isFlange, jointMark, oletSymbol, supportSymbol, terminalSymbol, transitionSymbol, type Facing, type Frame } from './symbols';
+import { componentSymbol, flangeHub, flangeSymbol, frameFor, gasketLine, groundSymbol, isFlange, jointMark, oletSymbol, supportCallout, supportSymbol, terminalSymbol, transitionSymbol, type Facing, type Frame } from './symbols';
 
 export interface ViewBox {
   x: number;
@@ -331,12 +331,23 @@ export function renderDrawing(state: RenderState): string {
    * units: its true half length to scale, a set size not to scale, and never
    * so short that the symbol collapses.
    */
+  // A valve is a set size like every other symbol, however long it really
+  // is: drawn to scale a big valve stretched right across the sheet.
   const faceReach = (trueHalf: number, paperPerMm: number): number =>
-    drawing.options.schematic ? size * 1.2 : Math.max(trueHalf * paperPerMm, size * 0.8);
+    drawing.options.schematic ? size * 1.2 : Math.min(size * 1.2, Math.max(trueHalf * paperPerMm, size * 0.8));
   const towards = (from: Pt, to: Pt, by: number): Pt => {
     const len = Math.hypot(to.x - from.x, to.y - from.y) || 1;
     return { x: from.x + ((to.x - from.x) / len) * Math.min(by, len / 2), y: from.y + ((to.y - from.y) / len) * Math.min(by, len / 2) };
   };
+
+  // Supports are numbered along the line, in the order they were placed,
+  // unless they are named: "SUPPORT 1", "SUPPORT 2", or "SUPPORT A".
+  const supportNo = new Map<string, number>();
+  for (const run of drawing.runs) {
+    for (const comp of run.inline) if (isSupport(comp.kind)) supportNo.set(comp.id, supportNo.size + 1);
+  }
+  let callouts = '';
+  let calloutHits = '';
 
   for (const run of drawing.runs) {
     const a = paper(run.from);
@@ -422,17 +433,36 @@ export function renderDrawing(state: RenderState): string {
           ? transitionSymbol(f, comp.flip ? -1 : 1)
           : comp.kind === 'GROUND'
             ? groundSymbol(f, groundSide(comp.flip))
-            : comp.kind === 'SUPPORT'
-              ? supportSymbol(f, comp.tag)
+            : isSupport(comp.kind)
+              ? supportSymbol(f, comp.kind as 'SUPPORT' | 'SUPPORT_L')
               : componentSymbol(comp.kind, f, faceHalf);
+      if (isSupport(comp.kind)) {
+        // The support's name, on a leader to it; dragged wherever it reads
+        // best, like a balloon, and kept there with the drawing.
+        const { anchor, label } = supportCallout(f, comp.kind as 'SUPPORT' | 'SUPPORT_L');
+        const placed = drawing.itemOverrides?.[`sup:${comp.id}`];
+        const lx = placed ? anchor[0] + placed.dx : label[0];
+        const ly = placed ? anchor[1] + placed.dy : label[1];
+        const name = `SUPPORT ${comp.tag || supportNo.get(comp.id) || ''}`.trim() + (comp.kind === 'SUPPORT_L' ? ' L50' : '');
+        const textAnchor = lx < anchor[0] ? 'end' : 'start';
+        const gap = size * 0.3 * (lx < anchor[0] ? 1 : -1);
+        callouts +=
+          `<g class="callout">` +
+          `<line class="balloon-leader" x1="${anchor[0].toFixed(2)}" y1="${anchor[1].toFixed(2)}" x2="${(lx + gap).toFixed(2)}" y2="${ly.toFixed(2)}"/>` +
+          `<text class="sym-text callout-text" x="${lx.toFixed(2)}" y="${ly.toFixed(2)}" text-anchor="${textAnchor}" dominant-baseline="middle" font-size="${(size * 0.85).toFixed(2)}">${escapeText(name)}</text>` +
+          `</g>`;
+        calloutHits += `<circle class="hit-dot" data-balloon="sup:${comp.id}" data-ax="${anchor[0].toFixed(2)}" data-ay="${anchor[1].toFixed(2)}" cx="${(lx + (textAnchor === 'end' ? -1 : 1) * size * 2).toFixed(2)}" cy="${ly.toFixed(2)}" r="${Math.max(size * 1.4, hitR * 0.6).toFixed(2)}"/>`;
+      }
 
       // A flanged component is drawn with the flanges it bolts between, each
       // facing in towards it, which is how it is actually built.
       const ends = resolveEnds(comp.kind, dn, comp.ends, drawing.options.joint ?? 'BW');
       if (ends === 'FLG' && !isFlange(comp.kind) && faceHalf !== undefined) {
         const shifted = (by: number): Frame => ({ ...f, cx: f.cx + f.dx * by, cy: f.cy + f.dy * by });
-        comps += gasketLine(f, -faceHalf) + flangeSymbol(shifted(-faceHalf), 'FLG_WN', 1);
-        comps += gasketLine(f, faceHalf) + flangeSymbol(shifted(faceHalf), 'FLG_WN', -1);
+        // Weld neck flanges on a butt welded line; socket weld or threaded on those.
+        const flange = valveFlangeKind(drawing.options.joint ?? 'BW');
+        comps += gasketLine(f, -faceHalf) + flangeSymbol(shifted(-faceHalf), flange, 1);
+        comps += gasketLine(f, faceHalf) + flangeSymbol(shifted(faceHalf), flange, -1);
       }
       // A support's name is part of its symbol; a mark has no tag of its own.
       const label = isMark(comp.kind) ? '' : (comp.tag ?? '');
@@ -557,7 +587,7 @@ export function renderDrawing(state: RenderState): string {
   // weld numbers follow the Welds toggle.
   let welds = '';
   // Weld marks and tags sit on top of everything, so their touch targets do too.
-  let weldHits = '';
+  let weldHits = calloutHits;
   const jointPoints = new Map<string, Pt>();
   const weldLabels: { x: number; y: number; text: string; fromX: number; fromY: number; key: string; placed: boolean }[] = [];
 
@@ -732,7 +762,7 @@ export function renderDrawing(state: RenderState): string {
     )}</text>`;
   }
 
-  welds = olets + tees + welds + balloons;
+  welds = olets + tees + welds + balloons + callouts;
 
   // Drag preview.
   let preview = '';

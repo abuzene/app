@@ -172,6 +172,7 @@ const VALVES = [
   ['UNION', 'Union'],
   ['INSTRUMENT', 'Instrument'],
   ['SUPPORT', 'Support'],
+  ['SUPPORT_L', 'Support, L50 angle with clamp'],
   ['GROUND', 'AG/UG ground mark'],
   ['ANCHOR', 'Anchor'],
   ['GUIDE', 'Guide'],

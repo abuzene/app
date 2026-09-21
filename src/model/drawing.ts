@@ -13,7 +13,7 @@ import type {
   WeldReach,
 } from './types';
 import { add, angleBetween, direction, length3, scale3, sub } from './iso';
-import { componentTakeout, defaultValveEnds, fittingTakeout, oletTakeout, sizeLabel } from './pipe-data';
+import { componentTakeout, defaultValveEnds, fittingTakeout, oletTakeout, sizeLabel, valveFlangeKind } from './pipe-data';
 import { flangeJoint, isFlange } from '../render/symbols';
 import platinumLogo from '../assets/platinum-logo.png';
 
@@ -228,6 +228,7 @@ export const COMPONENT_LABEL: Record<string, string> = {
   STRAINER: 'STRAINER',
   INSTRUMENT: 'INSTRUMENT',
   SUPPORT: 'PIPE SUPPORT',
+  SUPPORT_L: 'PIPE SUPPORT L50',
   ANCHOR: 'ANCHOR',
   GUIDE: 'GUIDE',
   GROUND: 'AG/UG',
@@ -252,15 +253,16 @@ export const TERMINAL_LABEL: Record<string, string> = {
  * mark of its own — a support clamps on, a blind bolts between flanges.
  */
 function componentJoint(c: InlineComponent, fallback: JointType, dn: string): JointType | null {
-  if (['SUPPORT', 'ANCHOR', 'GUIDE', 'INSTRUMENT', 'SPECTACLE', 'GROUND'].includes(c.kind)) return null;
+  if (['SUPPORT', 'SUPPORT_L', 'ANCHOR', 'GUIDE', 'INSTRUMENT', 'SPECTACLE', 'GROUND'].includes(c.kind)) return null;
   // A flange's own type says how it joins the pipe, whatever the default is.
   if (isFlange(c.kind)) return flangeJoint(c.kind);
   // The size decides how a valve is connected, so it has to be the size the
   // component actually is — its own, or the run's.
   const ends = resolveEnds(c.kind, dn, c.ends, fallback);
-  // A flanged component meets the pipe through its flanges, which are weld
-  // neck and so butt welded to it.
-  if (ends === 'FLG') return 'BW';
+  // A flanged component meets the pipe through its flanges, which are joined
+  // to the pipe the way the line is: weld neck on a butt welded line, socket
+  // weld or threaded flanges on those.
+  if (ends === 'FLG') return flangeJoint(valveFlangeKind(fallback));
   return ends === 'BW' || ends === 'SW' || ends === 'THD' ? ends : null;
 }
 
@@ -274,7 +276,12 @@ function terminalJoint(kind: string, fallback: JointType): JointType | null {
 
 /** Marks placed on the line that are neither material nor joints: a support, the AG/UG line. */
 export function isMark(kind: string): boolean {
-  return kind === 'SUPPORT' || kind === 'GROUND';
+  return isSupport(kind) || kind === 'GROUND';
+}
+
+/** The supports: a note on the drawing, numbered along the line. */
+export function isSupport(kind: string): boolean {
+  return kind === 'SUPPORT' || kind === 'SUPPORT_L';
 }
 
 /** Valves are the components that come flanged or threaded by size. */
@@ -302,7 +309,7 @@ export function resolveEnds(
 function categoryOf(kind: string): BomLine['category'] {
   if (kind.startsWith('FLG_') || kind === 'SPECTACLE') return 'FLANGE';
   if (['RED_CONC', 'RED_ECC', 'UNION', 'TRANSITION'].includes(kind)) return 'FITTING';
-  if (['SUPPORT', 'ANCHOR', 'GUIDE', 'INSTRUMENT', 'GROUND'].includes(kind)) return 'ITEM';
+  if (['SUPPORT', 'SUPPORT_L', 'ANCHOR', 'GUIDE', 'INSTRUMENT', 'GROUND'].includes(kind)) return 'ITEM';
   return 'VALVE';
 }
 
@@ -416,7 +423,7 @@ export function analyse(drawing: Drawing): Analysis {
     for (const comp of run.inline) {
       const dn = comp.dn ?? run.dn;
       const ends = resolveEnds(comp.kind, dn, comp.ends, drawing.options.joint ?? 'BW');
-      cut -= componentTakeout(comp.kind, dn, ends === 'FLG') * 2;
+      cut -= componentTakeout(comp.kind, dn, ends === 'FLG' && valveFlangeKind(drawing.options.joint ?? 'BW')) * 2;
     }
     runLengths.set(run.id, { run, centre, cut: Math.max(0, cut) });
     if (cut < 0) {
@@ -601,13 +608,13 @@ export function analyse(drawing: Drawing): Analysis {
       const joint = componentJoint(comp, defaultJoint, dn);
       if (!joint) continue;
       const ends = resolveEnds(comp.kind, dn, comp.ends, defaultJoint);
-      const takeout = componentTakeout(comp.kind, dn, ends === 'FLG');
+      const takeout = componentTakeout(comp.kind, dn, ends === 'FLG' && valveFlangeKind(defaultJoint));
       const faceHalf = componentTakeout(comp.kind, dn, false);
       const centre = add(a.pos, scale3(dir, comp.offset));
       const isReducer = comp.kind === 'RED_CONC' || comp.kind === 'RED_ECC';
       const reach: WeldReach = isReducer
         ? { kind: 'reducer' }
-        : { kind: 'valve', trueHalf: faceHalf, flange: ends === 'FLG' && !isFlange(comp.kind) ? 'FLG_WN' : undefined };
+        : { kind: 'valve', trueHalf: faceHalf, flange: ends === 'FLG' && !isFlange(comp.kind) ? valveFlangeKind(defaultJoint) : undefined };
       for (const side of [0, 1] as const) {
         // A transition joint is welded on its steel side only; the plastic
         // side is fused, which is no weld of ours.
@@ -820,11 +827,12 @@ export function analyse(drawing: Drawing): Analysis {
       // be ordered, welded on and ballooned just the same.
       const ends = resolveEnds(comp.kind, dn, comp.ends, drawing.options.joint ?? 'BW');
       if (ends === 'FLG' && !isFlange(comp.kind)) {
-        const takeout = componentTakeout(comp.kind, dn, true);
+        const flange = valveFlangeKind(drawing.options.joint ?? 'BW');
+        const takeout = componentTakeout(comp.kind, dn, flange);
         for (const side of [-1, 1] as const) {
           const bomKey = tally({
             category: 'FLANGE',
-            description: 'WELD NECK FLANGE',
+            description: COMPONENT_LABEL[flange],
             dn,
             schedule: fittingThickness,
             unit: 'off',

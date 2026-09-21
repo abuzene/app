@@ -202,7 +202,19 @@ export function flangeLength(dn: string): number {
  * symmetric items, so two ends sum back to the full dimension. A flanged
  * component also carries the flange bolted to each of its faces.
  */
-export function componentTakeout(kind: string, dn: string, flanged = false): number {
+/**
+ * The flange a flanged valve is bolted between, by how the line is joined:
+ * weld neck on a butt welded line, socket weld or threaded on those.
+ */
+export function valveFlangeKind(joint: string): 'FLG_WN' | 'FLG_SW' | 'FLG_THD' {
+  return joint === 'SW' ? 'FLG_SW' : joint === 'THD' ? 'FLG_THD' : 'FLG_WN';
+}
+
+/**
+ * `flanged` names the flange the item is bolted between, whose length is
+ * added to the take-out; `true` is a weld neck flange.
+ */
+export function componentTakeout(kind: string, dn: string, flanged: boolean | string = false): number {
   if (kind === 'FLG_WN' || kind === 'FLG_BLIND') return lookup(FLANGE_LEN.WN, dn) ?? 0;
   if (kind === 'FLG_SO') return lookup(FLANGE_LEN.SO, dn) ?? 0;
   if (kind === 'SPECTACLE') return 0;
@@ -210,9 +222,14 @@ export function componentTakeout(kind: string, dn: string, flanged = false): num
   if (kind === 'UNION') return 25;
   // A PE/steel transition: the steel stub to its weld is about this long.
   if (kind === 'TRANSITION') return 120;
-  if (kind === 'INSTRUMENT' || kind === 'SUPPORT' || kind === 'ANCHOR' || kind === 'GUIDE' || kind === 'GROUND') return 0;
+  if (kind === 'INSTRUMENT' || kind === 'SUPPORT' || kind === 'SUPPORT_L' || kind === 'ANCHOR' || kind === 'GUIDE' || kind === 'GROUND') return 0;
   const table = VALVE_FF[kind];
-  if (table) return (lookup(table, dn) ?? 0) / 2 + (flanged ? flangeLength(dn) : 0);
+  if (table) {
+    const flange = flanged === true ? 'FLG_WN' : flanged;
+    // A socket weld or threaded flange is a short hub, like a slip-on.
+    const extra = !flange ? 0 : flange === 'FLG_WN' ? flangeLength(dn) : (lookup(FLANGE_LEN.SO, dn) ?? 0);
+    return (lookup(table, dn) ?? 0) / 2 + extra;
+  }
   return 0;
 }
 

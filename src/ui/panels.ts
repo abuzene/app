@@ -1,6 +1,6 @@
 import type { ComponentKind, EndType, FittingKind, FlangeKind, JointType, TerminalKind } from '../model/types';
 import type { Host, TabId } from './types';
-import { COMPONENT_LABEL, DEFAULT_LOGO, TERMINAL_LABEL, fittingLabel, isMark, isValve, oletLabel, resolveEnds } from '../model/drawing';
+import { COMPONENT_LABEL, DEFAULT_LOGO, TERMINAL_LABEL, fittingLabel, isMark, isSupport, isValve, oletLabel, resolveEnds } from '../model/drawing';
 import { COMMAND_HELP } from '../model/commands';
 import { DN_LIST, SIZE_LABELS, defaultValveEnds, schedulesFor, sizeLabel } from '../model/pipe-data';
 import { axisBetween } from '../model/iso';
@@ -213,7 +213,7 @@ function componentProperties(host: Host, compId: string): string {
   ${
     comp.kind === 'GROUND'
       ? ''
-      : `<div class="row"><label>${comp.kind === 'SUPPORT' ? 'Name' : 'Tag'}</label><input type="text" data-f="tag" value="${esc(comp.tag ?? '')}" placeholder="${comp.kind === 'SUPPORT' ? 'e.g. A — reads SUPPORT A' : 'e.g. HV-101'}" /></div>`
+      : `<div class="row"><label>${isSupport(comp.kind) ? 'Name' : 'Tag'}</label><input type="text" data-f="tag" value="${esc(comp.tag ?? '')}" placeholder="${isSupport(comp.kind) ? 'numbered along the line; or e.g. A' : 'e.g. HV-101'}" /></div>`
   }
   <p class="empty-note">Measured ${mm(comp.offset)} mm from the start of a ${mm(total)} mm run.${
     isValve(comp.kind)
