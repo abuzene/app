@@ -1,6 +1,6 @@
 import type { ComponentKind, EndType, FittingKind, JointType, TerminalKind } from '../model/types';
 import type { Host, TabId } from './types';
-import { COMPONENT_LABEL, TERMINAL_LABEL, fittingLabel, oletLabel } from '../model/drawing';
+import { COMPONENT_LABEL, DEFAULT_LOGO, TERMINAL_LABEL, fittingLabel, oletLabel } from '../model/drawing';
 import { COMMAND_HELP } from '../model/commands';
 import { DN_LIST, SIZE_LABELS, schedulesFor, sizeLabel } from '../model/pipe-data';
 import { axisBetween } from '../model/iso';
@@ -238,6 +238,7 @@ function itemsTab(host: Host): string {
   <td class="num">${i + 1}</td>
   <td>${esc(line.description)}</td>
   <td>${esc(sizeLabel(line.dn))}</td>
+  <td>${esc(line.schedule)}</td>
   <td class="num">${line.unit === 'm' ? line.quantity.toFixed(2) : Math.round(line.quantity)}</td>
   <td>${line.unit}</td>
 </tr>`,
@@ -249,7 +250,7 @@ function itemsTab(host: Host): string {
 <div class="section">
   <h3>Bill of materials</h3>
   <table>
-    <thead><tr><th class="num">#</th><th>Description</th><th>Size</th><th class="num">Qty</th><th>Unit</th></tr></thead>
+    <thead><tr><th class="num">#</th><th>Description</th><th>Size</th><th>Thk</th><th class="num">Qty</th><th>Unit</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>
   <div class="totals">
@@ -274,27 +275,29 @@ function weldsTab(host: Host): string {
   <td>${esc(sizeLabel(w.dn))}</td>
   <td>${esc(w.joint)}</td>
   <td>${esc(w.joins)}</td>
-  <td><button class="pill${w.type === 'FIELD' ? ' field' : ''}" data-weld="${esc(w.key)}">${w.type === 'FIELD' ? 'FIELD' : 'SHOP'}</button></td>
 </tr>`,
     )
     .join('');
-  const field = welds.filter((w) => w.type === 'FIELD').length;
+  const byPrep = welds.reduce<Record<string, number>>((acc, w) => {
+    acc[w.joint] = (acc[w.joint] ?? 0) + 1;
+    return acc;
+  }, {});
   return `
 <div class="section">
-  <h3>Weld schedule</h3>
-  <p class="empty-note">Click a tag to switch a weld between shop and field. Numbers follow the route.</p>
+  <h3>Weld list</h3>
+  <p class="empty-note">Numbered along the route. Threaded joints are marked on the drawing but are not welds.</p>
   <table>
-    <thead><tr><th>No.</th><th>Size</th><th>Prep</th><th>Joins</th><th>Type</th></tr></thead>
+    <thead><tr><th>No.</th><th>Size</th><th>Prep</th><th>Joins</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>
   <div class="totals">
-    <span>Shop <strong>${welds.length - field}</strong></span>
-    <span>Field <strong>${field}</strong></span>
+    ${Object.entries(byPrep)
+      .map(([prep, n]) => `<span>${esc(prep)} <strong>${n}</strong></span>`)
+      .join('')}
     <span>Total <strong>${welds.length}</strong></span>
   </div>
   <div class="btn-row">
     <button class="btn-line" data-a="copy-welds">Copy list</button>
-    <button class="btn-line" data-a="reset-welds">Reset all to shop</button>
   </div>
 </div>`;
 }
@@ -321,16 +324,27 @@ function titleTab(host: Host): string {
       `<div class="row"><label>${esc(f.label)}</label><input type="text" data-meta="${f.key}" value="${esc(String(meta[f.key] ?? ''))}" placeholder="${esc(f.placeholder ?? '')}" /></div>`,
   ).join('')}
 </div>
+<div class="section" data-editor="line">
+  <h3>Pipe and fittings</h3>
+  <div class="row"><label>Pipe schedule</label><select data-f="pipesch">${options(schedulesFor(host.state.currentDn), host.state.drawing.options.pipeSchedule)}</select></div>
+  <div class="row"><label>Fitting thk</label><select data-f="fitthk">${options(schedulesFor(host.state.currentDn), host.state.drawing.options.fittingThickness)}</select></div>
+  <p class="empty-note">Pipe schedule applies to every run on the drawing. Fittings are taken off at their own thickness — normally standard weight even where the pipe is heavier.</p>
+</div>
 <div class="section">
   <h3>Logo</h3>
   ${
     meta.logo
       ? `<div class="logo-preview"><img src="${esc(meta.logo)}" alt="Company logo" /></div>`
-      : '<p class="empty-note">Add your logo and it prints in the corner of every sheet. It is saved with the drawing.</p>'
+      : '<p class="empty-note">Add your logo and it prints in the corner of every sheet.</p>'
   }
+  <p class="empty-note">${
+    meta.logo === DEFAULT_LOGO
+      ? 'This is a stand-in. Load your own artwork — a PNG or SVG — and it prints instead.'
+      : 'Saved with the drawing, so it travels with the file.'
+  }</p>
   <div class="btn-row">
     <button class="btn-line" data-a="pick-logo">${meta.logo ? 'Replace logo' : 'Add logo'}</button>
-    ${meta.logo ? '<button class="btn-line danger" data-a="clear-logo">Remove</button>' : ''}
+    ${meta.logo && meta.logo !== DEFAULT_LOGO ? '<button class="btn-line" data-a="clear-logo">Back to default</button>' : ''}
   </div>
 </div>`;
 }
@@ -554,22 +568,6 @@ function wire(body: HTMLElement, host: Host): void {
     host.state.commandText = (e.target as HTMLTextAreaElement).value;
   });
 
-  // Welds.
-  body.querySelectorAll<HTMLButtonElement>('[data-weld]').forEach((button) => {
-    button.addEventListener('click', () => {
-      const key = button.dataset.weld!;
-      host.edit('Change weld type', (d) => {
-        const current = d.weldOverrides[key]?.type ?? 'SHOP';
-        d.weldOverrides[key] = { ...d.weldOverrides[key], type: current === 'FIELD' ? 'SHOP' : 'FIELD' };
-      });
-    });
-  });
-  body.querySelector('[data-a="reset-welds"]')?.addEventListener('click', () => {
-    host.edit('Reset welds', (d) => {
-      d.weldOverrides = {};
-    });
-  });
-
   // Exports.
   const bomCsv = () => {
     const rows = [['Item', 'Description', 'Size', 'Schedule', 'Quantity', 'Unit']];
@@ -578,7 +576,7 @@ function wire(body: HTMLElement, host: Host): void {
         String(i + 1),
         line.description,
         sizeLabel(line.dn),
-        line.category === 'PIPE' ? line.schedule : '',
+        line.schedule,
         line.unit === 'm' ? line.quantity.toFixed(2) : String(Math.round(line.quantity)),
         line.unit,
       ]);
@@ -586,9 +584,9 @@ function wire(body: HTMLElement, host: Host): void {
     return toCsv(rows);
   };
   const weldCsv = () => {
-    const rows = [['Weld', 'Size', 'Schedule', 'Preparation', 'Type', 'Joins']];
+    const rows = [['Weld', 'Size', 'Preparation', 'Joins']];
     for (const w of host.state.analysis.welds) {
-      rows.push([w.number, sizeLabel(w.dn), w.schedule, w.joint, w.type, w.joins]);
+      rows.push([w.number, sizeLabel(w.dn), w.joint, w.joins]);
     }
     return toCsv(rows);
   };
@@ -600,11 +598,32 @@ function wire(body: HTMLElement, host: Host): void {
     host.copy('Weld schedule', weldCsv());
   });
 
+  // Pipe and fitting thickness.
+  const lineEditor = body.querySelector<HTMLElement>('[data-editor="line"]');
+  if (lineEditor) {
+    lineEditor.querySelector<HTMLSelectElement>('[data-f="pipesch"]')?.addEventListener('change', (e) => {
+      const value = (e.target as HTMLSelectElement).value;
+      host.edit('Set pipe schedule', (d) => {
+        d.options.pipeSchedule = value;
+        // The schedule is a property of the line, so it carries to every run.
+        for (const run of d.runs) {
+          if (schedulesFor(run.dn).includes(value)) run.schedule = value;
+        }
+      });
+    });
+    lineEditor.querySelector<HTMLSelectElement>('[data-f="fitthk"]')?.addEventListener('change', (e) => {
+      const value = (e.target as HTMLSelectElement).value;
+      host.edit('Set fitting thickness', (d) => {
+        d.options.fittingThickness = value;
+      });
+    });
+  }
+
   // Logo.
   body.querySelector('[data-a="pick-logo"]')?.addEventListener('click', () => host.pickLogo());
   body.querySelector('[data-a="clear-logo"]')?.addEventListener('click', () => {
-    host.edit('Remove logo', (d) => {
-      d.meta.logo = undefined;
+    host.edit('Restore default logo', (d) => {
+      d.meta.logo = DEFAULT_LOGO;
     });
   });
 

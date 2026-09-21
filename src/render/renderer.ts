@@ -188,7 +188,8 @@ function renderDimension(
     `<line class="dim-line" x1="${ax.toFixed(2)}" y1="${ay.toFixed(2)}" x2="${bx.toFixed(2)}" y2="${by.toFixed(2)}"/>` +
     slash(ax, ay) +
     slash(bx, by) +
-    `<text class="dim-text" x="${tx.toFixed(2)}" y="${(ty - size * 0.45).toFixed(2)}" transform="rotate(${angle.toFixed(1)} ${tx.toFixed(2)} ${ty.toFixed(2)})">${escapeText(text)}</text>` +
+    // Clear of the dimension line, never sitting across it.
+    `<text class="dim-text" x="${tx.toFixed(2)}" y="${(ty - size * 0.75).toFixed(2)}" transform="rotate(${angle.toFixed(1)} ${tx.toFixed(2)} ${ty.toFixed(2)})">${escapeText(text)}</text>` +
     `</g>`
   );
 }
@@ -280,23 +281,38 @@ export function renderDrawing(state: RenderState): string {
   // weld numbers follow the Welds toggle.
   let welds = '';
   const jointPoints = new Map<string, Pt>();
+  const weldLabels: { x: number; y: number; text: string; fromX: number; fromY: number }[] = [];
+
   analysis.joints.forEach((joint, index) => {
     const place = weldPlacement(drawing, analysis, joint.pos);
     if (!place) return;
     const f = frameFor(place.a.x, place.a.y, place.b.x, place.b.y, place.t, size);
     jointPoints.set(joint.key, { x: f.cx, y: f.cy });
-    welds += `<g class="weld">`;
-    welds += jointMark(f, joint.joint, joint.type === 'FIELD', joint.facing);
+    welds += `<g class="weld">${jointMark(f, joint.joint, joint.facing)}</g>`;
     if (drawing.options.showWelds && joint.number) {
       // Joints cluster around fittings, so stagger the tags either side of the
       // pipe rather than stacking them all on the same one.
       const side = index % 2 === 0 ? 1 : -1;
-      const lx = f.cx + f.nx * size * 1.9 * side;
-      const ly = f.cy + f.ny * size * 1.9 * side;
-      welds += `<text class="weld-no" x="${lx.toFixed(2)}" y="${ly.toFixed(2)}" text-anchor="middle">${escapeText(joint.number)}</text>`;
+      weldLabels.push({
+        x: f.cx + f.nx * size * 3 * side,
+        y: f.cy + f.ny * size * 3 * side,
+        text: joint.number,
+        fromX: f.cx,
+        fromY: f.cy,
+      });
     }
-    welds += `</g>`;
   });
+
+  for (const label of spreadLabels(weldLabels, size * 2.1)) {
+    // A tag pushed clear of its neighbours gets a leader back to its weld, so
+    // it is never ambiguous which joint it belongs to.
+    const reach = Math.hypot(label.x - label.fromX, label.y - label.fromY);
+    const leader =
+      reach > size * 3.6
+        ? `<line class="weld-leader" x1="${label.fromX.toFixed(2)}" y1="${label.fromY.toFixed(2)}" x2="${label.x.toFixed(2)}" y2="${label.y.toFixed(2)}"/>`
+        : '';
+    welds += `<g class="weld">${leader}<text class="weld-no" x="${label.x.toFixed(2)}" y="${(label.y + size * 0.3).toFixed(2)}" text-anchor="middle">${escapeText(label.text)}</text></g>`;
+  }
 
   // An olet is drawn as the saddle on the header where the branch leaves it.
   let olets = '';
@@ -341,6 +357,39 @@ export function renderDrawing(state: RenderState): string {
   // Hit targets for runs go under the node and component handles so that a
   // drag starting on a point is never swallowed by the run beneath it.
   return grid + dims + pipes + `<g class="hits">${hits}</g>` + comps + nodes + welds + preview;
+}
+
+/**
+ * Nudges labels apart so none sits on top of another.
+ *
+ * Welds cluster tightly around a fitting and their numbers would otherwise
+ * stack into an unreadable smudge. A few relaxation passes push overlapping
+ * labels away from each other, which is enough for the handful that ever
+ * collide and leaves everything else exactly where it was placed.
+ */
+function spreadLabels<T extends { x: number; y: number }>(labels: T[], minGap: number): T[] {
+  for (let pass = 0; pass < 12; pass += 1) {
+    let moved = false;
+    for (let i = 0; i < labels.length; i += 1) {
+      for (let j = i + 1; j < labels.length; j += 1) {
+        const dx = labels[j].x - labels[i].x;
+        const dy = labels[j].y - labels[i].y;
+        const d = Math.hypot(dx, dy);
+        if (d >= minGap) continue;
+        // Coincident labels need a direction to separate along.
+        const ux = d > 0.01 ? dx / d : 1;
+        const uy = d > 0.01 ? dy / d : 0;
+        const push = (minGap - d) / 2;
+        labels[i].x -= ux * push;
+        labels[i].y -= uy * push;
+        labels[j].x += ux * push;
+        labels[j].y += uy * push;
+        moved = true;
+      }
+    }
+    if (!moved) break;
+  }
+  return labels;
 }
 
 /** Finds which run a weld sits on so it can be drawn in the run's frame. */

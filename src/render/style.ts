@@ -45,7 +45,16 @@ export function contentCss({ k, u, dark = false }: ContentStyleOptions): string 
 .component.selected .sym-solid { fill: ${accent}; stroke: ${accent}; }
 .joint-bw { fill: ${ink}; stroke: ${ink}; stroke-width: ${w(0.8)}; }
 .fitting-body { fill: none; stroke: ${ink}; stroke-width: ${w(1.8)}; }
-.weld-no { fill: ${dim}; font-size: ${w(8.5)}px; font-family: inherit; }
+/* Every label is painted with the page colour behind its own strokes, so on the
+   rare occasion one does fall over a line it still reads cleanly. */
+.weld-no, .dim-text, .tag, .note, .node-label {
+  paint-order: stroke fill;
+  stroke: ${dark ? '#0d1117' : '#ffffff'};
+  stroke-width: ${w(2.6)};
+  stroke-linejoin: round;
+}
+.weld-no { fill: ${dim}; font-size: ${w(9)}px; font-family: inherit; }
+.weld-leader { stroke: ${dim}; stroke-width: ${w(0.7)}; fill: none; }
 .dim-line, .dim-ext, .dim-tick { stroke: ${dim}; stroke-width: ${w(0.9)}; fill: none; }
 .dim-ext { stroke-dasharray: ${w(3)} ${w(3)}; }
 .dim-text { fill: ${ink}; font-size: ${w(11)}px; text-anchor: middle; }

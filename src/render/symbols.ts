@@ -60,7 +60,7 @@ function circle(f: Frame, along: number, across: number, r: number, cls: string)
  * A field weld carries the weld flag as well, so a site joint is picked out
  * from a shop one without changing what the mark itself means.
  */
-export function jointMark(f: Frame, joint: JointType, field = false, facing: Facing = 1): string {
+export function jointMark(f: Frame, joint: JointType, facing: Facing = 1): string {
   const s = f.s;
   let out = '';
   switch (joint) {
@@ -78,17 +78,7 @@ export function jointMark(f: Frame, joint: JointType, field = false, facing: Fac
       out = circle(f, 0, 0, s * 0.3, 'joint-bw');
       break;
   }
-  if (field) out += weldFlag(f);
   return out;
-}
-
-/** The flag that marks a joint made on site rather than in the shop. */
-function weldFlag(f: Frame): string {
-  const s = f.s;
-  return (
-    line(f, [0, 0], [0, -s * 1.35], 'sym-line') +
-    poly([pt(f, 0, -s * 1.35), pt(f, s * 0.75, -s * 1.35), pt(f, 0, -s * 0.92)], 'sym-solid')
-  );
 }
 
 /* ----------------------------------------------------------------- flanges */

@@ -40,7 +40,7 @@ const state: AppState = {
   commandErrors: [],
   tab: 'route',
   currentDn: 'DN80',
-  currentSchedule: 'STD',
+  currentSchedule: drawing.options.pipeSchedule ?? 'SCH40',
   view: { x: -400, y: -300, w: 800, h: 600 },
 };
 
@@ -262,6 +262,11 @@ jointSelect.addEventListener('change', () => {
   updateOptions((o) => {
     o.joint = jointSelect.value as 'BW' | 'SW' | 'THD';
   });
+});
+
+scheduleSelect.addEventListener('change', () => {
+  // Kept in step so the Line section and the toolbar never disagree.
+  state.drawing.options.pipeSchedule = state.currentSchedule;
 });
 
 snapSelect.addEventListener('change', () => {

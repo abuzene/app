@@ -50,8 +50,10 @@ Click a run, a point or a component to select it; the Route tab edits whatever i
 selected. `Delete` removes it, `F` zooms to fit, `Escape` deselects, `Ctrl+Z` and
 `Ctrl+Shift+Z` undo and redo. Drag empty space to pan, scroll or pinch to zoom.
 
-**Branching off a header.** Route the header first, select it, then pick
-Weldolet, Sockolet or Threadolet and drag from the olet to route the branch. An
+**Branching off a header.** Route the header first, select it, then pick Tee,
+Weldolet, Sockolet or Threadolet and drag from the fitting to route the branch.
+A tee is cut into the header and takes length out of all three legs; an olet is
+welded to its wall and takes nothing from the header at all. An
 olet is welded to the header wall rather than cut into it, so the header stays
 one continuous pipe and keeps its full cut length — only the branch pays for the
 fitting. The olet type sets how the branch is joined, which is how a butt welded
@@ -111,12 +113,13 @@ so they stay out of the weld schedule and its numbering.
   to a bend or a mitre.
 - **Dimensions**, centre to centre, placed clear of the pipe.
 - **Welds**, one per fitting leg, one either side of every welded component and
-  one at each welded end, numbered along the route. Any weld can be switched
-  between shop and field, and the choice survives further editing.
+  one at each welded end, numbered along the route. Threaded joints are marked
+  but are not welds, so they take no number.
 - **Cut lengths**, being the centre-to-centre dimension less the take-out of
   whatever sits at each end — what the fabricator actually cuts.
-- **A material list**, with pipe grouped by size and schedule, and every
-  fitting, flange and valve counted.
+- **A material list**, with pipe at its own schedule and fittings at their own
+  thickness — fittings are normally standard weight even where the pipe is a
+  heavier schedule — and every fitting, flange and valve counted.
 
 ## Printing
 

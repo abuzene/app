@@ -120,7 +120,7 @@ export interface Run {
   note?: string;
 }
 
-export type WeldType = 'SHOP' | 'FIELD';
+
 
 /**
  * Welds are derived from connectivity on every recalculation, but user choices
@@ -133,7 +133,6 @@ export type WeldType = 'SHOP' | 'FIELD';
 export interface Weld {
   key: string;
   number: string;
-  type: WeldType;
   joint: JointType;
   dn: string;
   schedule: string;
@@ -145,7 +144,6 @@ export interface Weld {
 }
 
 export interface WeldOverride {
-  type?: WeldType;
   number?: string;
 }
 
@@ -183,6 +181,14 @@ export interface DrawingOptions {
   northRotation: 0 | 1 | 2 | 3;
   /** How fittings are joined unless a point says otherwise. */
   joint: JointType;
+  /** The schedule new runs take, and what "set every run" applies. */
+  pipeSchedule: string;
+  /**
+   * Wall thickness the fittings are made to. Fittings are normally standard
+   * weight even where the pipe is a heavier schedule, so the take-off records
+   * the two separately rather than assuming the pipe's.
+   */
+  fittingThickness: string;
 }
 
 export interface Drawing {

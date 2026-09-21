@@ -2,13 +2,13 @@ import type { ComponentKind, JointType, Run, TerminalKind } from '../model/types
 import type { Host } from './types';
 import { COMPONENT_LABEL } from '../model/drawing';
 import { addComponent, runLength, splitRun } from '../model/edit';
-import { componentSymbol, oletSymbol, type Frame } from '../render/symbols';
+import { componentSymbol, jointMark, oletSymbol, type Frame } from '../render/symbols';
 
-/** Olets are fittings on the header, not items sitting in the line. */
-type OletTool = { olet: JointType };
-type Tool = ComponentKind | OletTool;
+/** Branch fittings act on the header, they do not sit in the line. */
+type BranchTool = { branch: 'TEE' } | { olet: JointType };
+type Tool = ComponentKind | BranchTool;
 
-function isOlet(tool: Tool): tool is OletTool {
+function isBranch(tool: Tool): tool is BranchTool {
   return typeof tool === 'object';
 }
 
@@ -21,7 +21,7 @@ const GROUPS: ToolGroup[] = [
   { label: 'Flanges', kinds: ['FLG_WN', 'FLG_SO', 'FLG_SW', 'FLG_THD', 'FLG_LAP', 'FLG_BLIND'] },
   { label: 'Fittings', kinds: ['RED_CONC', 'RED_ECC', 'CAP'] },
   { label: 'Valves', kinds: ['BALL', 'BALL_ACT'] },
-  { label: 'Branch', kinds: [{ olet: 'BW' }, { olet: 'SW' }, { olet: 'THD' }] },
+  { label: 'Branch', kinds: [{ branch: 'TEE' }, { olet: 'BW' }, { olet: 'SW' }, { olet: 'THD' }] },
 ];
 
 const SHORT: Partial<Record<ComponentKind, string>> = {
@@ -40,6 +40,22 @@ const SHORT: Partial<Record<ComponentKind, string>> = {
 };
 
 const OLET_SHORT: Record<JointType, string> = { BW: 'Weldolet', SW: 'Sockolet', THD: 'Thredolet' };
+
+/** The tee icon: a branch off a header, with a joint mark on each of its ends. */
+function teeIcon(): string {
+  const along = (x: number, y: number, dx: number, dy: number): Frame => ({
+    cx: x, cy: y, dx, dy, nx: -dy, ny: dx, s: 5,
+  });
+  return (
+    `<svg viewBox="0 0 58 36" aria-hidden="true">` +
+    `<line class="icon-pipe" x1="4" y1="26" x2="54" y2="26"/>` +
+    `<line class="sym-line" x1="29" y1="26" x2="29" y2="7"/>` +
+    jointMark(along(15, 26, 1, 0), 'BW') +
+    jointMark(along(43, 26, -1, 0), 'BW') +
+    jointMark(along(29, 13, 0, 1), 'BW') +
+    `</svg>`
+  );
+}
 
 /** The olet icon shows the saddle on a length of header, branch going up. */
 function oletIcon(): string {
@@ -141,30 +157,41 @@ function place(host: Host, kind: ComponentKind): void {
 }
 
 /**
- * Puts an olet on the header: the run is broken at that point so the branch has
- * somewhere to leave from, but the header is still one pipe as far as the cut
- * lengths and the take-off are concerned.
+ * Opens a branch on the header: the run is broken at that point so the branch
+ * has somewhere to leave from, and the fitting is set on the new point.
+ *
+ * A tee is cut into the header and takes length out of all three legs; an olet
+ * is welded to its wall and takes nothing from the header at all. Either way
+ * the branch itself is drawn next, by dragging from the point.
  */
-function placeOlet(host: Host, joint: JointType): void {
+function placeBranch(host: Host, tool: BranchTool): void {
   const run = targetRun(host);
   if (!run) {
-    host.notify('Select the header run first, then pick an olet.');
+    host.notify('Select the header run first, then pick a branch fitting.');
     return;
   }
+  const isOlet = 'olet' in tool;
+  const label = isOlet ? OLET_SHORT[tool.olet].toLowerCase() : 'tee';
   const at = runLength(host.state.drawing, run) / 2;
   let nodeId: string | null = null;
-  host.edit(`Add ${OLET_SHORT[joint].toLowerCase()}`, (d) => {
+  host.edit(`Add ${label}`, (d) => {
     nodeId = splitRun(d, run.id, at);
     if (!nodeId) return;
     const node = d.nodes.find((n) => n.id === nodeId);
-    if (node) {
+    if (!node) return;
+    if (isOlet) {
       node.fittingOverride = 'OLET';
-      node.joint = joint;
+      node.joint = tool.olet;
+    } else {
+      // A tee is what connectivity infers anyway, and it works out equal or
+      // reducing from the branch size once the branch is drawn.
+      node.fittingOverride = undefined;
+      node.joint = undefined;
     }
   });
   if (nodeId) {
     host.select({ kind: 'node', id: nodeId });
-    host.notify('Now drag from the olet to route the branch.');
+    host.notify(`Now drag from the ${label} to route the branch.`);
   }
 }
 
@@ -174,16 +201,18 @@ export function renderTools(container: HTMLElement, host: Host): void {
     (group) =>
       `<div class="tool-group-label">${group.label}</div>` +
       group.kinds
-        .map((tool, i) => {
-          if (isOlet(tool)) {
+        .map((tool) => {
+          if (isBranch(tool)) {
+            const olet = 'olet' in tool;
+            const name = olet ? OLET_SHORT[tool.olet] : 'Tee';
+            const attr = olet ? `data-olet="${tool.olet}"` : 'data-branch="TEE"';
             return (
-              `<button class="tool" data-olet="${tool.olet}" title="${OLET_SHORT[tool.olet]}"${enabled ? '' : ' disabled'}>` +
-              oletIcon() +
-              `<span class="tool-name">${OLET_SHORT[tool.olet]}</span>` +
+              `<button class="tool" ${attr} title="${name}"${enabled ? '' : ' disabled'}>` +
+              (olet ? oletIcon() : teeIcon()) +
+              `<span class="tool-name">${name}</span>` +
               `</button>`
             );
           }
-          void i;
           return (
             `<button class="tool" data-kind="${tool}" title="${COMPONENT_LABEL[tool]}"${enabled ? '' : ' disabled'}>` +
             icon(tool) +
@@ -197,7 +226,8 @@ export function renderTools(container: HTMLElement, host: Host): void {
   container.querySelectorAll<HTMLButtonElement>('.tool').forEach((button) => {
     button.addEventListener('click', () => {
       const olet = button.dataset.olet as JointType | undefined;
-      if (olet) placeOlet(host, olet);
+      if (olet) placeBranch(host, { olet });
+      else if (button.dataset.branch === 'TEE') placeBranch(host, { branch: 'TEE' });
       else place(host, button.dataset.kind as ComponentKind);
     });
   });

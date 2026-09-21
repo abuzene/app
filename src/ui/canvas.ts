@@ -88,7 +88,7 @@ export class Canvas {
       view: this.view,
       selection: this.selection,
       preview: this.preview,
-      symbolSize: 11 / this.k,
+      symbolSize: 13 / this.k,
     });
     this.svg.innerHTML = `<style>${contentCss({ k: this.k, u: 1 })}</style>${body}`;
   }

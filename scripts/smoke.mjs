@@ -44,12 +44,12 @@ await page.waitForTimeout(500);
 
 const drawn = await page.evaluate(() => ({
   pipes: document.querySelectorAll('#canvas .pipe').length,
-  welds: document.querySelectorAll('#canvas .weld').length,
+  joints: document.querySelectorAll('#canvas .joint-bw').length,
   dims: document.querySelectorAll('#canvas .dim').length,
   components: document.querySelectorAll('#canvas .component').length,
 }));
 check('example line draws pipe runs', drawn.pipes, (v) => v === 5, '5');
-check('welds are generated', drawn.welds, (v) => v > 10, 'more than 10');
+check('joint marks are drawn', drawn.joints, (v) => v > 10, 'more than 10');
 check('dimensions are drawn', drawn.dims, (v) => v === 5, '5');
 check('inline components are drawn', drawn.components, (v) => v === 2, '2');
 await page.screenshot({ path: join(out, '01-sample.png') });
@@ -70,9 +70,9 @@ await page.click('#tabs button:has-text("Welds")');
 await page.waitForTimeout(200);
 const weldRows = await page.locator('#tab-body tbody tr').count();
 check('weld schedule is populated', weldRows, (v) => v > 10, 'more than 10');
-await page.locator('#tab-body .pill').first().click();
-await page.waitForTimeout(250);
-check('a weld can be switched to field', await page.locator('#tab-body .pill.field').count(), (v) => v === 1, '1');
+const weldTable = await page.locator('#tab-body').innerText();
+check('welds are numbered plainly', weldTable, (v) => /\bW1\b/.test(v), 'W1');
+check('no shop or field column', weldTable, (v) => !/SHOP|FIELD/.test(v), 'neither word');
 
 // Draw a run with the mouse.
 await page.click('#tabs button:has-text("Route")');
@@ -112,7 +112,8 @@ check('a length can be typed', await page.locator('#tab-body .run-list input[dat
 // Palette.
 await page.locator('#tab-body .run-list tbody tr').first().click();
 await page.waitForTimeout(200);
-check('the palette is cut to the fittings, ball valves and olets', await page.locator('.tool').count(), (v) => v === 14, '14');
+check('the palette carries the fittings, ball valves, tee and olets', await page.locator('.tool').count(), (v) => v === 15, '15');
+check('a tee can be placed on a header', await page.locator('.tool[data-branch="TEE"]').count(), (v) => v === 1, '1');
 check('the actuated ball valve is there', await page.locator('.tool[data-kind="BALL_ACT"]').count(), (v) => v === 1, '1');
 await page.locator('.tool[data-kind="BALL"]').click();
 await page.waitForTimeout(300);
@@ -159,7 +160,12 @@ check('sheet is A3 landscape', svg, (v) => /viewBox="0 0 420 297"/.test(v), 'a 4
 check('sheet carries the title block', svg, (v) => v.includes('Smoke Test Plant') && v.includes('80-P-1201-A1A'), 'the project name and line number');
 check('sheet carries the AS MADE stamp', svg, (v) => v.includes('AS MADE'), 'an AS MADE stamp');
 check('sheet carries the material list', svg, (v) => v.includes('DESCRIPTION'), 'a material list header');
-check('sheet carries the weld summary', svg, (v) => v.includes('WELD SUMMARY'), 'a weld summary');
+check('sheet carries the weld list', svg, (v) => v.includes('WELDS'), 'a weld summary');
+check('the side column is a quarter of the sheet', svg, (v) => {
+  const divider = Number(v.match(/<line class="frame" x1="([\d.]+)"/)?.[1] ?? 0);
+  return divider >= 420 * 0.7;
+}, 'a divider at or past 70% of the width');
+check('sheet carries the company mark', svg, (v) => v.includes('PLATINUM') || v.includes('image'), 'a logo');
 check('sheet states the units', svg, (v) => v.includes('ALL DIMENSIONS IN MILLIMETRES'), 'the millimetre note');
 check('sheet has no design data on it', svg, (v) => !/DESIGN PRESS|PWHT|INSULATION/.test(v), 'none of the specification fields');
 await page.click('[data-close]');
@@ -374,6 +380,49 @@ if (oletFound) {
     '1 — the threaded branch is not a weld',
   );
 }
+
+// A tee placed on a header, then branched, is taken off as a tee.
+page.once('dialog', (d) => d.accept());
+await page.click('#new');
+await page.waitForTimeout(400);
+await page.click('#tabs button:has-text("Command")');
+await page.waitForTimeout(200);
+await page.fill('#command-text', '6"\nSCH40\nORIGIN 0 0 0\nE 4000');
+await page.click('[data-a="run-commands"]');
+await page.waitForTimeout(500);
+await page.click('#tabs button:has-text("Route")');
+await page.waitForTimeout(300);
+await page.locator('#tab-body .run-list tbody tr').first().click();
+await page.waitForTimeout(250);
+await page.locator('.tool[data-branch="TEE"]').click();
+await page.waitForTimeout(450);
+const teeHandle = await page.locator('#canvas .node.selected circle.hit-dot').boundingBox();
+await page.selectOption('#dn', 'DN80');
+await page.waitForTimeout(250);
+await page.mouse.move(teeHandle.x + teeHandle.width / 2, teeHandle.y + teeHandle.height / 2);
+await page.mouse.down();
+await page.mouse.move(teeHandle.x + 130, teeHandle.y - 95, { steps: 14 });
+await page.waitForTimeout(150);
+await page.mouse.up();
+await page.waitForTimeout(600);
+await page.click('#tabs button:has-text("Items")');
+await page.waitForTimeout(300);
+const teeBom = await page.locator('#tab-body').innerText();
+check('the tee is taken off with its branch size', teeBom, (v) => /REDUCING TEE 6" x 3"/.test(v), 'REDUCING TEE 6" x 3"');
+
+// Pipe schedule and fitting thickness are recorded separately.
+check('pipe carries its schedule', teeBom, (v) => /PIPE, SMLS, 6" x SCH40/.test(v), 'SCH40 pipe');
+check('fittings carry their own thickness', teeBom, (v) => /REDUCING TEE[^\n]*STD/.test(v), 'STD fittings');
+
+await page.click('#tabs button:has-text("Title")');
+await page.waitForTimeout(300);
+await page.locator('[data-f="pipesch"]').selectOption('SCH80');
+await page.waitForTimeout(450);
+await page.click('#tabs button:has-text("Items")');
+await page.waitForTimeout(300);
+const schBom = await page.locator('#tab-body').innerText();
+check('changing the pipe schedule carries to every run', schBom, (v) => /PIPE, SMLS, 6" x SCH80/.test(v), 'SCH80 pipe');
+check('the fittings stay at their own thickness', schBom, (v) => /REDUCING TEE[^\n]*STD/.test(v), 'STD fittings');
 
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 

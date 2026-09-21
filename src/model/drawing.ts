@@ -20,6 +20,22 @@ export function uid(prefix: string): string {
   return `${prefix}${counter.toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 }
 
+/**
+ * The default mark on the sheet until a real logo is loaded. Drawn rather than
+ * embedded so it stays sharp at any sheet size and costs the drawing nothing.
+ */
+export const DEFAULT_LOGO =
+  'data:image/svg+xml;utf8,' +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 64">' +
+      '<text x="130" y="30" text-anchor="middle" font-family="Helvetica Neue,Arial,sans-serif" ' +
+      'font-size="26" font-weight="700" letter-spacing="6" fill="#12161c">PLATINUM</text>' +
+      '<line x1="34" y1="42" x2="226" y2="42" stroke="#12161c" stroke-width="1.5"/>' +
+      '<text x="130" y="56" text-anchor="middle" font-family="Helvetica Neue,Arial,sans-serif" ' +
+      'font-size="9" letter-spacing="3.5" fill="#5b6675">PIPING AND FABRICATION</text>' +
+      '</svg>',
+  );
+
 export function emptyMeta(): Meta {
   return {
     project: '',
@@ -29,6 +45,7 @@ export function emptyMeta(): Meta {
     revision: '0',
     date: new Date().toISOString().slice(0, 10),
     drawnBy: '',
+    logo: DEFAULT_LOGO,
   };
 }
 
@@ -44,6 +61,8 @@ export function defaultOptions(): DrawingOptions {
     showGrid: true,
     northRotation: 0,
     joint: 'BW',
+    pipeSchedule: 'SCH40',
+    fittingThickness: 'STD',
   };
 }
 
@@ -369,7 +388,6 @@ export function analyse(drawing: Drawing): Analysis {
     jointMap.set(key, {
       key,
       number: '',
-      type: 'SHOP',
       joint,
       dn,
       schedule,
@@ -519,14 +537,12 @@ export function analyse(drawing: Drawing): Analysis {
   let weldNumber = 0;
   const joints: Weld[] = ordered.map((j) => {
     const override = drawing.weldOverrides[j.key];
-    const type = override?.type ?? j.type;
     const welded = j.joint !== 'THD';
     if (welded) weldNumber += 1;
-    const number = welded ? override?.number ?? `${type === 'FIELD' ? 'FW' : 'SW'}${weldNumber}` : '';
+    const number = welded ? override?.number ?? `W${weldNumber}` : '';
     return {
       key: j.key,
       number,
-      type,
       joint: j.joint,
       dn: j.dn,
       schedule: j.schedule,
@@ -565,6 +581,8 @@ export function analyse(drawing: Drawing): Analysis {
     else counts.set(key, { line, quantity: 1 });
   };
 
+  const fittingThickness = drawing.options.fittingThickness ?? 'STD';
+
   for (const info of nodeInfo.values()) {
     if (info.fitting === 'OLET') {
       const legs = oletLegs(info);
@@ -574,7 +592,7 @@ export function analyse(drawing: Drawing): Analysis {
           category: 'FITTING',
           description: `${oletLabel(joint)} ${sizeLabel(legs.header[0].dn)} x ${sizeLabel(legs.branch.dn)}`,
           dn: legs.header[0].dn,
-          schedule: legs.header[0].schedule,
+          schedule: fittingThickness,
           unit: 'off',
         });
       }
@@ -582,7 +600,7 @@ export function analyse(drawing: Drawing): Analysis {
     }
     if (info.fitting !== 'NONE' && info.degree > 1) {
       const dn = info.runs[0]?.dn ?? 'DN80';
-      const schedule = info.runs[0]?.schedule ?? 'STD';
+      const schedule = fittingThickness;
       const branch = info.runs.find((r) => r.dn !== dn);
       tally({
         category: 'FITTING',
@@ -616,7 +634,7 @@ export function analyse(drawing: Drawing): Analysis {
       const description = isReducer
         ? `${COMPONENT_LABEL[comp.kind]} ${sizeLabel(dn)} x ${sizeLabel(comp.dn2 ?? dn)}`
         : COMPONENT_LABEL[comp.kind] ?? comp.kind;
-      tally({ category: categoryOf(comp.kind), description, dn, schedule: run.schedule, unit: 'off' });
+      tally({ category: categoryOf(comp.kind), description, dn, schedule: fittingThickness, unit: 'off' });
     }
   }
 
