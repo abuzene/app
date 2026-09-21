@@ -1,8 +1,8 @@
 import type { Analysis } from '../model/drawing';
 import type { Axis, Drawing, Vec3 } from '../model/types';
-import { COMPONENT_LABEL, TERMINAL_LABEL, fittingLabel, oletLegs } from '../model/drawing';
+import { COMPONENT_LABEL, TERMINAL_LABEL, fittingLabel, oletLegs, resolveEnds } from '../model/drawing';
 import { AXIS_VECTOR, axisScreenDir, project, scale3, add } from '../model/iso';
-import { componentSymbol, frameFor, jointMark, oletSymbol, terminalSymbol } from './symbols';
+import { componentSymbol, flangeSymbol, frameFor, isFlange, jointMark, oletSymbol, terminalSymbol } from './symbols';
 
 export interface ViewBox {
   x: number;
@@ -233,6 +233,15 @@ export function renderDrawing(state: RenderState): string {
       const selectedComp = sel?.kind === 'component' && sel.id === comp.id;
       comps += `<g class="component${selectedComp ? ' selected' : ''}" data-component="${comp.id}">`;
       comps += componentSymbol(comp.kind, f);
+
+      // A flanged component is drawn with the flanges it bolts between, each
+      // facing in towards it, which is how it is actually built.
+      const ends = resolveEnds(comp.kind, comp.dn ?? run.dn, comp.ends, drawing.options.joint ?? 'BW');
+      if (ends === 'FLG' && !isFlange(comp.kind)) {
+        const gap = size * 2.6;
+        comps += flangeSymbol({ ...f, cx: f.cx - f.dx * gap, cy: f.cy - f.dy * gap }, 'FLG_WN', 1);
+        comps += flangeSymbol({ ...f, cx: f.cx + f.dx * gap, cy: f.cy + f.dy * gap }, 'FLG_WN', -1);
+      }
       const label = comp.tag ?? '';
       if (label) {
         comps += `<text class="tag" x="${(f.cx + f.nx * size * 2.2).toFixed(2)}" y="${(f.cy + f.ny * size * 2.2).toFixed(2)}">${escapeText(label)}</text>`;

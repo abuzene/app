@@ -203,13 +203,13 @@ await page.click('#new');
 await page.waitForTimeout(400);
 await page.click('#tabs button:has-text("Command")');
 await page.waitForTimeout(200);
-await page.fill('#command-text', 'DN80\nSTD\nORIGIN 0 0 0\nE 2000\n+GATE\nN 1500\nEND CAP');
+await page.fill('#command-text', 'DN80\nSTD\nORIGIN 0 0 0\nE 2000\nN 1500\nEND CAP');
 await page.click('[data-a="run-commands"]');
 await page.waitForTimeout(500);
 
 const dots = () => page.locator('#canvas .joint-bw').count();
 const buttWeldDots = await dots();
-check('butt welds are drawn as filled dots', buttWeldDots, (v) => v === 5, '5 — two elbow legs, two at the valve, one at the cap');
+check('butt welds are drawn as filled dots', buttWeldDots, (v) => v === 3, '3 — two elbow legs and one at the cap');
 check('a butt welded cap shows its body', await page.locator('#canvas .node .sym-hollow').count(), (v) => v >= 1, 'at least 1');
 
 await page.selectOption('#joint', 'SW');
@@ -423,6 +423,40 @@ await page.waitForTimeout(300);
 const schBom = await page.locator('#tab-body').innerText();
 check('changing the pipe schedule carries to every run', schBom, (v) => /PIPE, SMLS, 6" x SCH80/.test(v), 'SCH80 pipe');
 check('the fittings stay at their own thickness', schBom, (v) => /REDUCING TEE[^\n]*STD/.test(v), 'STD fittings');
+
+// Valves come flanged over an inch and threaded under, without being asked.
+page.once('dialog', (d) => d.accept());
+await page.click('#new');
+await page.waitForTimeout(400);
+await page.click('#tabs button:has-text("Command")');
+await page.waitForTimeout(200);
+await page.fill('#command-text', '3"\nSCH40\nORIGIN 0 0 0\nE 3000\n+BALL');
+await page.click('[data-a="run-commands"]');
+await page.waitForTimeout(500);
+await page.click('#tabs button:has-text("Items")');
+await page.waitForTimeout(300);
+const bigValve = (await page.locator('#tab-body').innerText()).replace(/\t/g, ' ');
+check('a 3-inch valve is flanged', bigValve, (v) => /BALL VALVE/.test(v) && /WELD NECK FLANGE/.test(v), 'a valve and its flanges');
+check('it brings a pair of flanges', bigValve, (v) => /WELD NECK FLANGE[^\n]* 2 /.test(v), '2 flanges');
+await page.click('#tabs button:has-text("Welds")');
+await page.waitForTimeout(300);
+check('a flanged valve is welded in through its flanges', await page.locator('#tab-body tbody tr').count(), (v) => v === 2, '2');
+
+page.once('dialog', (d) => d.accept());
+await page.click('#new');
+await page.waitForTimeout(400);
+await page.click('#tabs button:has-text("Command")');
+await page.waitForTimeout(200);
+await page.fill('#command-text', '1"\nSCH40\nORIGIN 0 0 0\nE 3000\n+BALL');
+await page.click('[data-a="run-commands"]');
+await page.waitForTimeout(500);
+await page.click('#tabs button:has-text("Items")');
+await page.waitForTimeout(300);
+const smallValve = await page.locator('#tab-body').innerText();
+check('a 1-inch valve is threaded', smallValve, (v) => /BALL VALVE/.test(v) && !/FLANGE/.test(v), 'a valve and no flanges');
+await page.click('#tabs button:has-text("Welds")');
+await page.waitForTimeout(300);
+check('a threaded valve takes no welds', await page.locator('#tab-body tbody tr').count(), (v) => v === 0, '0');
 
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 

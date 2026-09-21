@@ -36,6 +36,7 @@ export function contentCss({ k, u, dark = false }: ContentStyleOptions): string 
 .hit-dot { fill: transparent; cursor: pointer; }
 .sym-line { stroke: ${ink}; stroke-width: ${w(1.6)}; fill: none; stroke-linecap: round; }
 .sym-heavy { stroke: ${ink}; stroke-width: ${w(3.2)}; fill: none; }
+.sym-face { stroke: ${ink}; stroke-width: ${w(2.2)}; fill: none; stroke-linecap: round; }
 .sym-fill { fill: ${dark ? '#0d1117' : '#ffffff'}; stroke: ${ink}; stroke-width: ${w(1.6)}; }
 .sym-hollow { fill: none; stroke: ${ink}; stroke-width: ${w(1.6)}; }
 .sym-solid { fill: ${ink}; stroke: ${ink}; stroke-width: ${w(1)}; }

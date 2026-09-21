@@ -178,11 +178,28 @@ function lookup(table: Record<string, number>, dn: string): number | undefined {
 }
 
 /**
+ * The size at and below which a valve is threaded rather than flanged. Small
+ * bore valves are screwed in; anything larger comes with flanges.
+ */
+const LARGEST_THREADED = sizeOf('DN25').od;
+
+/** How a valve of this size is connected unless told otherwise. */
+export function defaultValveEnds(dn: string): 'FLG' | 'THD' {
+  return sizeOf(dn).od <= LARGEST_THREADED + 0.01 ? 'THD' : 'FLG';
+}
+
+/** Length one flange adds beyond the component it is bolted to. */
+export function flangeLength(dn: string): number {
+  return lookup(FLANGE_LEN.WN, dn) ?? 0;
+}
+
+/**
  * How much centre-to-centre length a component consumes, measured from its
  * centre to the pipe weld either side. Returns half the face-to-face for
- * symmetric items, so two ends sum back to the full dimension.
+ * symmetric items, so two ends sum back to the full dimension. A flanged
+ * component also carries the flange bolted to each of its faces.
  */
-export function componentTakeout(kind: string, dn: string): number {
+export function componentTakeout(kind: string, dn: string, flanged = false): number {
   if (kind === 'FLG_WN' || kind === 'FLG_BLIND') return lookup(FLANGE_LEN.WN, dn) ?? 0;
   if (kind === 'FLG_SO') return lookup(FLANGE_LEN.SO, dn) ?? 0;
   if (kind === 'SPECTACLE') return 0;
@@ -190,7 +207,7 @@ export function componentTakeout(kind: string, dn: string): number {
   if (kind === 'UNION') return 25;
   if (kind === 'INSTRUMENT' || kind === 'SUPPORT' || kind === 'ANCHOR' || kind === 'GUIDE') return 0;
   const table = VALVE_FF[kind];
-  if (table) return (lookup(table, dn) ?? 0) / 2;
+  if (table) return (lookup(table, dn) ?? 0) / 2 + (flanged ? flangeLength(dn) : 0);
   return 0;
 }
 

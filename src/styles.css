@@ -154,6 +154,7 @@ main { flex: 1 1 auto; display: flex; min-height: 0; }
 /* Palette icons reuse the drawing symbols, so they need the same classes. */
 .tool svg .sym-line { stroke: var(--ink); stroke-width: 1.4; fill: none; stroke-linecap: round; }
 .tool svg .sym-heavy { stroke: var(--ink); stroke-width: 2; fill: none; }
+.tool svg .sym-face { stroke: var(--ink); stroke-width: 1.8; fill: none; }
 .tool svg .sym-fill { fill: #fff; stroke: var(--ink); stroke-width: 1.4; }
 .tool svg .sym-hollow { fill: none; stroke: var(--ink); stroke-width: 1.4; }
 .tool svg .sym-solid { fill: var(--ink); stroke: var(--ink); stroke-width: 1; }

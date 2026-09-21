@@ -1,5 +1,6 @@
 import type {
   Drawing,
+  EndType,
   DrawingOptions,
   FittingKind,
   InlineComponent,
@@ -11,7 +12,7 @@ import type {
   Weld,
 } from './types';
 import { add, angleBetween, direction, length3, scale3, sub } from './iso';
-import { componentTakeout, fittingTakeout, oletTakeout, sizeLabel } from './pipe-data';
+import { componentTakeout, defaultValveEnds, fittingTakeout, oletTakeout, sizeLabel } from './pipe-data';
 import { flangeJoint, isFlange } from '../render/symbols';
 
 let counter = 0;
@@ -234,11 +235,16 @@ export const TERMINAL_LABEL: Record<string, string> = {
  * How a component joins the pipe either side of it, or null when it makes no
  * mark of its own — a support clamps on, a blind bolts between flanges.
  */
-function componentJoint(c: InlineComponent, fallback: JointType): JointType | null {
+function componentJoint(c: InlineComponent, fallback: JointType, dn: string): JointType | null {
   if (['SUPPORT', 'ANCHOR', 'GUIDE', 'INSTRUMENT', 'SPECTACLE'].includes(c.kind)) return null;
   // A flange's own type says how it joins the pipe, whatever the default is.
   if (isFlange(c.kind)) return flangeJoint(c.kind);
-  const ends = c.ends ?? fallback;
+  // The size decides how a valve is connected, so it has to be the size the
+  // component actually is — its own, or the run's.
+  const ends = resolveEnds(c.kind, dn, c.ends, fallback);
+  // A flanged component meets the pipe through its flanges, which are weld
+  // neck and so butt welded to it.
+  if (ends === 'FLG') return 'BW';
   return ends === 'BW' || ends === 'SW' || ends === 'THD' ? ends : null;
 }
 
@@ -246,6 +252,28 @@ function componentJoint(c: InlineComponent, fallback: JointType): JointType | nu
 function terminalJoint(kind: string, fallback: JointType): JointType | null {
   if (isFlange(kind)) return flangeJoint(kind);
   return kind === 'CAP' ? fallback : null;
+}
+
+/** Valves are the components that come flanged or threaded by size. */
+export function isValve(kind: string): boolean {
+  return categoryOf(kind) === 'VALVE';
+}
+
+/**
+ * How a component is connected. A valve follows the shop rule — flanged over
+ * an inch, threaded at an inch and under — unless it has been set explicitly.
+ * Everything else follows the drawing's joint type.
+ */
+export function resolveEnds(
+  kind: string,
+  dn: string,
+  ends: EndType | undefined,
+  fallback: JointType,
+): EndType {
+  if (ends) return ends;
+  if (isValve(kind)) return defaultValveEnds(dn);
+  if (isFlange(kind)) return 'FLG';
+  return fallback;
 }
 
 function categoryOf(kind: string): BomLine['category'] {
@@ -360,7 +388,9 @@ export function analyse(drawing: Drawing): Analysis {
       }
     }
     for (const comp of run.inline) {
-      cut -= componentTakeout(comp.kind, comp.dn ?? run.dn) * 2;
+      const dn = comp.dn ?? run.dn;
+      const ends = resolveEnds(comp.kind, dn, comp.ends, drawing.options.joint ?? 'BW');
+      cut -= componentTakeout(comp.kind, dn, ends === 'FLG') * 2;
     }
     runLengths.set(run.id, { run, centre, cut: Math.max(0, cut) });
     if (cut < 0) {
@@ -507,10 +537,11 @@ export function analyse(drawing: Drawing): Analysis {
     }
 
     for (const comp of run.inline) {
-      const joint = componentJoint(comp, defaultJoint);
-      if (!joint) continue;
       const dn = comp.dn ?? run.dn;
-      const takeout = componentTakeout(comp.kind, dn);
+      const joint = componentJoint(comp, defaultJoint, dn);
+      if (!joint) continue;
+      const ends = resolveEnds(comp.kind, dn, comp.ends, defaultJoint);
+      const takeout = componentTakeout(comp.kind, dn, ends === 'FLG');
       for (const side of [0, 1] as const) {
         const distance = side === 0 ? comp.offset - takeout : comp.offset + takeout;
         pushJoint(
@@ -635,6 +666,13 @@ export function analyse(drawing: Drawing): Analysis {
         ? `${COMPONENT_LABEL[comp.kind]} ${sizeLabel(dn)} x ${sizeLabel(comp.dn2 ?? dn)}`
         : COMPONENT_LABEL[comp.kind] ?? comp.kind;
       tally({ category: categoryOf(comp.kind), description, dn, schedule: fittingThickness, unit: 'off' });
+      // A flanged component is bolted between a pair of flanges, which have to
+      // be ordered and welded on just the same.
+      const ends = resolveEnds(comp.kind, dn, comp.ends, drawing.options.joint ?? 'BW');
+      if (ends === 'FLG' && !isFlange(comp.kind)) {
+        tally({ category: 'FLANGE', description: 'WELD NECK FLANGE', dn, schedule: run.schedule, unit: 'off' });
+        tally({ category: 'FLANGE', description: 'WELD NECK FLANGE', dn, schedule: run.schedule, unit: 'off' });
+      }
     }
   }
 

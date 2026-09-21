@@ -270,6 +270,7 @@ text { font-family: "Helvetica Neue", Arial, sans-serif; }
 .fitting-body { fill: none; stroke: #12161c; stroke-width: 2.4; }
 .sym-line { stroke: #12161c; stroke-width: 2.2; fill: none; stroke-linecap: round; }
 .sym-heavy { stroke: #12161c; stroke-width: 4.2; fill: none; }
+.sym-face { stroke: #12161c; stroke-width: 3; fill: none; stroke-linecap: round; }
 .sym-fill { fill: #ffffff; stroke: #12161c; stroke-width: 2.2; }
 .sym-hollow { fill: none; stroke: #12161c; stroke-width: 2.2; }
 .sym-solid { fill: #12161c; stroke: #12161c; stroke-width: 1.4; }

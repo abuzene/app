@@ -1,8 +1,8 @@
 import type { ComponentKind, EndType, FittingKind, JointType, TerminalKind } from '../model/types';
 import type { Host, TabId } from './types';
-import { COMPONENT_LABEL, DEFAULT_LOGO, TERMINAL_LABEL, fittingLabel, oletLabel } from '../model/drawing';
+import { COMPONENT_LABEL, DEFAULT_LOGO, TERMINAL_LABEL, fittingLabel, isValve, oletLabel, resolveEnds } from '../model/drawing';
 import { COMMAND_HELP } from '../model/commands';
-import { DN_LIST, SIZE_LABELS, schedulesFor, sizeLabel } from '../model/pipe-data';
+import { DN_LIST, SIZE_LABELS, defaultValveEnds, schedulesFor, sizeLabel } from '../model/pipe-data';
 import { axisBetween } from '../model/iso';
 import { deleteNode, deleteRun, removeComponent, runLength, setRunLength, splitRun } from '../model/edit';
 
@@ -148,9 +148,26 @@ function componentProperties(host: Host, compId: string): string {
   <div class="row"><label>Position</label><input type="number" data-f="offset" step="1" min="0" max="${Math.round(total)}" value="${Math.round(comp.offset)}" /></div>
   <div class="row"><label>Size</label><select data-f="dn">${options(DN_LIST, comp.dn ?? run.dn, SIZE_LABELS)}</select></div>
   ${isReducer ? `<div class="row"><label>Reduces to</label><select data-f="dn2">${options(DN_LIST, comp.dn2 ?? run.dn, SIZE_LABELS)}</select></div>` : ''}
-  <div class="row"><label>Ends</label><select data-f="ends">${options(['auto', ...END_TYPES], comp.ends ?? 'auto', { auto: `Drawing default (${host.state.drawing.options.joint})` })}</select></div>
+  <div class="row"><label>Ends</label><select data-f="ends">${options(['auto', ...END_TYPES], comp.ends ?? 'auto', {
+    auto: isValve(comp.kind)
+      ? `By size (${defaultValveEnds(comp.dn ?? run.dn) === 'FLG' ? 'flanged' : 'threaded'})`
+      : `Drawing default (${host.state.drawing.options.joint})`,
+    FLG: 'Flanged',
+    BW: 'Butt weld',
+    SW: 'Socket weld',
+    THD: 'Threaded',
+    PLAIN: 'Plain',
+  })}</select></div>
   <div class="row"><label>Tag</label><input type="text" data-f="tag" value="${esc(comp.tag ?? '')}" placeholder="e.g. HV-101" /></div>
-  <p class="empty-note">Measured ${mm(comp.offset)} mm from the start of a ${mm(total)} mm run.</p>
+  <p class="empty-note">Measured ${mm(comp.offset)} mm from the start of a ${mm(total)} mm run.${
+    isValve(comp.kind)
+      ? ` Valves come flanged over 1" and threaded at 1" and under; this one is ${
+          resolveEnds(comp.kind, comp.dn ?? run.dn, comp.ends, host.state.drawing.options.joint) === 'FLG'
+            ? 'flanged, so it is drawn and counted with a pair of weld neck flanges'
+            : 'threaded, so it takes no welds'
+        }.`
+      : ''
+  }</p>
   <div class="btn-row">
     <button class="btn-line danger" data-a="delete-component">Remove</button>
   </div>

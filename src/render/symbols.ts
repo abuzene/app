@@ -116,7 +116,7 @@ export function flangeSymbol(f: Frame, kind: FlangeKind, facing: Facing = 1): st
   const s = f.s;
   const d = facing;
   const face = (at: number, half = 1) =>
-    line(f, [d * at, -s * half], [d * at, s * half], 'sym-heavy');
+    line(f, [d * at, -s * half], [d * at, s * half], 'sym-face');
 
   switch (kind) {
     case 'FLG_WN':
@@ -126,20 +126,20 @@ export function flangeSymbol(f: Frame, kind: FlangeKind, facing: Facing = 1): st
           [
             pt(f, 0, -s * 0.28),
             pt(f, 0, s * 0.28),
-            pt(f, d * s * 0.62, s * 0.72),
-            pt(f, d * s * 0.62, -s * 0.72),
+            pt(f, d * s * 0.55, s * 0.72),
+            pt(f, d * s * 0.55, -s * 0.72),
           ],
-          'sym-solid',
-        ) + face(0.62)
+          'sym-fill',
+        ) + face(0.55, 1.15)
       );
     case 'FLG_SO':
-      return face(0);
+      return face(0, 1.15);
     case 'FLG_SW':
       return (
         line(f, [0, -s * 0.62], [0, s * 0.62], 'sym-line') +
         line(f, [0, -s * 0.62], [d * s * 0.5, -s * 0.62], 'sym-line') +
         line(f, [0, s * 0.62], [d * s * 0.5, s * 0.62], 'sym-line') +
-        face(0.62)
+        face(0.55, 1.15)
       );
     case 'FLG_THD':
       return (
@@ -147,24 +147,24 @@ export function flangeSymbol(f: Frame, kind: FlangeKind, facing: Facing = 1): st
           [
             pt(f, 0, -s * 0.34),
             pt(f, 0, s * 0.34),
-            pt(f, d * s * 0.62, s * 0.62),
-            pt(f, d * s * 0.62, -s * 0.62),
+            pt(f, d * s * 0.55, s * 0.62),
+            pt(f, d * s * 0.55, -s * 0.62),
           ],
           'sym-solid',
-        ) + face(0.62)
+        ) + face(0.55, 1.15)
       );
     case 'FLG_LAP':
       // Butt weld to a stub end, with the loose backing flange behind it.
       return (
         line(f, [d * s * 0.3, -s * 0.72], [d * s * 0.3, s * 0.72], 'sym-line') +
-        line(f, [d * s * 0.3, -s * 0.72], [d * s * 0.62, -s * 0.72], 'sym-line') +
-        line(f, [d * s * 0.3, s * 0.72], [d * s * 0.62, s * 0.72], 'sym-line') +
-        face(0.62)
+        line(f, [d * s * 0.3, -s * 0.72], [d * s * 0.55, -s * 0.72], 'sym-line') +
+        line(f, [d * s * 0.3, s * 0.72], [d * s * 0.55, s * 0.72], 'sym-line') +
+        face(0.55, 1.15)
       );
     case 'FLG_BLIND':
-      return face(0) + poly([pt(f, 0, -s), pt(f, d * s * 0.42, -s), pt(f, d * s * 0.42, s), pt(f, 0, s)], 'sym-solid');
+      return face(0, 1.15) + poly([pt(f, 0, -s * 1.15), pt(f, d * s * 0.4, -s * 1.15), pt(f, d * s * 0.4, s * 1.15), pt(f, 0, s * 1.15)], 'sym-solid');
     default:
-      return face(0);
+      return face(0, 1.15);
   }
 }
 
