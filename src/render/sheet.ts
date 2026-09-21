@@ -1,6 +1,6 @@
 import type { Analysis, BomLine } from '../model/drawing';
 import type { Drawing } from '../model/types';
-import { SYMBOL_SIZE, contentBounds, escapeText, renderDrawing } from './renderer';
+import { contentBounds, escapeText, renderDrawing, sheetScale, symbolSizeFor } from './renderer';
 import { sizeLabel } from '../model/pipe-data';
 import { axisScreenDir } from '../model/iso';
 import { contentCss } from './style';
@@ -228,7 +228,9 @@ export function renderSheet(drawing: Drawing, analysis: Analysis, size: SheetSiz
   const pad = 14;
   const contentW = Math.max(bounds.maxX - bounds.minX, 1);
   const contentH = Math.max(bounds.maxY - bounds.minY, 1);
-  const k = Math.min((areaW - pad * 2) / contentW, (areaH - pad * 2) / contentH);
+  // Fitted to the area, but never blown up past a sensible scale: a small
+  // drawing sits in the middle of the sheet at its own size.
+  const k = sheetScale(contentW, contentH, areaW, areaH, pad);
   const tx = areaX + areaW / 2 - ((bounds.minX + bounds.maxX) / 2) * k;
   const ty = areaY + areaH / 2 - ((bounds.minY + bounds.maxY) / 2) * k;
 
@@ -286,7 +288,7 @@ text { font-family: "Helvetica Neue", Arial, sans-serif; }
 .compass-ring { fill: none; stroke: #12161c; stroke-width: 0.25; }
 .compass-needle { fill: #12161c; }
 .compass-label { font-size: 3px; font-weight: 700; }
-${contentCss({ k, u: 0.24, symbol: SYMBOL_SIZE })}
+${contentCss({ k, u: 0.24, symbol: symbolSizeFor(drawing, analysis) })}
 </style>
 <rect class="sheet-bg" x="0" y="0" width="${W}" height="${H}"/>
 ${rect(MARGIN, MARGIN, W - MARGIN * 2, H - MARGIN * 2, 'frame')}

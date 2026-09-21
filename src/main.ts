@@ -400,24 +400,35 @@ const canvas = new Canvas(svg, {
   onSlideNode(nodeId, paper, commit) {
     const node = state.drawing.nodes.find((n) => n.id === nodeId);
     if (!node) return;
-    const moved = slideNodeTo(nodeId, paper);
-    if (!moved) return;
+    // Not to scale, sliding a point moves it on the drawing only: the drawn
+    // lengths either side change, the typed ones stay.
+    const schematic = !!state.drawing.options.schematic;
+    const drawn = schematic ? slideDrawnTo(nodeId, paper) : null;
+    const moved = schematic ? null : slideNodeTo(nodeId, paper);
+    if (!moved && !drawn) return;
 
     if (!slideNodeFrom || slideNodeFrom.id !== nodeId) {
-      slideNodeFrom = { id: nodeId, pos: { ...node.pos } };
+      slideNodeFrom = { id: nodeId, snapshot: snapshot() };
     }
+    const apply = (d: Drawing) => {
+      if (drawn) {
+        for (const [runId, visual] of drawn) {
+          const target = d.runs.find((r) => r.id === runId);
+          if (target) target.visual = visual;
+        }
+      } else if (moved) {
+        const target = d.nodes.find((n) => n.id === nodeId);
+        if (target) target.pos = { ...moved };
+      }
+    };
 
     if (commit) {
-      node.pos = slideNodeFrom.pos;
+      Object.assign(state.drawing, JSON.parse(slideNodeFrom.snapshot) as Drawing);
       slideNodeFrom = null;
-      const pos = { ...moved };
-      host.edit('Move point', (d) => {
-        const target = d.nodes.find((n) => n.id === nodeId);
-        if (target) target.pos = pos;
-      });
+      host.edit('Move point', apply);
       return;
     }
-    node.pos = moved;
+    apply(state.drawing);
     recompute();
     renderCanvasOnly();
     hoverMessage = 'sliding along the line';
@@ -427,7 +438,7 @@ const canvas = new Canvas(svg, {
 
 /** What a slide started from, so undo returns there and not to mid-drag. */
 let slideFrom: { id: string; offset: number } | null = null;
-let slideNodeFrom: { id: string; pos: Vec3 } | null = null;
+let slideNodeFrom: { id: string; snapshot: string } | null = null;
 let stretchFrom: { id: string; visual: number | undefined; snapshot: string } | null = null;
 let tagFrom: string | null = null;
 
@@ -456,7 +467,7 @@ function stretchLengthTo(run: Run, end: 'from' | 'to', paper: { x: number; y: nu
     : length3(sub(moving.pos, fixed.pos));
   const perMm = shown > 0 ? drawn / shown : 0;
   if (perMm <= 0) return null;
-  const snap = Math.max(1, state.drawing.options.snap);
+  const snap = dragSnap();
   return Math.max(snap, Math.round(along / perMm / snap) * snap);
 }
 
@@ -473,8 +484,48 @@ function offsetFromPaper(run: Run, paper: { x: number; y: number }): number | nu
   if (lenSq < 1) return null;
   const t = Math.max(0, Math.min(1, ((paper.x - pa.x) * vx + (paper.y - pa.y) * vy) / lenSq));
   const total = length3(sub(b.pos, a.pos));
-  const snap = Math.max(1, state.drawing.options.snap);
+  const snap = dragSnap();
   return Math.max(0, Math.min(total, Math.round((t * total) / snap) * snap));
+}
+
+/** The two runs that make the straight line through a point, if there is one. */
+function lineThrough(nodeId: string): [Run, Run] | null {
+  const info = state.analysis.nodeInfo.get(nodeId);
+  if (!info) return null;
+  for (let i = 0; i < info.legs.length; i += 1) {
+    for (let j = i + 1; j < info.legs.length; j += 1) {
+      const a = info.legs[i];
+      const b = info.legs[j];
+      if (a.e * b.e + a.n * b.n + a.u * b.u < -0.999) return [info.runs[i], info.runs[j]];
+    }
+  }
+  return null;
+}
+
+/**
+ * Not to scale: the drawn lengths either side of a point, with the point
+ * dragged along the drawn line between its neighbours. Their sum stays.
+ */
+function slideDrawnTo(nodeId: string, paper: { x: number; y: number }): [string, number][] | null {
+  const through = lineThrough(nodeId);
+  if (!through) return null;
+  const farOf = (run: Run) => (run.from === nodeId ? run.to : run.from);
+  const pa = paperOf(state.analysis, state.drawing, farOf(through[0]));
+  const pb = paperOf(state.analysis, state.drawing, farOf(through[1]));
+  if (!pa || !pb) return null;
+  const vx = pb.x - pa.x;
+  const vy = pb.y - pa.y;
+  const lenSq = vx * vx + vy * vy;
+  if (lenSq < 1) return null;
+  const drawnOf = (run: Run) => run.visual ?? state.drawing.options.schematicLength;
+  const total = drawnOf(through[0]) + drawnOf(through[1]);
+  const t = Math.max(0.05, Math.min(0.95, ((paper.x - pa.x) * vx + (paper.y - pa.y) * vy) / lenSq));
+  const snap = dragSnap();
+  const first = Math.max(snap, Math.round((t * total) / snap) * snap);
+  return [
+    [through[0].id, first],
+    [through[1].id, Math.max(snap, total - first)],
+  ];
 }
 
 /**
@@ -519,10 +570,18 @@ function slideNodeTo(nodeId: string, paper: { x: number; y: number }): Vec3 | nu
   const vy = pb.y - pa.y;
   const lenSq = vx * vx + vy * vy;
   if (lenSq < 1) return null;
-  const snap = Math.max(1, state.drawing.options.snap);
+  const snap = dragSnap();
   const raw = (((paper.x - pa.x) * vx + (paper.y - pa.y) * vy) / lenSq) * spanLen;
   const at = Math.max(snap, Math.min(spanLen - snap, Math.round(raw / snap) * snap));
   return add(back.pos, scale3(span, at / spanLen));
+}
+
+/**
+ * Dragging snaps finer than tapping does: a 50 mm snap is right for laying
+ * out a route, but makes a drag leap in steps on a short run.
+ */
+function dragSnap(): number {
+  return Math.max(1, Math.min(10, state.drawing.options.snap));
 }
 
 let hoverMessage: string | null = null;

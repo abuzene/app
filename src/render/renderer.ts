@@ -20,11 +20,31 @@ export type Selection =
   | null;
 
 /**
- * Symbol half-size in paper units. Symbols, balloons and lettering are part of
- * the drawing: they keep their size against the pipe whatever the zoom, and
- * shrink with it on a crowded sheet, as on a drawn isometric.
+ * Symbols, balloons and lettering are part of the drawing: they keep their
+ * size against the pipe whatever the zoom. Their size is fixed on the printed
+ * sheet — a flange plate is always about the same few millimetres tall — and
+ * worked back from there into paper units through the scale the sheet would
+ * print this drawing at. A big drawing prints small, so its symbols are small
+ * against it; a small drawing is never blown up to fill the page.
  */
-export const SYMBOL_SIZE = 4;
+const SYMBOL_MM = 2.4;
+/** The drawing area of an A3 sheet, in mm, that the symbol size is judged against. */
+const SHEET_AREA = { w: 270, h: 265 };
+/** Sheet mm per paper unit at most: a small drawing sits at this scale rather than filling the page. */
+export const SHEET_SCALE_MAX = 1.4;
+
+/** The scale a drawing of this size prints at, in sheet mm per paper unit. */
+export function sheetScale(contentW: number, contentH: number, areaW: number, areaH: number, pad = 14): number {
+  const fit = Math.min((areaW - pad * 2) / Math.max(contentW, 1), (areaH - pad * 2) / Math.max(contentH, 1));
+  return Math.min(fit, SHEET_SCALE_MAX);
+}
+
+/** Symbol half-size in paper units for this drawing. */
+export function symbolSizeFor(drawing: Drawing, analysis: Analysis): number {
+  const b = contentBounds(drawing, analysis);
+  const k = sheetScale(b.maxX - b.minX, b.maxY - b.minY, SHEET_AREA.w, SHEET_AREA.h);
+  return SYMBOL_MM / k;
+}
 
 /** Half the gap between two bolted flange faces, as a share of the symbol size. */
 const FLANGE_GAP = 0.25;
@@ -111,6 +131,31 @@ export function contentBounds(drawing: Drawing, analysis: Analysis): Bounds {
   return { minX, minY, maxX, maxY };
 }
 
+/** A piece of a straight pipe, between two fractions of its length. */
+function pipeLine(a: Pt, b: Pt, t0: number, t1: number, cls: string): string {
+  const x1 = a.x + (b.x - a.x) * t0;
+  const y1 = a.y + (b.y - a.y) * t0;
+  const x2 = a.x + (b.x - a.x) * t1;
+  const y2 = a.y + (b.y - a.y) * t1;
+  return `<line class="${cls}" x1="${x1.toFixed(2)}" y1="${y1.toFixed(2)}" x2="${x2.toFixed(2)}" y2="${y2.toFixed(2)}"/>`;
+}
+
+/** Where two segments cross, as a fraction along each, or null if they do not. */
+function crossing(a: Pt, b: Pt, c: Pt, d: Pt): { t: number; u: number } | null {
+  const rx = b.x - a.x;
+  const ry = b.y - a.y;
+  const sx = d.x - c.x;
+  const sy = d.y - c.y;
+  const denom = rx * sy - ry * sx;
+  if (Math.abs(denom) < 1e-9) return null;
+  const qx = c.x - a.x;
+  const qy = c.y - a.y;
+  const t = (qx * sy - qy * sx) / denom;
+  const u = (qx * ry - qy * rx) / denom;
+  const inside = (v: number) => v > 0.03 && v < 0.97;
+  return inside(t) && inside(u) ? { t, u } : null;
+}
+
 /** Dimensions are written plainly: 1750, not 1,750. */
 function formatMm(value: number): string {
   return String(Math.round(value));
@@ -177,9 +222,9 @@ function renderDimension(
   size: number,
   id: string,
   hitR: number,
-): { svg: string; hit: string } {
+): { svg: string; hit: string; at: Pt } {
   const len = Math.hypot(b.x - a.x, b.y - a.y);
-  if (len < 1) return { svg: '', hit: '' };
+  if (len < 1) return { svg: '', hit: '', at: a };
   const dx = (b.x - a.x) / len;
   const dy = (b.y - a.y) / len;
   let nx = -dy;
@@ -220,6 +265,7 @@ function renderDimension(
   const textX = tx + Math.sin(rad) * lift;
   const textY = ty - Math.cos(rad) * lift;
   return {
+    at: { x: textX, y: textY },
     svg:
       `<g class="dim">` +
       ext(a, { x: ax, y: ay }) +
@@ -230,13 +276,13 @@ function renderDimension(
       // Clear of the dimension line, never sitting across it.
       `<text class="dim-text" x="${tx.toFixed(2)}" y="${(ty - lift).toFixed(2)}" transform="rotate(${angle.toFixed(1)} ${tx.toFixed(2)} ${ty.toFixed(2)})">${escapeText(text)}</text>` +
       `</g>`,
-    hit: `<circle class="hit-dot" data-dim="${id}" cx="${textX.toFixed(2)}" cy="${textY.toFixed(2)}" r="${hitR.toFixed(2)}"/>`,
+    hit: `<circle class="hit-dot" data-dim="${id}" cx="${textX.toFixed(2)}" cy="${textY.toFixed(2)}" r="${Math.max(size * 1.2, hitR * 0.6).toFixed(2)}"/>`,
   };
 }
 
 export function renderDrawing(state: RenderState): string {
   const { drawing, analysis, view, selection } = state;
-  const size = SYMBOL_SIZE;
+  const size = symbolSizeFor(drawing, analysis);
   const hitR = state.hitSize ?? size * 1.2;
   const sel = selection;
 
@@ -254,6 +300,9 @@ export function renderDrawing(state: RenderState): string {
   let dimHits = '';
   let handles = '';
   let comps = '';
+  const straights: { run: Run; pa: Pt; pb: Pt; selected: boolean; gaps: number[] }[] = [];
+  /** Where dimension figures sit: tags and balloons keep clear of them. */
+  const figures: Pt[] = [];
 
   const BENDS = ['ELBOW_90', 'ELBOW_45', 'BEND'];
   /**
@@ -289,7 +338,7 @@ export function renderDrawing(state: RenderState): string {
     // The straight pipe, stopping where an elbow takes over at either end.
     const pa = towards(a, b, trimAt(run.from, run, paperPerMm));
     const pb = towards(b, a, trimAt(run.to, run, paperPerMm));
-    pipes += `<line class="pipe${selected ? ' selected' : ''}" x1="${pa.x.toFixed(2)}" y1="${pa.y.toFixed(2)}" x2="${pb.x.toFixed(2)}" y2="${pb.y.toFixed(2)}"/>`;
+    straights.push({ run, pa, pb, selected, gaps: [] });
     if (selected) {
       // A picked run shows a handle at each end, dragged to make it longer or
       // shorter along its own line.
@@ -316,6 +365,7 @@ export function renderDrawing(state: RenderState): string {
         const dim = renderDimension(along(stops[i]), along(stops[i + 1]), centroid, formatMm(span), size, `${run.id}:${i}`, hitR);
         dims += dim.svg;
         dimHits += dim.hit;
+        figures.push(dim.at);
       }
     }
 
@@ -349,6 +399,42 @@ export function renderDrawing(state: RenderState): string {
       comps += `<circle class="hit-dot" data-component="${comp.id}" cx="${f.cx.toFixed(2)}" cy="${f.cy.toFixed(2)}" r="${hitR.toFixed(2)}"/>`;
       comps += `</g>`;
     }
+  }
+
+  // Where two lines cross on the paper without meeting, the one further from
+  // the eye is broken either side of the crossing, so the nearer one reads as
+  // passing in front. Nearness is along the isometric line of sight.
+  const depthAt = (run: Run, t: number): number => {
+    const pa3 = analysis.display.get(run.from);
+    const pb3 = analysis.display.get(run.to);
+    if (!pa3 || !pb3) return 0;
+    const p = { e: pa3.e + (pb3.e - pa3.e) * t, n: pa3.n + (pb3.n - pa3.n) * t, u: pa3.u + (pb3.u - pa3.u) * t };
+    const rot = project({ e: p.e, n: p.n, u: 0 }, drawing.options.northRotation);
+    // Screen-down is towards the eye on the ground; up is towards it too.
+    return rot.y + p.u * 2;
+  };
+  for (let i = 0; i < straights.length; i += 1) {
+    for (let j = i + 1; j < straights.length; j += 1) {
+      const A = straights[i];
+      const B = straights[j];
+      if (A.run.from === B.run.from || A.run.from === B.run.to || A.run.to === B.run.from || A.run.to === B.run.to) continue;
+      const hit = crossing(A.pa, A.pb, B.pa, B.pb);
+      if (!hit) continue;
+      const rear = depthAt(A.run, hit.t) < depthAt(B.run, hit.u) ? A : B;
+      rear.gaps.push(rear === A ? hit.t : hit.u);
+    }
+  }
+  for (const piece of straights) {
+    const cls = `pipe${piece.selected ? ' selected' : ''}`;
+    const len = Math.hypot(piece.pb.x - piece.pa.x, piece.pb.y - piece.pa.y);
+    const half = len > 0 ? (size * 0.7) / len : 0;
+    let t0 = 0;
+    for (const g of piece.gaps.sort((x, y) => x - y)) {
+      const t1 = Math.max(t0, g - half);
+      if (t1 > t0) pipes += pipeLine(piece.pa, piece.pb, t0, t1, cls);
+      t0 = Math.min(1, g + half);
+    }
+    if (t0 < 1) pipes += pipeLine(piece.pa, piece.pb, t0, 1, cls);
   }
 
   // Elbows are drawn round, sweeping from where one pipe stops to where the
@@ -461,7 +547,7 @@ export function renderDrawing(state: RenderState): string {
       return q && Math.hypot(q.x - f.cx, q.y - f.cy) < size * 0.6;
     });
     if (joint.number && !onPoint) {
-      weldHits += `<circle class="hit-dot" data-weld="${joint.key}" cx="${f.cx.toFixed(2)}" cy="${f.cy.toFixed(2)}" r="${(hitR * 0.7).toFixed(2)}"/>`;
+      weldHits += `<circle class="hit-dot" data-weld="${joint.key}" cx="${f.cx.toFixed(2)}" cy="${f.cy.toFixed(2)}" r="${Math.max(size * 0.9, hitR * 0.4).toFixed(2)}"/>`;
     }
     if (drawing.options.showWelds && joint.number) {
       // Joints cluster around fittings, so stagger the tags either side of the
@@ -482,7 +568,7 @@ export function renderDrawing(state: RenderState): string {
 
   // A tag that was dragged somewhere stays there; the rest spread out around it.
   const placedTags = weldLabels.filter((l) => l.placed);
-  const spreadTags = spreadLabels(weldLabels.filter((l) => !l.placed), size * 2.1);
+  const spreadTags = spreadLabels(weldLabels.filter((l) => !l.placed), size * 2.1, [...figures, ...placedTags]);
   for (const label of [...placedTags, ...spreadTags]) {
     const selectedWeld = sel?.kind === 'weld' && sel.key === label.key;
     // The number sits in a rounded box on a leader to its weld — the weld's
@@ -501,7 +587,10 @@ export function renderDrawing(state: RenderState): string {
       `<text class="weld-no" x="${label.x.toFixed(2)}" y="${(label.y + size * 0.27).toFixed(2)}" text-anchor="middle">${escapeText(label.text)}</text></g>`;
 
     // The tag itself is a touch target too: it is what is read, so it is what gets tapped.
-    weldHits += `<circle class="hit-dot" data-weld="${label.key}" data-weld-tag="1" data-ax="${label.fromX.toFixed(2)}" data-ay="${label.fromY.toFixed(2)}" cx="${label.x.toFixed(2)}" cy="${label.y.toFixed(2)}" r="${hitR.toFixed(2)}"/>`;
+    // The target is the box itself, so a small box on a small drawing does not
+    // reach out and take taps meant for the figures beside it.
+    const tagR = Math.max(boxH * 0.8, hitR * 0.55);
+    weldHits += `<circle class="hit-dot" data-weld="${label.key}" data-weld-tag="1" data-ax="${label.fromX.toFixed(2)}" data-ay="${label.fromY.toFixed(2)}" cx="${label.x.toFixed(2)}" cy="${label.y.toFixed(2)}" r="${tagR.toFixed(2)}"/>`;
   }
 
   // Item balloons: every pipe run, fitting, flange and valve carries the number
@@ -529,7 +618,7 @@ export function renderDrawing(state: RenderState): string {
       .filter((m): m is NonNullable<typeof m> => m !== null);
 
     const r = size * 1.05;
-    for (const mark of spreadLabels(marks, r * 2.9)) {
+    for (const mark of spreadLabels(marks, r * 2.9, [...figures, ...weldLabels])) {
       // The leader stops at the balloon's edge rather than running into it.
       const dx = mark.x - mark.fromX;
       const dy = mark.y - mark.fromY;
@@ -598,7 +687,9 @@ export function renderDrawing(state: RenderState): string {
 
   // Hit targets for runs go under the node and component handles so that a
   // drag starting on a point is never swallowed by the run beneath it.
-  return grid + dims + pipes + `<g class="hits">${hits}</g>` + comps + nodes + welds + handles + `<g class="hits">${weldHits}${dimHits}</g>` + preview;
+  // Dimension targets sit under the things on the pipe, so a figure close to
+  // a valve never takes the tap meant for the valve.
+  return grid + dims + pipes + `<g class="hits">${dimHits}${hits}</g>` + comps + nodes + welds + handles + `<g class="hits">${weldHits}</g>` + preview;
 }
 
 /**
@@ -609,7 +700,12 @@ export function renderDrawing(state: RenderState): string {
  * labels away from each other, which is enough for the handful that ever
  * collide and leaves everything else exactly where it was placed.
  */
-function spreadLabels<T extends { x: number; y: number }>(labels: T[], minGap: number): T[] {
+/**
+ * Pushes labels apart until none sit on top of each other, and clear of the
+ * `fixed` points — things already on the sheet that do not move, such as
+ * dimension figures and tags that were placed by hand.
+ */
+function spreadLabels<T extends { x: number; y: number }>(labels: T[], minGap: number, fixed: Pt[] = []): T[] {
   for (let pass = 0; pass < 40; pass += 1) {
     let moved = false;
     for (let i = 0; i < labels.length; i += 1) {
@@ -626,6 +722,17 @@ function spreadLabels<T extends { x: number; y: number }>(labels: T[], minGap: n
         labels[i].y -= uy * push;
         labels[j].x += ux * push;
         labels[j].y += uy * push;
+        moved = true;
+      }
+      for (const f of fixed) {
+        const dx = labels[i].x - f.x;
+        const dy = labels[i].y - f.y;
+        const d = Math.hypot(dx, dy);
+        if (d >= minGap) continue;
+        const ux = d > 0.01 ? dx / d : 0;
+        const uy = d > 0.01 ? dy / d : -1;
+        labels[i].x += ux * (minGap - d);
+        labels[i].y += uy * (minGap - d);
         moved = true;
       }
     }

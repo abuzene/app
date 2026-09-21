@@ -1303,6 +1303,42 @@ await page.waitForTimeout(400);
 check('so the next tap draws nothing from it', await page.locator('#tab-body .run-list tbody tr').count(), (v) => v === runsAtFlange, `${runsAtFlange}`);
 check('and no mating flange is drawn', await page.locator('#canvas .node .sym-dashed').count(), (v) => v === 0, '0');
 
+/* ------------------------------------------------------------- crossings */
+
+// Where two lines cross on the paper without meeting, the one further from
+// the eye is broken either side of the crossing.
+await startNewDrawing();
+await page.click('#tabs button:has-text("Command")');
+await page.waitForTimeout(200);
+await page.fill('#command-text', '3"\nSCH40\nORIGIN 0 0 0\nE 2000\nORIGIN 1000 -500 400\nN 1000');
+await page.click('[data-a="run-commands"]');
+await page.waitForTimeout(500);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(200);
+check('the rear line is broken where a nearer one crosses it', await page.locator('#canvas line.pipe').count(), (v) => v === 3, '3 pieces for 2 runs');
+const crossingPieces = await page.evaluate(() =>
+  [...document.querySelectorAll('#canvas line.pipe')].map((l) => Math.hypot(l.x2.baseVal.value - l.x1.baseVal.value, l.y2.baseVal.value - l.y1.baseVal.value)),
+);
+// The two pieces of the broken run add up to nearly the whole run: the gap is small.
+const drawnTotal = crossingPieces.reduce((a, b) => a + b, 0);
+const longest = Math.max(...crossingPieces);
+check('and the gap is small', drawnTotal > longest * 1.4, (v) => v === true, 'most of the broken run still drawn');
+
+// Symbols keep a set size on the printed sheet, so a small drawing is not
+// blown up with them: they are smaller against a small drawing's fit than a
+// big one's. Here the whole drawing spans two metres.
+const smallSymbol = await page.evaluate(() => Number(document.querySelector('#canvas .weld-box')?.getAttribute('height') ?? 0));
+await startNewDrawing();
+await page.click('#tabs button:has-text("Command")');
+await page.waitForTimeout(200);
+await page.fill('#command-text', '3"\nSCH40\nORIGIN 0 0 0\nE 12000\nN 9000');
+await page.click('[data-a="run-commands"]');
+await page.waitForTimeout(500);
+const bigSymbol = await page.evaluate(() => Number(document.querySelector('#canvas .weld-box')?.getAttribute('height') ?? 0));
+check('symbols are judged against the sheet, not the drawing', bigSymbol > smallSymbol * 2, (v) => v === true, `bigger on a 12 m drawing (${bigSymbol} vs ${smallSymbol})`);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(200);
+
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 
 await browser.close();

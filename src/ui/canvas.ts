@@ -1,7 +1,7 @@
 import type { Analysis } from '../model/drawing';
 import type { Axis, Drawing } from '../model/types';
 import type { Preview, Selection, ViewBox } from '../render/renderer';
-import { SYMBOL_SIZE, contentBounds, paperOf, renderDrawing } from '../render/renderer';
+import { contentBounds, paperOf, renderDrawing, symbolSizeFor } from '../render/renderer';
 import { axisFromScreenDelta, lengthAlongAxis } from '../model/iso';
 import { contentCss } from '../render/style';
 
@@ -130,7 +130,7 @@ export class Canvas {
       preview: this.preview,
       hitSize: 14 / this.k,
     });
-    this.svg.innerHTML = `<style>${contentCss({ k: this.k, u: 1, symbol: SYMBOL_SIZE })}</style>${body}`;
+    this.svg.innerHTML = `<style>${contentCss({ k: this.k, u: 1, symbol: symbolSizeFor(this.drawing, this.analysis) })}</style>${body}`;
   }
 
   fit(): void {

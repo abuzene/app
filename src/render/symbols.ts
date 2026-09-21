@@ -318,11 +318,11 @@ function eccentricReducer(f: Frame, reach = f.s * 0.9): string {
  * so the hexagon is laid out in the plane the branch and header share.
  */
 export function oletSymbol(f: Frame): string {
-  const r = f.s * 0.85;
+  const r = f.s * 0.6;
   const points: [number, number][] = [];
   for (let i = 0; i < 6; i += 1) {
     const angle = (Math.PI / 3) * i + Math.PI / 6;
-    points.push(pt(f, r * Math.sin(angle) + f.s * 0.2, 0, r * Math.cos(angle)));
+    points.push(pt(f, r * Math.sin(angle) + f.s * 0.15, 0, r * Math.cos(angle)));
   }
   return poly(points, 'sym-fill');
 }
