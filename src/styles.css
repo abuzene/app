@@ -414,4 +414,16 @@ tr.selected { background: var(--accent-soft); }
      flow at a width whose height is sure to fit on the page. */
   #print-root.tablet { position: static; height: auto; overflow: visible; }
   #print-root.tablet svg { width: 95% !important; height: auto !important; margin: 0 auto; }
+  /* The tablet holds the sheet both ways round; the one expected is shown,
+     and the paper's real orientation, where the tablet reports it, wins. */
+  #print-root.tablet .sheet-port, #print-root.tablet.want-upright .sheet-land { display: none; }
+  #print-root.tablet.want-upright .sheet-port { display: block; }
+}
+@media print and (orientation: portrait) {
+  #print-root.tablet .sheet-land { display: none !important; }
+  #print-root.tablet .sheet-port { display: block !important; }
+}
+@media print and (orientation: landscape) {
+  #print-root.tablet .sheet-port { display: none !important; }
+  #print-root.tablet .sheet-land { display: block !important; }
 }

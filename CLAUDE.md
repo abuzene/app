@@ -94,8 +94,11 @@ ships, and the decisions already taken, so they are not re-litigated.
   printable height (a 100vh sheet spilled on to a second page). The print
   dialog has a **Paper** choice (landscape / upright, upright by default on
   a tablet); upright turns the sheet itself (a rotated `<g>` in a portrait
-  viewBox). Do not rely on the print `orientation` media query: Chromium
-  evaluates it before applying `@page size`.
+  viewBox). A tablet gets **both** sheets (`.sheet-land`/`.sheet-port`),
+  shows the expected one, and the print `orientation` media query (scoped
+  to `.tablet`) overrides it with the paper's real orientation, since iOS
+  ignores `@page size` and its own dialog decides the paper. Never use that
+  query for desktop: Chromium evaluates it before applying `@page size`.
 - The toolbar pads for the iPad status bar (`env(safe-area-inset-top)`).
 
 ## Where things live

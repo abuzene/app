@@ -1680,12 +1680,18 @@ check('and prints on one page of upright A4 with the printer\'s own margins', pd
   check('a tablet is offered upright paper first', await tp.locator('#sheet-paper').inputValue(), (v) => v === 'upright', 'upright');
   await tp.click('[data-x="print"]');
   await tp.waitForTimeout(300);
-  check('and prints the sheet in the flow, not pinned', await tp.evaluate(() => document.getElementById('print-root').className), (v) => v === 'tablet', 'tablet');
+  check('and prints the sheet in the flow, not pinned', await tp.evaluate(() => document.getElementById('print-root').className), (v) => /^tablet\b/.test(v), 'tablet …');
   await tp.evaluate(() => {
     document.getElementById('print-page').textContent = '';
   });
   const tabletPdf = await tp.pdf({ format: 'A4', margin: { top: '17mm', bottom: '20mm', left: '10mm', right: '12mm' } });
   check('on one page inside the tablet\'s own margins', pdfPages(tabletPdf), (v) => v === 1, '1');
+  // The tablet's printer decides the paper's orientation itself, so the
+  // tablet gets the sheet both ways round and the paper picks: expecting
+  // upright but given landscape paper once printed two pages.
+  check('a tablet holds the sheet both ways round', await tp.locator('#print-root svg').count(), (v) => v === 2, '2');
+  const acrossPdf = await tp.pdf({ width: '420mm', height: '297mm', margin: { top: '17mm', bottom: '18mm', left: '21mm', right: '21mm' } });
+  check('and on landscape paper the sheet lies along it, on one page', pdfPages(acrossPdf), (v) => v === 1, '1');
   await tablet.close();
 }
 

@@ -1244,8 +1244,12 @@ function printSheet(sheet: string, size: SheetSize, upright = false): void {
   // A tablet prints nothing that is pinned to the page, so there the sheet
   // is laid out in the flow instead, at a width whose height is sure to fit
   // inside the margins and footer the tablet keeps for itself.
-  root.className = tabletPrinter ? 'tablet' : '';
-  root.innerHTML = upright ? turned : sheet;
+  // A tablet's printer decides the paper's orientation in its own dialog,
+  // taking no notice of ours, so the tablet gets both sheets and the print
+  // stylesheet shows the one that lies along the paper it actually got; the
+  // choice here only says which to expect. Elsewhere the page is the sheet.
+  root.className = tabletPrinter ? `tablet ${upright ? 'want-upright' : 'want-landscape'}` : '';
+  root.innerHTML = tabletPrinter ? `<div class="sheet-land">${sheet}</div><div class="sheet-port">${turned}</div>` : upright ? turned : sheet;
 
   // The page title is what "Save as PDF" names the file.
   const title = document.title;
