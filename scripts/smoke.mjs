@@ -1642,7 +1642,7 @@ await page.waitForTimeout(250);
 check('a flanged valve on a socket welded line takes socket weld flanges', await page.locator('#tab-body').innerText(), (v) => /SOCKET WELD FLANGE\t2"\tSTD\t2/.test(v), 'SOCKET WELD FLANGE x 2');
 await page.click('#tabs button:has-text("Welds")');
 await page.waitForTimeout(250);
-check('and they are socket welded to the pipe', (await page.locator('#tab-body').innerText().then((t) => t.match(/SW\tPIPE \/ BALL VALVE/g) ?? [])).length, (v) => v === 2, '2');
+check('and they are socket welded to the pipe', (await page.locator('#tab-body').innerText().then((t) => t.match(/SW\tPIPE \/ SOCKET WELD FLANGE/g) ?? [])).length, (v) => v === 2, '2');
 await page.selectOption('#joint', 'BW');
 await page.waitForTimeout(300);
 
@@ -1984,7 +1984,8 @@ await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 3000\nN 2000\nEND CAP');
 check('an elbow takes its take-out and a root gap off the pipe', await pipeNets(), (v) => v[0] === 'PIPE / 90 ELBOW LR = 2883.5', '2886 less 2.5');
 check('a pipe between an elbow and a cap loses a gap at each', await pipeNets(), (v) => v[1] === 'PIPE / 90 ELBOW LR = 1881' && v[2] === 'PIPE / CAP = 1881', '1886 less 5');
 await routeLine('3"\nSTD\nORIGIN 0 0 0\nEND FLG\nE 3000\n+BALL 1500\nN 2000');
-check('a valve cuts the run into two pieces, each with its gaps', await pipeNets(), (v) => v[0] === 'PIPE / WELD NECK FLANGE = 1257.5' && v[2] === 'PIPE / BALL VALVE = 1211.5', 'flange to valve 1257.5, valve to elbow 1211.5');
+check('a valve cuts the run into two pieces, each with its gaps', await pipeNets(), (v) => v[0] === 'PIPE / WELD NECK FLANGE = 1257.5' && v[2] === 'PIPE / WELD NECK FLANGE = 1211.5', 'flange to valve 1257.5, valve to elbow 1211.5');
+check("a flanged valve's welds are to its flanges, not the valve", await pipeNets(), (v) => !v.some((r) => /PIPE \/ BALL VALVE/.test(r)), 'no PIPE / BALL VALVE');
 await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 3000\nN 2000');
 await page.click('#tabs button:has-text("Route")');
 await page.waitForTimeout(150);
@@ -1996,6 +1997,25 @@ await page.keyboard.press('Escape');
 await page.waitForTimeout(150);
 check('pipe to pipe shows the pipe either side, the gap off one of them', await pipeNets(), (v) => v.some((r) => r === 'PIPE / PIPE = 1497.5 / 1383.5'), '1497.5 / 1383.5: the gap off the first, the second less the elbow and its gap');
 check('the list copies with the net lengths', await page.evaluate(() => document.querySelector('[data-a="copy-welds"]') !== null), (v) => v === true, 'a Copy list button');
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
+
+/* ------------------------------- an elbow welded straight to a transition */
+
+// His station sheet: the line turns down to a PE/CS transition with no pipe
+// between the elbow and it. The one weld there is elbow to transition, and
+// the run is pulled in to the elbow's take-out plus the transition's stub.
+await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 2000\nD 900\nE 400\nEND TRANSITION');
+await page.locator('#tab-body .run-list tbody tr').nth(2).click();
+await page.waitForTimeout(200);
+await page.click('#hud-direct');
+await page.waitForTimeout(400);
+const toTransition = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')));
+const tRun = toTransition.runs[2];
+const tA = toTransition.nodes.find((n) => n.id === tRun.from).pos;
+const tB = toTransition.nodes.find((n) => n.id === tRun.to).pos;
+check('the run to a transition pulls in to the elbow and the stub', Math.round(Math.hypot(tB.e - tA.e, tB.n - tA.n, tB.u - tA.u)), (v) => v === 234, '234 (114 elbow + 120 stub)');
+check('and its one weld is elbow to transition', await pipeNets(), (v) => v.some((r) => /^90 ELBOW LR \/ TRANSITION JOINT PE\/CS = $/.test(r)), '90 ELBOW LR / TRANSITION JOINT PE/CS, no pipe');
 await page.keyboard.press('Escape');
 await page.waitForTimeout(150);
 

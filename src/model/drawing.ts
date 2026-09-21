@@ -206,7 +206,20 @@ export function oletLegs(info: NodeInfo): { header: Run[]; branch: Run } | null 
  * touch: the sum of their take-outs. Zero when neither end is a fitting.
  */
 export function fittingsTouchLength(analysis: Analysis, run: Run): number {
-  return endTakeout(analysis.nodeInfo.get(run.from), run) + endTakeout(analysis.nodeInfo.get(run.to), run);
+  const a = analysis.nodeById.get(run.from);
+  const b = analysis.nodeById.get(run.to);
+  return (
+    endTakeout(analysis.nodeInfo.get(run.from), run) +
+    endTakeout(analysis.nodeInfo.get(run.to), run) +
+    (a ? terminalTakeout(a, run.dn) : 0) +
+    (b ? terminalTakeout(b, run.dn) : 0)
+  );
+}
+
+/** What a line's end piece takes off the pipe: a flange's length, a transition's stub. */
+function terminalTakeout(node: IsoNode, dn: string): number {
+  const kind = node.terminal?.kind;
+  return kind === 'FLG_WN' || kind === 'FLG_SO' || kind === 'TRANSITION' ? componentTakeout(kind, dn) : 0;
 }
 
 export function fittingLabel(kind: FittingKind): string {
@@ -515,20 +528,28 @@ export function analyse(drawing: Drawing): Analysis {
     // Fittings joined directly: the one weld is where they meet, between the
     // two, and neither fitting has a pipe weld of its own on this run.
     if (run.direct) {
-      const name = (id: string) => {
-        const info = nodeInfo.get(id);
-        return info && info.fitting !== 'NONE' ? fittingLabel(info.fitting) : 'PIPE';
+      const name = (node: IsoNode) => {
+        const info = nodeInfo.get(node.id);
+        if (info && info.fitting !== 'NONE') return fittingLabel(info.fitting);
+        if (node.flange) return COMPONENT_LABEL[node.flange] ?? node.flange;
+        const terminal = node.terminal?.kind;
+        if (terminal && terminal !== 'OPEN' && terminal !== 'CONTINUATION' && terminal !== 'EQUIPMENT') return TERMINAL_LABEL[terminal] ?? terminal;
+        return 'PIPE';
       };
+      // The weld is where the two meet: the first one's take-out along the
+      // run, or half way when that does not fall inside it.
+      const meet = endTakeout(nodeInfo.get(run.from), run) + terminalTakeout(a, run.dn);
+      const at = meet > 0.5 && meet < total - 0.5 ? meet : total / 2;
       pushJoint(
         `d:${run.id}`,
         a.joint ?? defaultJoint,
         run.dn,
         run.schedule,
-        `${name(run.from)} / ${name(run.to)}`,
-        add(a.pos, scale3(dir, total / 2)),
+        `${name(a)} / ${name(b)}`,
+        add(a.pos, scale3(dir, at)),
         1,
         idx,
-        total / 2,
+        at,
       );
       continue;
     }
@@ -674,6 +695,12 @@ export function analyse(drawing: Drawing): Analysis {
       const reach: WeldReach = isReducer
         ? { kind: 'reducer' }
         : { kind: 'valve', trueHalf: faceHalf, flange: ends === 'FLG' && !isFlange(comp.kind) ? valveFlangeKind(defaultJoint) : undefined };
+      // A flanged item is bolted to its flanges; what the pipe is welded to
+      // is the flange, and that is what the weld list should say.
+      const joinedTo =
+        ends === 'FLG' && !isFlange(comp.kind)
+          ? COMPONENT_LABEL[valveFlangeKind(defaultJoint)] ?? 'FLANGE'
+          : COMPONENT_LABEL[comp.kind] ?? comp.kind;
       for (const side of [0, 1] as const) {
         // A transition joint is welded on its steel side only; the plastic
         // side is fused, which is no weld of ours.
@@ -684,7 +711,7 @@ export function analyse(drawing: Drawing): Analysis {
           joint,
           dn,
           run.schedule,
-          `PIPE / ${COMPONENT_LABEL[comp.kind] ?? comp.kind}`,
+          `PIPE / ${joinedTo}`,
           add(a.pos, scale3(dir, distance)),
           side === 0 ? 1 : -1,
           idx,
