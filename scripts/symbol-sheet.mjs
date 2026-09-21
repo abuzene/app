@@ -25,83 +25,101 @@ const { componentSymbol, terminalSymbol, jointMark, flangeSymbol, capSymbol } = 
   '../dist/_symbols.mjs'
 );
 
-const S = 13;
+const S = 12;
 const T = 30; // take-out: how far the mark sits from the fitting centre
 const JOINTS = ['BW', 'SW', 'THD'];
 const JOINT_TITLE = { BW: 'Butt weld', SW: 'Socket weld', THD: 'Threaded' };
 
-const frame = (x, y, dx, dy, s = S) => ({ cx: x, cy: y, dx, dy, nx: -dy, ny: dx, s });
-const pipe = (x1, y1, x2, y2) =>
-  `<line class="pipe" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`;
+// The legend is drawn on real isometric axes, exactly as the drawing is, so a
+// symbol here is the same symbol there.
+const COS30 = Math.cos(Math.PI / 6);
+const EAST = { x: COS30, y: 0.5 };
+const NORTH = { x: COS30, y: -0.5 };
+const UP = { x: 0, y: -1 };
+const neg = (d) => ({ x: -d.x, y: -d.y });
+
+/** A frame running along `dir`, drawn in the vertical plane through the pipe. */
+const frame = (x, y, dir, s = S, across = NORTH, up = UP) => ({
+  cx: x,
+  cy: y,
+  dx: dir.x,
+  dy: dir.y,
+  nx: across.x,
+  ny: across.y,
+  ux: up.x,
+  uy: up.y,
+  s,
+});
+
+const seg = (x, y, dir, from, to, cls = 'pipe') =>
+  `<line class="${cls}" x1="${(x + dir.x * from).toFixed(1)}" y1="${(y + dir.y * from).toFixed(1)}" ` +
+  `x2="${(x + dir.x * to).toFixed(1)}" y2="${(y + dir.y * to).toFixed(1)}"/>`;
 
 /* --------------------------------------------------------------- fittings */
 
 /** Each returns the drawing for one cell, centred on (cx, cy). */
 const FITTINGS = [
   [
-    'Elbow 90°',
+    'Elbow 90\u00b0',
     (cx, cy, j) => {
-      const x = cx - 6;
-      const y = cy + 26;
+      const x = cx - 12;
+      const y = cy + 22;
       return (
-        pipe(x - 72, y, x, y) +
-        pipe(x, y, x, y - 76) +
-        jointMark(frame(x - T, y, 1, 0), j, false, 1) +
-        jointMark(frame(x, y - T, 0, 1), j, false, 1)
+        seg(x, y, EAST, -76, 0) +
+        seg(x, y, UP, 0, 70) +
+        jointMark(frame(x - EAST.x * T, y - EAST.y * T, EAST), j, 1) +
+        jointMark(frame(x + UP.x * T, y + UP.y * T, neg(UP)), j, 1)
       );
     },
   ],
   [
-    'Elbow 45°',
+    'Elbow 45\u00b0',
     (cx, cy, j) => {
-      const x = cx - 20;
-      const y = cy + 26;
-      const k = Math.SQRT1_2;
+      const x = cx - 16;
+      const y = cy + 20;
+      const mid = { x: (EAST.x + UP.x) / Math.hypot(EAST.x + UP.x, EAST.y + UP.y), y: (EAST.y + UP.y) / Math.hypot(EAST.x + UP.x, EAST.y + UP.y) };
       return (
-        pipe(x - 66, y, x, y) +
-        pipe(x, y, x + 66 * k, y - 66 * k) +
-        jointMark(frame(x - T, y, 1, 0), j, false, 1) +
-        jointMark(frame(x + T * k, y - T * k, -k, k), j, false, 1)
+        seg(x, y, EAST, -70, 0) +
+        seg(x, y, mid, 0, 66) +
+        jointMark(frame(x - EAST.x * T, y - EAST.y * T, EAST), j, 1) +
+        jointMark(frame(x + mid.x * T, y + mid.y * T, neg(mid)), j, 1)
       );
     },
   ],
   [
     'Tee equal',
     (cx, cy, j) => {
-      const y = cy + 22;
+      const y = cy + 18;
       return (
-        pipe(cx - 74, y, cx + 74, y) +
-        pipe(cx, y, cx, y - 66) +
-        jointMark(frame(cx - T, y, 1, 0), j, false, 1) +
-        jointMark(frame(cx + T, y, -1, 0), j, false, 1) +
-        jointMark(frame(cx, y - T, 0, 1), j, false, 1)
+        seg(cx, y, EAST, -72, 72) +
+        seg(cx, y, UP, 0, 62) +
+        jointMark(frame(cx - EAST.x * T, y - EAST.y * T, EAST), j, 1) +
+        jointMark(frame(cx + EAST.x * T, y + EAST.y * T, neg(EAST)), j, 1) +
+        jointMark(frame(cx + UP.x * T, y + UP.y * T, neg(UP)), j, 1)
       );
     },
   ],
   [
     'Tee reducing',
     (cx, cy, j) => {
-      const y = cy + 22;
-      const tri =
-        j === 'BW'
-          ? `<polygon class="fitting-body" points="${cx - T},${y} ${cx + T},${y} ${cx},${y - T}"/>`
-          : '';
+      const y = cy + 18;
       return (
-        pipe(cx - 74, y, cx + 74, y) +
-        pipe(cx, y, cx, y - 66) +
-        tri +
-        jointMark(frame(cx - T, y, 1, 0), j, false, 1) +
-        jointMark(frame(cx + T, y, -1, 0), j, false, 1) +
-        jointMark(frame(cx, y - T, 0, 1), j, false, 1)
+        seg(cx, y, EAST, -72, 72) +
+        seg(cx, y, UP, 0, 62) +
+        jointMark(frame(cx - EAST.x * T, y - EAST.y * T, EAST), j, 1) +
+        jointMark(frame(cx + EAST.x * T, y + EAST.y * T, neg(EAST)), j, 1) +
+        jointMark(frame(cx + UP.x * T, y + UP.y * T, neg(UP)), j, 1) +
+        `<text class="note" x="${(cx + 12).toFixed(1)}" y="${(y - 44).toFixed(1)}">6"X3" NS</text>`
       );
     },
   ],
   [
     'Cap',
     (cx, cy, j) => {
-      const x = cx + 4;
-      const body = j === 'BW' ? capSymbol(frame(x, cy, 1, 0), 1) : '';
-      return pipe(x - 82, cy, x, cy) + body + jointMark(frame(x, cy, 1, 0), j, false, 1);
+      const x = cx + 18;
+      const y = cy + 12;
+      const body = j === 'BW' ? capSymbol(frame(x, y, EAST), 1) : '';
+      return seg(x, y, EAST, -80, 0) + body + jointMark(frame(x, y, EAST), j, 1);
     },
   ],
   [
@@ -109,10 +127,10 @@ const FITTINGS = [
     (cx, cy, j) => {
       const w = 26;
       return (
-        pipe(cx - 82, cy, cx + 82, cy) +
-        componentSymbol('RED_CONC', frame(cx, cy, 1, 0, 22)) +
-        jointMark(frame(cx - w, cy, 1, 0), j, false, 1) +
-        jointMark(frame(cx + w, cy, -1, 0), j, false, 1)
+        seg(cx, cy, EAST, -80, 80) +
+        componentSymbol('RED_CONC', frame(cx, cy, EAST, 20)) +
+        jointMark(frame(cx - EAST.x * w, cy - EAST.y * w, EAST), j, 1) +
+        jointMark(frame(cx + EAST.x * w, cy + EAST.y * w, neg(EAST)), j, 1)
       );
     },
   ],
@@ -121,10 +139,10 @@ const FITTINGS = [
     (cx, cy, j) => {
       const w = 26;
       return (
-        pipe(cx - 82, cy, cx + 82, cy) +
-        componentSymbol('RED_ECC', frame(cx, cy, 1, 0, 22)) +
-        jointMark(frame(cx - w, cy, 1, 0), j, false, 1) +
-        jointMark(frame(cx + w, cy, -1, 0), j, false, 1)
+        seg(cx, cy, EAST, -80, 80) +
+        componentSymbol('RED_ECC', frame(cx, cy, EAST, 20)) +
+        jointMark(frame(cx - EAST.x * w, cy - EAST.y * w, EAST), j, 1) +
+        jointMark(frame(cx + EAST.x * w, cy + EAST.y * w, neg(EAST)), j, 1)
       );
     },
   ],
@@ -223,33 +241,28 @@ grid(
   'Drawn as a single flange; a flanged joint in the drawing shows a mating pair.',
   FLANGES,
   (kind, cx, cy) =>
-    pipe(cx - 76, cy, cx, cy) +
-    flangeSymbol(frame(cx, cy, 1, 0), kind, 1) +
-    (kind === 'FLG_WN' || kind === 'FLG_LAP'
-      ? jointMark(frame(cx, cy, 1, 0), 'BW', false, 1)
-      : ''),
+    seg(cx, cy, EAST, -76, 0) +
+    flangeSymbol(frame(cx, cy, EAST), kind, 1) +
+    (kind === 'FLG_WN' || kind === 'FLG_LAP' ? jointMark(frame(cx, cy, EAST), 'BW', 1) : ''),
 );
 
-grid('Valves and items', 'Unchanged from before.', VALVES, (kind, cx, cy) =>
-  pipe(cx - 78, cy, cx + 78, cy) + componentSymbol(kind, frame(cx, cy, 1, 0)),
+grid('Valves and items', 'Drawn on the pipe, as they are on the sheet.', VALVES, (kind, cx, cy) =>
+  seg(cx, cy, EAST, -78, 78) + componentSymbol(kind, frame(cx, cy, EAST)),
 );
 
 grid('Line ends', null, ENDS, (kind, cx, cy) =>
-  pipe(cx - 76, cy, cx, cy) + terminalSymbol(kind, frame(cx, cy, 1, 0)),
+  seg(cx, cy, EAST, -76, 0) + terminalSymbol(kind, frame(cx, cy, EAST)),
 );
 
 grid(
   'Joint marks',
-  'A field joint carries the weld flag; the mark itself still says how it is made.',
+  'The mark says how the joint is made. A threaded joint is marked but is not a weld.',
   [
-    ['BW', 'Butt weld — shop'],
-    ['BW_FIELD', 'Butt weld — field'],
+    ['BW', 'Butt weld'],
     ['SW', 'Socket weld'],
     ['THD', 'Threaded (not a weld)'],
   ],
-  (kind, cx, cy) =>
-    pipe(cx - 78, cy, cx + 78, cy) +
-    jointMark(frame(cx, cy, 1, 0), kind === 'BW_FIELD' ? 'BW' : kind, kind === 'BW_FIELD', 1),
+  (kind, cx, cy) => seg(cx, cy, EAST, -78, 78) + jointMark(frame(cx, cy, EAST), kind, 1),
 );
 
 // Wide enough for the fitting table and for the widest plain grid below it.
@@ -275,6 +288,7 @@ text { font-family: "Helvetica Neue", Arial, sans-serif; }
 .sym-hollow { fill: none; stroke: #12161c; stroke-width: 2.2; }
 .sym-solid { fill: #12161c; stroke: #12161c; stroke-width: 1.4; }
 .joint-bw { fill: #12161c; stroke: #12161c; stroke-width: 1; }
+.note { fill: #12161c; font-size: 12px; }
 </style>
 <rect class="bg" x="0" y="0" width="${W}" height="${H}"/>
 ${parts.join('')}

@@ -41,43 +41,89 @@ const SHORT: Partial<Record<ComponentKind, string>> = {
 
 const OLET_SHORT: Record<JointType, string> = { BW: 'Weldolet', SW: 'Sockolet', THD: 'Thredolet' };
 
-/** The tee icon: a branch off a header, with a joint mark on each of its ends. */
-function teeIcon(): string {
-  const along = (x: number, y: number, dx: number, dy: number): Frame => ({
-    cx: x, cy: y, dx, dy, nx: -dy, ny: dx, ux: 0, uy: -1, s: 5,
-  });
+/**
+ * The palette draws its icons on a real isometric stub of pipe, in the same
+ * frame the drawing uses, so what you pick is exactly what you get. Drawn flat
+ * they looked like a different set of symbols from the ones on the sheet.
+ */
+const COS30 = Math.cos(Math.PI / 6);
+const EAST = { x: COS30, y: 0.5 };
+const NORTH = { x: COS30, y: -0.5 };
+const UP = { x: 0, y: -1 };
+
+const ICON_W = 60;
+const ICON_H = 38;
+const ICON_CX = 30;
+const ICON_CY = 24;
+
+function stub(dir: { x: number; y: number }, reach = 21): string {
   return (
-    `<svg viewBox="0 0 58 36" aria-hidden="true">` +
-    `<line class="icon-pipe" x1="4" y1="26" x2="54" y2="26"/>` +
-    `<line class="sym-line" x1="29" y1="26" x2="29" y2="7"/>` +
-    jointMark(along(15, 26, 1, 0), 'BW') +
-    jointMark(along(43, 26, -1, 0), 'BW') +
-    jointMark(along(29, 13, 0, 1), 'BW') +
-    `</svg>`
+    `<line class="icon-pipe" x1="${(ICON_CX - dir.x * reach).toFixed(1)}" y1="${(ICON_CY - dir.y * reach).toFixed(1)}" ` +
+    `x2="${(ICON_CX + dir.x * reach).toFixed(1)}" y2="${(ICON_CY + dir.y * reach).toFixed(1)}"/>`
   );
 }
 
-/** The olet icon shows the saddle on a length of header, branch going up. */
-function oletIcon(): string {
-  const f: Frame = { cx: 29, cy: 26, dx: 0, dy: -1, nx: 1, ny: 0, ux: 0, uy: -1, s: 7 };
-  return (
-    `<svg viewBox="0 0 58 36" aria-hidden="true">` +
-    `<line class="icon-pipe" x1="4" y1="26" x2="54" y2="26"/>` +
-    `<line class="sym-line" x1="29" y1="26" x2="29" y2="5"/>` +
-    oletSymbol(f) +
-    `</svg>`
-  );
+function iconSvg(inner: string): string {
+  return `<svg viewBox="0 0 ${ICON_W} ${ICON_H}" aria-hidden="true">${inner}</svg>`;
 }
 
 /** The palette icons are the drawing symbols themselves, so nothing can drift. */
 function icon(kind: ComponentKind): string {
-  // The frame leaves headroom for the symbols that carry a stem and actuator.
-  // Across the icon is down the page, up is up: the stems then stand up.
-  const f: Frame = { cx: 29, cy: 21, dx: 1, dy: 0, nx: 0, ny: 1, ux: 0, uy: -1, s: 7 };
-  // A stub of pipe gives the compact symbols — flanges, reducers — something to
-  // read against, exactly as they appear on the drawing.
-  const stub = `<line class="icon-pipe" x1="4" y1="${f.cy}" x2="54" y2="${f.cy}"/>`;
-  return `<svg viewBox="0 0 58 36" aria-hidden="true">${stub}${componentSymbol(kind, f)}</svg>`;
+  const f: Frame = {
+    cx: ICON_CX,
+    cy: ICON_CY,
+    dx: EAST.x,
+    dy: EAST.y,
+    nx: NORTH.x,
+    ny: NORTH.y,
+    ux: UP.x,
+    uy: UP.y,
+    s: 5.2,
+  };
+  return iconSvg(stub(EAST) + componentSymbol(kind, f));
+}
+
+/** An olet on a length of header, branch going up. */
+function oletIcon(): string {
+  const f: Frame = {
+    cx: ICON_CX,
+    cy: ICON_CY + 5,
+    dx: UP.x,
+    dy: UP.y,
+    nx: NORTH.x,
+    ny: NORTH.y,
+    ux: EAST.x,
+    uy: EAST.y,
+    s: 5.2,
+  };
+  return iconSvg(
+    `<line class="icon-pipe" x1="${(ICON_CX - EAST.x * 20).toFixed(1)}" y1="${(ICON_CY + 5 - EAST.y * 20).toFixed(1)}" x2="${(ICON_CX + EAST.x * 20).toFixed(1)}" y2="${(ICON_CY + 5 + EAST.y * 20).toFixed(1)}"/>` +
+      `<line class="sym-line" x1="${ICON_CX}" y1="${ICON_CY + 5}" x2="${ICON_CX}" y2="${ICON_CY - 13}"/>` +
+      oletSymbol(f),
+  );
+}
+
+/** A tee: a branch off a header, with a joint mark on each of its three ends. */
+function teeIcon(): string {
+  const cy = ICON_CY + 5;
+  const frame = (dx: number, dy: number, at: number): Frame => ({
+    cx: ICON_CX + dx * at,
+    cy: cy + dy * at,
+    dx,
+    dy,
+    nx: NORTH.x,
+    ny: NORTH.y,
+    ux: UP.x,
+    uy: UP.y,
+    s: 4.2,
+  });
+  return iconSvg(
+    `<line class="icon-pipe" x1="${(ICON_CX - EAST.x * 20).toFixed(1)}" y1="${(cy - EAST.y * 20).toFixed(1)}" x2="${(ICON_CX + EAST.x * 20).toFixed(1)}" y2="${(cy + EAST.y * 20).toFixed(1)}"/>` +
+      `<line class="sym-line" x1="${ICON_CX}" y1="${cy}" x2="${ICON_CX}" y2="${cy - 15}"/>` +
+      jointMark(frame(EAST.x, EAST.y, -10), 'BW') +
+      jointMark(frame(-EAST.x, -EAST.y, -10), 'BW') +
+      jointMark(frame(UP.x, UP.y, -9), 'BW'),
+  );
 }
 
 /** Kinds that can close or terminate a line rather than sit along it. */

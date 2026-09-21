@@ -116,12 +116,12 @@ export function jointMark(f: Frame, joint: JointType, facing: Facing = 1): strin
     case 'SW':
       // The bracket is the socket, so it wraps towards the fitting side.
       out =
-        line(f, [0, -s * 0.62], [0, s * 0.62], 'sym-line') +
-        line(f, [0, -s * 0.62], [facing * s * 0.5, -s * 0.62], 'sym-line') +
-        line(f, [0, s * 0.62], [facing * s * 0.5, s * 0.62], 'sym-line');
+        line(f, [0, 0, -s * 0.62], [0, 0, s * 0.62], 'sym-line') +
+        line(f, [0, 0, -s * 0.62], [facing * s * 0.5, 0, -s * 0.62], 'sym-line') +
+        line(f, [0, 0, s * 0.62], [facing * s * 0.5, 0, s * 0.62], 'sym-line');
       break;
     case 'THD':
-      out = line(f, [0, -s * 0.62], [0, s * 0.62], 'sym-line');
+      out = line(f, [0, 0, -s * 0.62], [0, 0, s * 0.62], 'sym-line');
       break;
     default:
       out = circle(f, 0, 0, s * 0.42, 'joint-bw');
@@ -158,43 +158,50 @@ export function flangeJoint(kind: FlangeKind): JointType | null {
 }
 
 /**
- * One flange, drawn from the pipe outwards. `facing` is the direction the
- * flange face lies in, so a pair on either side of a joint mirror each other.
- */
-/**
  * One flange, drawn from the pipe outwards.
  *
- * On a fabrication isometric a flange is a single heavy bar across the pipe —
- * that is all. The hub, the bore and the bolt holes are the material list's
- * business, not the drawing's, and drawing them turns a flange into an
- * unreadable smudge at the scale these sheets are printed at. `facing` says
- * which side the flange face looks towards, so a pair reads as a bolted joint.
+ * A flange is the disc seen in projection: a parallelogram with the bolt face
+ * standing up across the pipe and the flange's own thickness running along it.
+ * Drawn as a flat bar it has no thickness and reads as a tick mark, which is
+ * what made every flanged joint on the drawing look like a stray line.
+ * `facing` says which side the face looks towards, so a pair reads as bolted.
  */
 export function flangeSymbol(f: Frame, kind: FlangeKind, facing: Facing = 1): string {
   const s = f.s;
   const d = facing;
-  const bar = line(f, [0, -s * 1.05], [0, s * 1.05], 'sym-heavy');
+  const t = s * 0.2;
+  const r = s * 1.05;
+
+  const disc = (at: number, cls = 'sym-fill') =>
+    poly(
+      [
+        pt(f, at - t, 0, -r),
+        pt(f, at + t, 0, -r),
+        pt(f, at + t, 0, r),
+        pt(f, at - t, 0, r),
+      ],
+      cls,
+    );
+
+  // The neck between the weld and the face, which a weld neck flange has and
+  // a slip-on does not.
+  const neck = (at: number) =>
+    line(f, [at - d * s * 0.55, 0, -r * 0.4], [at, 0, -r], 'sym-line') +
+    line(f, [at - d * s * 0.55, 0, r * 0.4], [at, 0, r], 'sym-line');
 
   switch (kind) {
+    case 'FLG_WN':
+      return neck(d * t) + disc(d * t);
     case 'FLG_BLIND':
-      // Blinded off: the bar plus the plate that closes the line.
-      return (
-        bar +
-        poly(
-          [
-            pt(f, 0, -s * 1.05),
-            pt(f, d * s * 0.45, -s * 1.05),
-            pt(f, d * s * 0.45, s * 1.05),
-            pt(f, 0, s * 1.05),
-          ],
-          'sym-solid',
-        )
-      );
+      return disc(0, 'sym-solid');
     case 'FLG_LAP':
-      // The stub end the loose flange sits behind.
-      return bar + line(f, [-d * s * 0.4, -s * 0.75], [-d * s * 0.4, s * 0.75], 'sym-line');
+      // The stub end the loose backing flange sits behind.
+      return disc(d * t) + line(f, [-d * s * 0.45, 0, -r * 0.8], [-d * s * 0.45, 0, r * 0.8], 'sym-line');
+    case 'FLG_SW':
+    case 'FLG_THD':
+    case 'FLG_SO':
     default:
-      return bar;
+      return disc(0);
   }
 }
 
@@ -212,11 +219,11 @@ export function flangePair(f: Frame, kind: FlangeKind): string {
 export function capSymbol(f: Frame, facing: Facing = 1): string {
   const s = f.s;
   const r = s * 0.85;
-  const [x1, y1] = pt(f, 0, -r);
-  const [x2, y2] = pt(f, 0, r);
+  const [x1, y1] = pt(f, 0, 0, -r);
+  const [x2, y2] = pt(f, 0, 0, r);
   const sweep = facing > 0 ? 1 : 0;
   return (
-    line(f, [0, -r], [0, r], 'sym-line') +
+    line(f, [0, 0, -r], [0, 0, r], 'sym-line') +
     `<path class="sym-hollow" d="M ${x1.toFixed(2)} ${y1.toFixed(2)} A ${r.toFixed(2)} ${r.toFixed(2)} 0 0 ${sweep} ${x2.toFixed(2)} ${y2.toFixed(2)}"/>`
   );
 }
@@ -224,7 +231,10 @@ export function capSymbol(f: Frame, facing: Facing = 1): string {
 /** A concentric reducer: large end square on, tapering to the small end. */
 function concentricReducer(f: Frame): string {
   const s = f.s;
-  return poly([pt(f, -s * 0.9, -s * 0.85), pt(f, -s * 0.9, s * 0.85), pt(f, s * 0.9, 0)], 'sym-hollow');
+  return poly(
+    [pt(f, -s * 0.9, 0, -s * 0.85), pt(f, -s * 0.9, 0, s * 0.85), pt(f, s * 0.9, 0, 0)],
+    'sym-hollow',
+  );
 }
 
 /** An eccentric reducer: the same taper, flat on one side. */
@@ -232,10 +242,10 @@ function eccentricReducer(f: Frame): string {
   const s = f.s;
   return poly(
     [
-      pt(f, -s * 0.9, -s * 0.85),
-      pt(f, -s * 0.9, s * 0.85),
-      pt(f, s * 0.9, s * 0.85),
-      pt(f, s * 0.9, s * 0.35),
+      pt(f, -s * 0.9, 0, -s * 0.85),
+      pt(f, -s * 0.9, 0, s * 0.85),
+      pt(f, s * 0.9, 0, s * 0.85),
+      pt(f, s * 0.9, 0, s * 0.35),
     ],
     'sym-hollow',
   );
@@ -251,7 +261,7 @@ export function oletSymbol(f: Frame): string {
   const points: [number, number][] = [];
   for (let i = 0; i < 6; i += 1) {
     const angle = (Math.PI / 3) * i + Math.PI / 6;
-    points.push(pt(f, r * Math.sin(angle) + f.s * 0.2, r * Math.cos(angle)));
+    points.push(pt(f, r * Math.sin(angle) + f.s * 0.2, 0, r * Math.cos(angle)));
   }
   return poly(points, 'sym-fill');
 }
@@ -262,8 +272,8 @@ export function oletSymbol(f: Frame): string {
 function bowtie(f: Frame, cls = 'sym-fill'): string {
   const s = f.s;
   return (
-    poly([pt(f, -s, -s * 0.8), pt(f, -s, s * 0.8), pt(f, 0, 0)], cls) +
-    poly([pt(f, s, -s * 0.8), pt(f, s, s * 0.8), pt(f, 0, 0)], cls)
+    poly([pt(f, -s, 0, -s * 0.85), pt(f, -s, 0, s * 0.85), pt(f, 0, 0, 0)], cls) +
+    poly([pt(f, s, 0, -s * 0.85), pt(f, s, 0, s * 0.85), pt(f, 0, 0, 0)], cls)
   );
 }
 
@@ -304,7 +314,12 @@ export function componentSymbol(kind: ComponentKind, f: Frame): string {
       return (
         bowtie(f) +
         poly(
-          [pt(f, -s * 0.3, -s * 0.4), pt(f, s * 0.3, -s * 0.4), pt(f, s * 0.3, s * 0.4), pt(f, -s * 0.3, s * 0.4)],
+          [
+            pt(f, -s * 0.3, 0, -s * 0.45),
+            pt(f, s * 0.3, 0, -s * 0.45),
+            pt(f, s * 0.3, 0, s * 0.45),
+            pt(f, -s * 0.3, 0, s * 0.45),
+          ],
           'sym-solid',
         ) +
         stem(f)
@@ -314,12 +329,15 @@ export function componentSymbol(kind: ComponentKind, f: Frame): string {
     case 'CHECK':
       return (
         bowtie(f) +
-        line(f, [s * 0.05, -s * 0.8], [s * 0.05, s * 0.8], 'sym-line') +
-        line(f, [-s * 0.6, 0], [s * 0.9, 0], 'sym-line') +
-        poly([pt(f, s * 1.5, 0), pt(f, s * 0.9, -s * 0.35), pt(f, s * 0.9, s * 0.35)], 'sym-solid')
+        line(f, [s * 0.05, 0, -s * 0.85], [s * 0.05, 0, s * 0.85], 'sym-line') +
+        line(f, [-s * 0.6, 0, 0], [s * 0.9, 0, 0], 'sym-line') +
+        poly(
+          [pt(f, s * 1.5, 0, 0), pt(f, s * 0.9, 0, -s * 0.35), pt(f, s * 0.9, 0, s * 0.35)],
+          'sym-solid',
+        )
       );
     case 'BUTTERFLY':
-      return bowtie(f) + line(f, [-s * 0.55, s * 0.55], [s * 0.55, -s * 0.55], 'sym-line') + stem(f) + handwheel(f);
+      return bowtie(f) + line(f, [-s * 0.55, 0, -s * 0.55], [s * 0.55, 0, s * 0.55], 'sym-line') + stem(f) + handwheel(f);
     case 'CONTROL': {
       const [ax, ay] = pt(f, 0, 0, s * 1.8);
       return (
@@ -347,7 +365,7 @@ export function componentSymbol(kind: ComponentKind, f: Frame): string {
       return (
         circle(f, -s * 0.42, 0, s * 0.4, 'sym-solid') +
         circle(f, s * 0.42, 0, s * 0.4, 'sym-hollow') +
-        line(f, [-s * 0.42, 0], [s * 0.42, 0], 'sym-line')
+        line(f, [-s * 0.42, 0, 0], [s * 0.42, 0, 0], 'sym-line')
       );
     case 'RED_CONC':
       return concentricReducer(f);
@@ -357,9 +375,9 @@ export function componentSymbol(kind: ComponentKind, f: Frame): string {
       return capSymbol(f, 1);
     case 'UNION':
       return (
-        line(f, [-s * 0.4, -s], [-s * 0.4, s], 'sym-line') +
-        line(f, [s * 0.4, -s], [s * 0.4, s], 'sym-line') +
-        line(f, [0, -s * 0.7], [0, s * 0.7], 'sym-line')
+        line(f, [-s * 0.4, 0, -s], [-s * 0.4, 0, s], 'sym-line') +
+        line(f, [s * 0.4, 0, -s], [s * 0.4, 0, s], 'sym-line') +
+        line(f, [0, 0, -s * 0.7], [0, 0, s * 0.7], 'sym-line')
       );
     case 'STRAINER':
       return (
@@ -405,13 +423,13 @@ export function terminalSymbol(kind: TerminalKind, f: Frame, joint: JointType = 
       // one carries the domed body.
       return joint === 'BW' ? capSymbol(f, 1) : '';
     case 'CONTINUATION':
-      return poly([pt(f, 0, -s), pt(f, s * 1.4, 0), pt(f, 0, s)], 'sym-hollow');
+      return poly([pt(f, 0, 0, -s), pt(f, s * 1.4, 0, 0), pt(f, 0, 0, s)], 'sym-hollow');
     case 'EQUIPMENT':
       // A nozzle face on the vessel it belongs to.
       return (
-        line(f, [0, -s * 0.9], [0, s * 0.9], 'sym-heavy') +
-        line(f, [s * 0.45, -s * 1.5], [s * 0.45, s * 1.5], 'sym-heavy') +
-        line(f, [0, 0], [s * 0.45, 0], 'sym-line')
+        line(f, [0, 0, -s * 0.9], [0, 0, s * 0.9], 'sym-heavy') +
+        line(f, [s * 0.45, 0, -s * 1.5], [s * 0.45, 0, s * 1.5], 'sym-heavy') +
+        line(f, [0, 0, 0], [s * 0.45, 0, 0], 'sym-line')
       );
     default:
       return '';

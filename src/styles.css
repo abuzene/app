@@ -91,7 +91,7 @@ body {
 main { flex: 1 1 auto; display: flex; min-height: 0; }
 
 .tools {
-  flex: 0 0 78px;
+  flex: 0 0 80px;
   background: var(--panel);
   border-right: 1px solid var(--line);
   overflow-y: auto;
@@ -142,15 +142,15 @@ main { flex: 1 1 auto; display: flex; min-height: 0; }
 }
 .tool {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  width: 62px; height: 56px; margin: 3px auto; overflow: hidden;
+  width: 64px; height: 58px; margin: 3px auto; overflow: hidden;
   background: #fff; border: 1px solid var(--line); border-radius: var(--radius);
   cursor: pointer; padding: 2px 0 3px;
 }
 .tool:hover { border-color: var(--accent); background: var(--accent-soft); }
 .tool:disabled { opacity: 0.35; cursor: default; }
 .tool:disabled:hover { border-color: var(--line); background: #fff; }
-.tool svg { width: 58px; height: 36px; display: block; flex: 0 0 auto; }
-.tool svg .icon-pipe { stroke: var(--muted); stroke-width: 1.2; }
+.tool svg { width: 60px; height: 38px; display: block; flex: 0 0 auto; }
+.tool svg .icon-pipe { stroke: var(--muted); stroke-width: 1.4; }
 /* Palette icons reuse the drawing symbols, so they need the same classes. */
 .tool svg .sym-line { stroke: var(--ink); stroke-width: 1.4; fill: none; stroke-linecap: round; }
 .tool svg .sym-heavy { stroke: var(--ink); stroke-width: 2; fill: none; }
