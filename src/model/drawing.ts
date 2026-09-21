@@ -838,3 +838,22 @@ export function analyse(drawing: Drawing): Analysis {
     warnings,
   };
 }
+
+/**
+ * Where a run's dimension breaks, in mm from its start: at each valve face,
+ * since the pipe either side of a valve is its own piece and the valve's
+ * face-to-face stands on its own between them.
+ */
+export function dimensionStops(drawing: Drawing, run: Run): number[] {
+  const a = drawing.nodes.find((n) => n.id === run.from);
+  const b = drawing.nodes.find((n) => n.id === run.to);
+  const total = a && b ? length3(sub(b.pos, a.pos)) : 0;
+  const breaks: number[] = [];
+  for (const comp of run.inline) {
+    if (!isValve(comp.kind)) continue;
+    const half = componentTakeout(comp.kind, comp.dn ?? run.dn, false);
+    if (half <= 0) continue;
+    breaks.push(comp.offset - half, comp.offset + half);
+  }
+  return [0, ...breaks.filter((mm) => mm > 0.5 && mm < total - 0.5).sort((x, y) => x - y), total];
+}

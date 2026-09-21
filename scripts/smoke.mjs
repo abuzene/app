@@ -93,20 +93,21 @@ const before = await page.locator('#tab-body .run-list tbody tr').count();
 // Pick a point that sits well inside the canvas so the drag has room.
 const canvasBox = await page.locator('#canvas').boundingBox();
 const handles = await page.locator('#canvas circle.hit-dot[data-node]').all();
+// Dragging an end or a point along a line moves it; only a corner routes
+// when dragged. So find an elbow, well inside the canvas, and drag from that.
 let node = null;
 for (const handle of handles) {
   const box = await handle.boundingBox();
   if (!box) continue;
-  if (box.x > canvasBox.x + 40 && box.x + 220 < canvasBox.x + canvasBox.width && box.y + 160 < canvasBox.y + canvasBox.height) {
+  if (!(box.x > canvasBox.x + 40 && box.x + 220 < canvasBox.x + canvasBox.width && box.y + 160 < canvasBox.y + canvasBox.height)) continue;
+  await handle.click({ force: true });
+  await page.waitForTimeout(150);
+  if (/ELBOW/.test(await page.locator('#tab-body').innerText())) {
     node = box;
     break;
   }
 }
-if (!node) throw new Error('no point available inside the canvas to drag from');
-// Dragging routes from a point only while drawing from it; otherwise it moves
-// the point. So pick the route up there first.
-await page.mouse.click(node.x + node.width / 2, node.y + node.height / 2);
-await page.waitForTimeout(250);
+if (!node) throw new Error('no elbow available inside the canvas to drag from');
 await page.click('#tab-body [data-a="draw-from"]');
 await page.waitForTimeout(250);
 await page.mouse.move(node.x + node.width / 2, node.y + node.height / 2);
@@ -1044,6 +1045,104 @@ check('a Delete button shows for the selection', await page.locator('#hud-delete
 await page.click('#hud-delete');
 await page.waitForTimeout(350);
 check('and it deletes', await page.locator('#tab-body .run-list tbody tr').count(), (v) => v === runsBeforeEndDrag - 1, `${runsBeforeEndDrag - 1}`);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(200);
+
+/* ------------------------------------------ placing by typing a dimension */
+
+// A tap says how far as well as which way: a tap a little off the axis still
+// reaches its distance rather than falling short of it.
+await startNewDrawing();
+const cb2 = await page.locator('#canvas').boundingBox();
+await page.mouse.click(cb2.x + cb2.width * 0.4, cb2.y + cb2.height * 0.6);
+await page.waitForTimeout(400);
+const o2 = await page.locator('#canvas circle.hit-dot[data-node]').first().boundingBox();
+const o2x = o2.x + o2.width / 2;
+const o2y = o2.y + o2.height / 2;
+// East lies 30° below the horizontal on the screen; tap 20° off it, 260px away.
+const offAxis = ((30 + 20) * Math.PI) / 180;
+await page.mouse.move(o2x + Math.cos(offAxis) * 260, o2y + Math.sin(offAxis) * 260, { steps: 6 });
+await page.waitForTimeout(100);
+await page.mouse.click(o2x + Math.cos(offAxis) * 260, o2y + Math.sin(offAxis) * 260);
+await page.waitForTimeout(400);
+const reached = await page.evaluate(() => {
+  const svg = document.querySelector('#canvas');
+  const [, , vw] = svg.getAttribute('viewBox').split(' ').map(Number);
+  return { paperPerPx: vw / svg.getBoundingClientRect().width };
+});
+const expectedMm = Math.round((260 * reached.paperPerPx) / 0.06 / 50) * 50;
+check('a tap off the axis still reaches its distance', Number(await page.locator('#tab-body [data-run-len]').first().inputValue()), (v) => Math.abs(v - expectedMm) <= 50, `about ${expectedMm}`);
+
+// Inserting a valve opens the length up to it for typing; the rest follows.
+await page.keyboard.press('Escape');
+await page.waitForTimeout(200);
+await page.locator('#canvas [data-run]').first().click({ force: true });
+await page.waitForTimeout(200);
+const runLen2 = Number(await page.locator('#tab-body [data-f="length"]').inputValue());
+await page.click('.tool[data-kind="BALL"]');
+await page.waitForTimeout(400);
+check('a valve put in opens its dimension for typing', await page.locator('.dim-editor').count(), (v) => v === 1, '1');
+await page.fill('.dim-editor', '250');
+await page.press('.dim-editor', 'Enter');
+await page.waitForTimeout(400);
+const dims2 = await page.evaluate(() => [...document.querySelectorAll('#canvas .dim-text')].map((t) => Number(t.textContent)));
+check('typing it places the valve', dims2[0], (v) => v === 250, '250');
+check('and the far side takes the rest', dims2[0] + dims2[1] + dims2[2], (v) => v === runLen2, `${runLen2}`);
+
+// Any figure on the drawing can be tapped and typed over.
+const figures = await page.locator('#canvas [data-dim]').all();
+await figures[figures.length - 1].click({ force: true });
+await page.waitForTimeout(300);
+check('tapping a figure opens it', await page.locator('.dim-editor').count(), (v) => v === 1, '1');
+await page.fill('.dim-editor', '900');
+await page.press('.dim-editor', 'Enter');
+await page.waitForTimeout(400);
+const dims3 = await page.evaluate(() => [...document.querySelectorAll('#canvas .dim-text')].map((t) => Number(t.textContent)));
+check('typing the last piece moves the end, nothing else', dims3.join(','), (v) => v === `250,203,900`, '250,203,900');
+await page.keyboard.press('Escape');
+await page.waitForTimeout(200);
+
+// A tee put in opens the length up to it too.
+await page.locator('#canvas [data-run]').last().click({ force: true });
+await page.waitForTimeout(200);
+await page.click('.tool[data-branch="TEE"]');
+await page.waitForTimeout(400);
+check('a tee put in opens its dimension for typing', await page.locator('.dim-editor').count(), (v) => v === 1, '1');
+await page.fill('.dim-editor', '300');
+await page.press('.dim-editor', 'Enter');
+await page.waitForTimeout(400);
+const dims4 = await page.evaluate(() => [...document.querySelectorAll('#canvas .dim-text')].map((t) => Number(t.textContent)));
+check('and the tee sits where typed', dims4[dims4.length - 2], (v) => v === 300, '300');
+check('the other side taking the rest', dims4.reduce((a, b) => a + b, 0), (v) => v === dims3.reduce((a, b) => a + b, 0), `${dims3.reduce((a, b) => a + b, 0)}`);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(200);
+
+// Weld numbers sit in rounded boxes, each on a leader to its weld.
+check('weld numbers are boxed', await page.locator('#canvas .weld-box').count(), (v) => v > 0, 'at least one');
+check(
+  'every box has a leader',
+  (await page.locator('#canvas .weld-box').count()) === (await page.locator('#canvas .weld-leader').count()),
+  (v) => v === true,
+  'true',
+);
+
+// Nothing is ever drawn on top of a line already there.
+await page.locator('#canvas circle.hit-dot[data-node]').first().click({ force: true });
+await page.waitForTimeout(200);
+await page.click('#tab-body [data-a="draw-from"]');
+await page.waitForTimeout(200);
+const runsBeforeOverlap = await page.locator('#tab-body .run-list tbody tr').count();
+// Short of the valve, on bare pipe.
+await page.mouse.move(o2x + Math.cos(Math.PI / 6) * 55, o2y + Math.sin(Math.PI / 6) * 55, { steps: 6 });
+await page.waitForTimeout(100);
+await page.mouse.click(o2x + Math.cos(Math.PI / 6) * 55, o2y + Math.sin(Math.PI / 6) * 55);
+await page.waitForTimeout(400);
+check(
+  'drawing back along the line splits it rather than doubling it',
+  await page.locator('#tab-body .run-list tbody tr').count(),
+  (v) => v === runsBeforeOverlap + 1,
+  `${runsBeforeOverlap + 1}`,
+);
 await page.keyboard.press('Escape');
 await page.waitForTimeout(200);
 

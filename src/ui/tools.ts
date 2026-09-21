@@ -1,6 +1,6 @@
 import type { ComponentKind, FlangeKind, JointType, Run, TerminalKind } from '../model/types';
 import type { Host } from './types';
-import { COMPONENT_LABEL } from '../model/drawing';
+import { COMPONENT_LABEL, dimensionStops, isValve } from '../model/drawing';
 import { addComponent, addFlangeJoint, runLength, splitRun } from '../model/edit';
 import { componentTakeout, fittingTakeout } from '../model/pipe-data';
 import { isFlange } from '../render/symbols';
@@ -236,7 +236,21 @@ function place(host: Host, kind: ComponentKind): void {
     const comp = addComponent(d, run.id, kind, undefined, kind === 'SPECTACLE' ? 'FLG' : undefined);
     addedId = comp?.id ?? null;
   });
-  if (addedId) host.select({ kind: 'component', id: addedId });
+  if (addedId) {
+    host.select({ kind: 'component', id: addedId });
+    // A valve is placed by the pipe up to its face; the rest follows.
+    if (isValve(kind)) {
+      const d = host.state.drawing;
+      const target = d.runs.find((r) => r.id === run.id);
+      const comp = target?.inline.find((c) => c.id === addedId);
+      if (target && comp) {
+        const face = comp.offset - componentTakeout(comp.kind, comp.dn ?? target.dn, false);
+        const stops = dimensionStops(d, target);
+        const index = stops.findIndex((mm, i) => i > 0 && Math.abs(mm - face) < 0.5) - 1;
+        host.editDimension(run.id, Math.max(0, index));
+      }
+    }
+  }
 }
 
 /**
@@ -262,7 +276,7 @@ function placeFlangeOnRun(host: Host, run: Run, kind: FlangeKind, where: 'start'
   });
   if (nodeId) {
     host.select({ kind: 'node', id: nodeId });
-    host.notify('Flanged joint added — drag it along the line to where it goes.');
+    openDimensionUpTo(host, nodeId);
   } else {
     host.notify('The run is too short to take a flange there.');
   }
@@ -306,8 +320,19 @@ function placeBranch(host: Host, tool: BranchTool): void {
     // clicking where it goes. Dragging the point instead slides it along the
     // header, which is how it gets to where it actually belongs.
     host.continueFrom(nodeId);
-    host.notify(`Click where the branch goes, or drag the ${label} along the line to move it.`);
+    openDimensionUpTo(host, nodeId);
   }
+}
+
+/**
+ * Something put into a drawn line is placed by typing the length up to it;
+ * the far side takes the rest. So the piece ending at the new point opens.
+ */
+function openDimensionUpTo(host: Host, nodeId: string): void {
+  const before = host.state.drawing.runs.find((r) => r.to === nodeId);
+  if (!before) return;
+  const stops = dimensionStops(host.state.drawing, before);
+  host.editDimension(before.id, Math.max(0, stops.length - 2));
 }
 
 export function renderTools(container: HTMLElement, host: Host): void {

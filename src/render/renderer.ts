@@ -1,6 +1,6 @@
 import type { Analysis } from '../model/drawing';
 import type { Axis, Drawing, Run, Vec3 } from '../model/types';
-import { COMPONENT_LABEL, TERMINAL_LABEL, fittingLabel, isValve, oletLegs, resolveEnds } from '../model/drawing';
+import { COMPONENT_LABEL, TERMINAL_LABEL, dimensionStops, fittingLabel, isValve, oletLegs, resolveEnds } from '../model/drawing';
 import { componentTakeout, fittingTakeout, sizeLabel } from '../model/pipe-data';
 import { AXIS_VECTOR, axisBetween, axisScreenDir, length3, project, scale3, add, sub } from '../model/iso';
 import { componentSymbol, flangeHub, flangeSymbol, frameFor, gasketLine, isFlange, jointMark, oletSymbol, terminalSymbol, type Frame } from './symbols';
@@ -175,9 +175,11 @@ function renderDimension(
   centroid: Pt,
   text: string,
   size: number,
-): string {
+  id: string,
+  hitR: number,
+): { svg: string; hit: string } {
   const len = Math.hypot(b.x - a.x, b.y - a.y);
-  if (len < 1) return '';
+  if (len < 1) return { svg: '', hit: '' };
   const dx = (b.x - a.x) / len;
   const dy = (b.y - a.y) / len;
   let nx = -dy;
@@ -211,17 +213,25 @@ function renderDimension(
   const tx = (ax + bx) / 2;
   const ty = (ay + by) / 2;
 
-  return (
-    `<g class="dim">` +
-    ext(a, { x: ax, y: ay }) +
-    ext(b, { x: bx, y: by }) +
-    `<line class="dim-line" x1="${ax.toFixed(2)}" y1="${ay.toFixed(2)}" x2="${bx.toFixed(2)}" y2="${by.toFixed(2)}"/>` +
-    slash(ax, ay) +
-    slash(bx, by) +
-    // Clear of the dimension line, never sitting across it.
-    `<text class="dim-text" x="${tx.toFixed(2)}" y="${(ty - size * 0.75).toFixed(2)}" transform="rotate(${angle.toFixed(1)} ${tx.toFixed(2)} ${ty.toFixed(2)})">${escapeText(text)}</text>` +
-    `</g>`
-  );
+  // The figure sits a little off the line; that is also where it is tapped
+  // to be typed over.
+  const lift = size * 0.75;
+  const rad = (angle * Math.PI) / 180;
+  const textX = tx + Math.sin(rad) * lift;
+  const textY = ty - Math.cos(rad) * lift;
+  return {
+    svg:
+      `<g class="dim">` +
+      ext(a, { x: ax, y: ay }) +
+      ext(b, { x: bx, y: by }) +
+      `<line class="dim-line" x1="${ax.toFixed(2)}" y1="${ay.toFixed(2)}" x2="${bx.toFixed(2)}" y2="${by.toFixed(2)}"/>` +
+      slash(ax, ay) +
+      slash(bx, by) +
+      // Clear of the dimension line, never sitting across it.
+      `<text class="dim-text" x="${tx.toFixed(2)}" y="${(ty - lift).toFixed(2)}" transform="rotate(${angle.toFixed(1)} ${tx.toFixed(2)} ${ty.toFixed(2)})">${escapeText(text)}</text>` +
+      `</g>`,
+    hit: `<circle class="hit-dot" data-dim="${id}" cx="${textX.toFixed(2)}" cy="${textY.toFixed(2)}" r="${hitR.toFixed(2)}"/>`,
+  };
 }
 
 export function renderDrawing(state: RenderState): string {
@@ -241,6 +251,7 @@ export function renderDrawing(state: RenderState): string {
   let pipes = '';
   let hits = '';
   let dims = '';
+  let dimHits = '';
   let comps = '';
 
   const BENDS = ['ELBOW_90', 'ELBOW_45', 'BEND'];
@@ -284,18 +295,13 @@ export function renderDrawing(state: RenderState): string {
     // of it is its own piece, so the run's dimension breaks at each face and
     // the valve's face-to-face stands on its own between them.
     if (drawing.options.showDimensions && lengths && !run.noDim) {
-      const breaks: number[] = [];
-      for (const comp of run.inline) {
-        if (!isValve(comp.kind)) continue;
-        const half = componentTakeout(comp.kind, comp.dn ?? run.dn, false);
-        if (half <= 0) continue;
-        breaks.push(comp.offset - half, comp.offset + half);
-      }
-      const stops = [0, ...breaks.filter((mm) => mm > 0.5 && mm < total - 0.5).sort((x, y) => x - y), total];
+      const stops = dimensionStops(drawing, run);
       for (let i = 0; i + 1 < stops.length; i += 1) {
         const span = stops[i + 1] - stops[i];
         if (span < 0.5) continue;
-        dims += renderDimension(along(stops[i]), along(stops[i + 1]), centroid, formatMm(span), size);
+        const dim = renderDimension(along(stops[i]), along(stops[i + 1]), centroid, formatMm(span), size, `${run.id}:${i}`, hitR);
+        dims += dim.svg;
+        dimHits += dim.hit;
       }
     }
 
@@ -448,8 +454,8 @@ export function renderDrawing(state: RenderState): string {
       // pipe rather than stacking them all on the same one.
       const side = index % 2 === 0 ? 1 : -1;
       weldLabels.push({
-        x: f.cx + f.nx * size * 3 * side,
-        y: f.cy + f.ny * size * 3 * side,
+        x: f.cx + f.nx * size * 3.4 * side,
+        y: f.cy + f.ny * size * 3.4 * side,
         text: joint.number,
         fromX: f.cx,
         fromY: f.cy,
@@ -459,15 +465,22 @@ export function renderDrawing(state: RenderState): string {
   });
 
   for (const label of spreadLabels(weldLabels, size * 2.1)) {
-    // A tag pushed clear of its neighbours gets a leader back to its weld, so
-    // it is never ambiguous which joint it belongs to.
-    const reach = Math.hypot(label.x - label.fromX, label.y - label.fromY);
-    const leader =
-      reach > size * 3.6
-        ? `<line class="weld-leader" x1="${label.fromX.toFixed(2)}" y1="${label.fromY.toFixed(2)}" x2="${label.x.toFixed(2)}" y2="${label.y.toFixed(2)}"/>`
-        : '';
     const selectedWeld = sel?.kind === 'weld' && sel.key === label.key;
-    welds += `<g class="weld${selectedWeld ? ' selected' : ''}">${leader}<text class="weld-no" x="${label.x.toFixed(2)}" y="${(label.y + size * 0.3).toFixed(2)}" text-anchor="middle">${escapeText(label.text)}</text></g>`;
+    // The number sits in a rounded box on a leader to its weld — the weld's
+    // own kind of balloon, told from an item balloon by its shape.
+    const boxW = Math.max(size * 1.6, label.text.length * size * 0.46 + size * 0.7);
+    const boxH = size * 1.15;
+    const ddx = label.x - label.fromX;
+    const ddy = label.y - label.fromY;
+    const stopAt = Math.max(Math.abs(ddx) / (boxW / 2), Math.abs(ddy) / (boxH / 2), 1e-6);
+    const ex = label.x - ddx / stopAt;
+    const ey = label.y - ddy / stopAt;
+    welds +=
+      `<g class="weld${selectedWeld ? ' selected' : ''}">` +
+      `<line class="weld-leader" x1="${label.fromX.toFixed(2)}" y1="${label.fromY.toFixed(2)}" x2="${ex.toFixed(2)}" y2="${ey.toFixed(2)}"/>` +
+      `<rect class="weld-box" x="${(label.x - boxW / 2).toFixed(2)}" y="${(label.y - boxH / 2).toFixed(2)}" width="${boxW.toFixed(2)}" height="${boxH.toFixed(2)}" rx="${(size * 0.3).toFixed(2)}"/>` +
+      `<text class="weld-no" x="${label.x.toFixed(2)}" y="${(label.y + size * 0.27).toFixed(2)}" text-anchor="middle">${escapeText(label.text)}</text></g>`;
+
     // The tag itself is a touch target too: it is what is read, so it is what gets tapped.
     weldHits += `<circle class="hit-dot" data-weld="${label.key}" cx="${label.x.toFixed(2)}" cy="${label.y.toFixed(2)}" r="${hitR.toFixed(2)}"/>`;
   }
@@ -566,7 +579,7 @@ export function renderDrawing(state: RenderState): string {
 
   // Hit targets for runs go under the node and component handles so that a
   // drag starting on a point is never swallowed by the run beneath it.
-  return grid + dims + pipes + `<g class="hits">${hits}</g>` + comps + nodes + welds + `<g class="hits">${weldHits}</g>` + preview;
+  return grid + dims + pipes + `<g class="hits">${hits}</g>` + comps + nodes + welds + `<g class="hits">${weldHits}${dimHits}</g>` + preview;
 }
 
 /**

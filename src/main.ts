@@ -2,10 +2,10 @@ import './styles.css';
 import type { Drawing, Run, Vec3 } from './model/types';
 import type { Preview, Selection } from './render/renderer';
 import type { AppState, Host } from './ui/types';
-import { analyse, emptyDrawing } from './model/drawing';
+import { analyse, dimensionStops, emptyDrawing } from './model/drawing';
 import { add, length3, scale3, sub } from './model/iso';
 import { initialCommandState, runCommands } from './model/commands';
-import { deleteNode, deleteRun, ensureNode, removeComponent, route } from './model/edit';
+import { applyDimension, deleteNode, deleteRun, ensureNode, removeComponent, route } from './model/edit';
 import { DN_LIST, schedulesFor, sizeLabel } from './model/pipe-data';
 import { northArrow, toPaper } from './render/renderer';
 import { renderSheet, type SheetSize } from './render/sheet';
@@ -128,7 +128,85 @@ const host: Host = {
     render();
     setTimeout(render, 3400);
   },
+  editDimension(runId, index) {
+    // The figure has to be on the sheet to be typed over: find its target.
+    render();
+    const target = svg.querySelector<SVGCircleElement>(`[data-dim="${runId}:${index}"]`);
+    if (!target) {
+      host.notify('Turn dimensions on to type one.');
+      return;
+    }
+    const box = target.getBoundingClientRect();
+    openDimensionEditor(runId, index, box.left + box.width / 2, box.top + box.height / 2);
+  },
 };
+
+/* ------------------------------------------------- typing a dimension */
+
+let dimensionEditor: HTMLInputElement | null = null;
+
+/**
+ * A box over the figure on the drawing, to type the length of that piece.
+ * Up to a valve it moves the valve; on the last piece it moves the end. The
+ * other side of whatever moved takes up the difference.
+ */
+function openDimensionEditor(runId: string, index: number, clientX: number, clientY: number): void {
+  closeDimensionEditor();
+  const run = state.drawing.runs.find((r) => r.id === runId);
+  if (!run) return;
+  const stops = dimensionStops(state.drawing, run);
+  if (index + 1 >= stops.length) return;
+  const current = Math.round(stops[index + 1] - stops[index]);
+
+  const wrap = svg.parentElement as HTMLElement;
+  const rect = wrap.getBoundingClientRect();
+  const input = document.createElement('input');
+  input.type = 'number';
+  input.inputMode = 'numeric';
+  input.className = 'dim-editor';
+  input.value = String(current);
+  input.setAttribute('aria-label', 'Dimension in millimetres');
+  input.style.left = `${Math.max(8, Math.min(rect.width - 96, clientX - rect.left - 44))}px`;
+  input.style.top = `${Math.max(8, Math.min(rect.height - 40, clientY - rect.top - 16))}px`;
+  wrap.appendChild(input);
+  dimensionEditor = input;
+
+  let done = false;
+  const commit = () => {
+    if (done) return;
+    done = true;
+    const value = Number(input.value);
+    closeDimensionEditor();
+    if (!Number.isFinite(value) || value <= 0 || Math.round(value) === current) return;
+    let refused: string | null = null;
+    host.edit('Set dimension', (d) => {
+      refused = applyDimension(d, runId, index, Math.round(value));
+    });
+    if (refused) {
+      undoStack.pop();
+      host.notify(refused);
+    }
+  };
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      commit();
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      done = true;
+      closeDimensionEditor();
+    }
+    event.stopPropagation();
+  });
+  input.addEventListener('blur', commit);
+  input.focus();
+  input.select();
+}
+
+function closeDimensionEditor(): void {
+  dimensionEditor?.remove();
+  dimensionEditor = null;
+}
 
 /* ----------------------------------------------------------------- canvas */
 
@@ -219,6 +297,10 @@ const canvas = new Canvas(svg, {
     renderCanvasOnly();
     hoverMessage = `${Math.round(offset)} mm along the run`;
     renderHud();
+  },
+
+  onEditDimension(runId, index, clientX, clientY) {
+    openDimensionEditor(runId, index, clientX, clientY);
   },
 
   /** Slides a branch point along the line that runs through it. */

@@ -42,4 +42,6 @@ export interface Host {
   pickLogo(): void;
   /** Leaves the route ready to carry on from this point. */
   continueFrom(nodeId: string): void;
+  /** Opens a dimension on the drawing for typing: the run and which piece of it. */
+  editDimension(runId: string, index: number): void;
 }

@@ -15,6 +15,8 @@ export interface CanvasCallbacks {
   onSlideComponent(componentId: string, paper: { x: number; y: number }, commit: boolean): void;
   /** Slides a branch point along the line it sits in. */
   onSlideNode(nodeId: string, paper: { x: number; y: number }, commit: boolean): void;
+  /** A dimension figure was tapped, to be typed over. */
+  onEditDimension(runId: string, index: number, clientX: number, clientY: number): void;
 }
 
 interface DragState {
@@ -29,6 +31,8 @@ interface DragState {
   moved: boolean;
   /** What a finger tap should select, if the finger never really moved. */
   tapSelect?: Selection;
+  /** A dimension a finger landed on, opened for typing if it was a tap. */
+  tapDim?: string;
 }
 
 const MIN_VIEW = 8;
@@ -186,6 +190,7 @@ export class Canvas {
     const runEl = target?.closest('[data-run]');
     const compEl = target?.closest('[data-component]');
     const weldEl = target?.closest('[data-weld]');
+    const dimEl = target?.closest('[data-dim]');
 
     const startView = { ...this.view };
     const panRequested = fingers || event.button === 1 || event.button === 2 || event.shiftKey;
@@ -201,6 +206,7 @@ export class Canvas {
         startClientY: event.clientY,
         startView,
         moved: false,
+        tapDim: dimEl?.getAttribute('data-dim') ?? undefined,
         tapSelect: weldEl
           ? { kind: 'weld', key: weldEl.getAttribute('data-weld')! }
           : compEl
@@ -211,6 +217,16 @@ export class Canvas {
               ? { kind: 'run', id: runEl.getAttribute('data-run')! }
               : null,
       };
+      return;
+    }
+
+    // A dimension figure is tapped to be typed over.
+    if (!panRequested && dimEl) {
+      // The box that opens takes focus; the mouse events that follow this
+      // pointer would take it straight back, so they are not let through.
+      event.preventDefault();
+      const [runId, index] = dimEl.getAttribute('data-dim')!.split(':');
+      this.cb.onEditDimension(runId, Number(index), event.clientX, event.clientY);
       return;
     }
 
@@ -242,9 +258,10 @@ export class Canvas {
       const id = nodeEl.getAttribute('data-node')!;
       this.svg.setPointerCapture(event.pointerId);
       // A branch or a joint sitting along a line slides along it, and so does
-      // an end that is not the one being drawn from: dragging it moves the end
-      // of the pipe. A corner has nothing to slide along, so dragging routes.
-      if (this.slidesAlongLine(id) || (this.anchor !== id && this.isFreeEnd(id))) {
+      // an end: dragging it makes the pipe longer or shorter, never turns it.
+      // Drawing on is done by tapping. A corner has nothing to slide along, so
+      // dragging routes from it.
+      if (this.slidesAlongLine(id) || this.isFreeEnd(id)) {
         this.drag = {
           kind: 'slide-node',
           pointerId: event.pointerId,
@@ -254,6 +271,8 @@ export class Canvas {
           targetId: id,
           moved: false,
         };
+        // Touching a point while drawing moves the route there.
+        if (this.anchor) this.anchor = id;
         this.cb.onSelect({ kind: 'node', id });
         return;
       }
@@ -274,7 +293,9 @@ export class Canvas {
       return;
     }
 
-    if (!panRequested && runEl) {
+    // A tap on a line picks it — unless drawing, when the pencil draws to
+    // that point instead (the line is split there, never doubled).
+    if (!panRequested && runEl && !this.anchor) {
       this.cb.onSelect({ kind: 'run', id: runEl.getAttribute('data-run')! });
       return;
     }
@@ -441,6 +462,13 @@ export class Canvas {
 
     // A tap selects rather than pans; a tap on nothing puts the pencil down,
     // which is how drawing is stopped without a keyboard.
+    if (drag.kind === 'pan' && !drag.moved && drag.tapDim) {
+      const [runId, index] = drag.tapDim.split(':');
+      // After the touch's own mouse events, which would blur the box.
+      const { clientX, clientY } = event;
+      setTimeout(() => this.cb.onEditDimension(runId, Number(index), clientX, clientY), 60);
+      return;
+    }
     if (drag.kind === 'pan' && !drag.moved && drag.tapSelect !== undefined) {
       if (drag.tapSelect === null) {
         this.anchor = null;

@@ -1,6 +1,7 @@
 import type { Axis, ComponentKind, Drawing, EndType, FlangeKind, InlineComponent, IsoNode, Run, Vec3 } from './types';
 import { add, axisBetween, equals3, length3, scale3, step, sub } from './iso';
-import { uid } from './drawing';
+import { dimensionStops, isValve, uid } from './drawing';
+import { componentTakeout } from './pipe-data';
 
 /** Finds an existing node at a position, so that routes join rather than overlap. */
 export function findNodeAt(drawing: Drawing, pos: Vec3, tol = 0.5): string | null {
@@ -93,10 +94,45 @@ export function route(
   }
 
   const target = step(from.pos, axis, length);
+  if (overlapsExisting(drawing, from.pos, target)) {
+    return { run: null, nodeId: fromId, refused: 'That would lie on top of a line already drawn.' };
+  }
   const toId = ensureNode(drawing, target);
   const run = addRun(drawing, fromId, toId, dn, schedule);
   if (run) settleEnds(drawing, [fromId, toId]);
   return { run, nodeId: toId };
+}
+
+/**
+ * Whether a segment would lie along an existing run: same line, sharing more
+ * than a point. Two lines on top of each other cannot be read, so it is never
+ * allowed to happen.
+ */
+export function overlapsExisting(drawing: Drawing, a: Vec3, b: Vec3, ignoreRunId?: string): boolean {
+  const ab = sub(b, a);
+  const len = length3(ab);
+  if (len < 0.01) return false;
+  const unit = { e: ab.e / len, n: ab.n / len, u: ab.u / len };
+  for (const run of drawing.runs) {
+    if (run.id === ignoreRunId) continue;
+    const p = drawing.nodes.find((n) => n.id === run.from);
+    const q = drawing.nodes.find((n) => n.id === run.to);
+    if (!p || !q) continue;
+    // Collinear: both ends of the run sit on the new segment's line.
+    const off = (v: Vec3) => {
+      const d = sub(v, a);
+      const t = d.e * unit.e + d.n * unit.n + d.u * unit.u;
+      const away = sub(d, { e: unit.e * t, n: unit.n * t, u: unit.u * t });
+      return { t, away: length3(away) };
+    };
+    const P = off(p.pos);
+    const Q = off(q.pos);
+    if (P.away > 0.5 || Q.away > 0.5) continue;
+    const lo = Math.min(P.t, Q.t);
+    const hi = Math.max(P.t, Q.t);
+    if (Math.min(hi, len) - Math.max(lo, 0) > 0.5) return true;
+  }
+  return false;
 }
 
 /**
@@ -408,4 +444,40 @@ export function setRunLength(drawing: Drawing, runId: string, length: number): b
   // Component offsets on this run are measured from its start, so clamp them.
   for (const comp of run.inline) comp.offset = Math.max(0, Math.min(length, comp.offset));
   return true;
+}
+
+/**
+ * Sets one dimension of a run to a value. The piece before a valve moves the
+ * valve; the last piece changes the run's length; a valve's own face-to-face
+ * is what it is. Returns why nothing could be done, or null when it was.
+ */
+export function applyDimension(drawing: Drawing, runId: string, index: number, value: number): string | null {
+  const run = drawing.runs.find((r) => r.id === runId);
+  if (!run || !(value > 0)) return 'A dimension has to be more than nothing.';
+  const stops = dimensionStops(drawing, run);
+  if (index < 0 || index + 1 >= stops.length) return 'No such dimension.';
+  const total = stops[stops.length - 1];
+  const from = stops[index];
+  const to = stops[index + 1];
+  const valveAt = (mm: number, side: -1 | 1) =>
+    run.inline.find((c) => {
+      if (!isValve(c.kind)) return false;
+      const half = componentTakeout(c.kind, c.dn ?? run.dn, false);
+      return Math.abs(c.offset + side * half - mm) < 0.5;
+    });
+  const lower = valveAt(to, -1);
+  if (lower) {
+    // Up to a valve face: the valve slides so this piece is the value.
+    const half = componentTakeout(lower.kind, lower.dn ?? run.dn, false);
+    const offset = from + value + half;
+    if (offset + half > total - 0.5) return 'That would push the valve off the end of the run.';
+    lower.offset = offset;
+    run.inline.sort((x, y) => x.offset - y.offset);
+    return null;
+  }
+  if (valveAt(from, -1) && valveAt(to, 1)) return 'That is the valve itself, face to face.';
+  if (to >= total - 0.5) {
+    return setRunLength(drawing, run.id, from + value) ? null : 'The line cannot be made that length here.';
+  }
+  return 'That dimension cannot be set directly.';
 }

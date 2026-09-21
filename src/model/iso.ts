@@ -105,9 +105,16 @@ export function axisFromScreenDelta(dx: number, dy: number, rotation = 0, minLen
  * Projected axes are foreshortened, so the drag is measured as a projection
  * onto the axis' screen direction and then divided back out.
  */
+/**
+ * How far along an axis a pointer offset reaches. The axis says which way;
+ * the distance to the pointer says how far — not its projection onto the
+ * axis, which came up short whenever the tap was a little off the line.
+ */
 export function lengthAlongAxis(dx: number, dy: number, axis: Axis, scale: number, rotation = 0): number {
   const dir = axisScreenDir(axis, rotation);
-  const screenLen = dx * dir.x + dy * dir.y;
+  const forward = dx * dir.x + dy * dir.y;
+  if (forward <= 0) return 0;
+  const screenLen = Math.hypot(dx, dy);
   const unit = project(AXIS_VECTOR[axis], rotation);
   const foreshorten = Math.hypot(unit.x, unit.y) || 1;
   return screenLen / (scale * foreshorten);

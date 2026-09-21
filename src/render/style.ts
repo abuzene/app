@@ -59,13 +59,15 @@ export function contentCss({ k, u, symbol = 4, dark = false }: ContentStyleOptio
 .fitting-body { fill: none; stroke: ${ink}; stroke-width: ${w(1.8)}; }
 /* Every label is painted with the page colour behind its own strokes, so on the
    rare occasion one does fall over a line it still reads cleanly. */
-.weld-no, .dim-text, .tag, .note, .node-label {
+.dim-text, .tag, .note, .node-label {
   paint-order: stroke fill;
   stroke: ${dark ? '#0d1117' : '#ffffff'};
   stroke-width: ${w(2.6)};
   stroke-linejoin: round;
 }
-.weld-no { fill: ${dim}; font-size: ${t(0.72)}px; font-family: inherit; }
+.weld-no { fill: ${ink}; font-size: ${t(0.72)}px; font-family: inherit; }
+.weld-box { fill: ${dark ? '#0d1117' : '#ffffff'}; stroke: ${dim}; stroke-width: ${w(0.7)}; }
+.weld.selected .weld-box { stroke: ${accent}; stroke-width: ${w(1.4)}; }
 .weld.selected .weld-no { fill: ${accent}; font-weight: 700; }
 .weld.selected .joint-bw { fill: ${accent}; stroke: ${accent}; }
 .weld-leader { stroke: ${dim}; stroke-width: ${w(0.7)}; fill: none; }
