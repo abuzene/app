@@ -62,7 +62,7 @@ const drawn = await page.evaluate(() => ({
 check('example line draws pipe runs', drawn.pipes, (v) => v === 5, '5');
 check('joint marks are drawn', drawn.joints, (v) => v > 10, 'more than 10');
 // Five runs, and the flanged valve breaks its run into three: pipe, valve, pipe.
-check('dimensions are drawn', drawn.dims, (v) => v === 7, '7');
+check('dimensions are drawn', drawn.dims, (v) => v === 9, '9');
 check('inline components are drawn', drawn.components, (v) => v === 2, '2');
 await page.screenshot({ path: join(out, '01-sample.png') });
 
@@ -131,7 +131,7 @@ check('a length can be typed', await page.locator('#tab-body .run-list input[dat
 // Palette.
 await page.locator('#tab-body .run-list tbody tr').first().click();
 await page.waitForTimeout(200);
-check('the palette carries the fittings, ball valves, tee and olets', await page.locator('.tool').count(), (v) => v === 16, '16');
+check('the palette carries the fittings, ball valves, tee, olets and marks', await page.locator('.tool').count(), (v) => v === 18, '18');
 check('a tee can be placed on a header', await page.locator('.tool[data-branch="TEE"]').count(), (v) => v === 1, '1');
 check('the actuated ball valve is there', await page.locator('.tool[data-kind="BALL_ACT"]').count(), (v) => v === 1, '1');
 await page.locator('.tool[data-kind="BALL"]').click();
@@ -1463,6 +1463,113 @@ await page.click('#tabs button:has-text("Route")');
 await page.waitForTimeout(200);
 await page.keyboard.press('Escape');
 await page.waitForTimeout(200);
+
+/* ------------------------- marks, balloons, the keypad, printing in place */
+
+// A support and the AG/UG mark are placed by hand and drawn as the sheets
+// draw them; neither is material, so neither is on the list.
+await startNewDrawing();
+await page.click('#tabs button:has-text("Command")');
+await page.waitForTimeout(200);
+await page.fill('#command-text', '3"\nSTD\nORIGIN 0 0 0\nEND FLG\nE 2400\n+SUPPORT 800\n+BALL 1600\nU 1500\n+AGUG 700\nEND CONT');
+await page.click('[data-a="run-commands"]');
+await page.waitForTimeout(500);
+await page.keyboard.press('Escape');
+await page.keyboard.press('f');
+await page.waitForTimeout(300);
+await page.click('#tabs button:has-text("Route")');
+await page.waitForTimeout(150);
+check('a support is drawn with its post and plate', await page.locator('#canvas .component polygon.sym-fill').count(), (v) => v >= 1, 'a base plate');
+check('and called out by name', await page.locator('#canvas .component text.sym-text', { hasText: 'SUPPORT' }).count(), (v) => v === 1, '1');
+check('the AG/UG mark carries both labels', await page.locator('#canvas .component text.sym-text', { hasText: /^(AG|UG)$/ }).count(), (v) => v === 2, '2');
+await page.click('#tabs button:has-text("Welds")');
+await page.waitForTimeout(250);
+check('neither mark takes a weld', await page.locator('#tab-body').innerText(), (v) => !/SUPPORT|AG\/UG/.test(v), 'no SUPPORT or AG/UG weld');
+await page.click('#tabs button:has-text("Items")');
+await page.waitForTimeout(250);
+check('neither mark is on the material list', await page.locator('#tab-body').innerText(), (v) => !/SUPPORT|AG\/UG/.test(v), 'no SUPPORT or AG/UG line');
+await page.click('#tabs button:has-text("Route")');
+await page.waitForTimeout(150);
+// The support is named in its panel.
+await page.locator('#canvas circle.hit-dot[data-component]').first().click({ force: true });
+await page.waitForTimeout(250);
+await page.locator('#tab-body [data-f="tag"]').fill('B');
+await page.locator('#tab-body [data-f="tag"]').dispatchEvent('change');
+await page.waitForTimeout(300);
+check('the support name is drawn beside it', await page.locator('#canvas .component text.sym-text', { hasText: 'SUPPORT B' }).count(), (v) => v === 1, '1');
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
+
+// An item balloon is dragged to where it reads best, its leader staying put.
+const balloon = await page.locator('#canvas [data-balloon]').first().boundingBox();
+const balloonLeader = await page.evaluate(() => {
+  const l = document.querySelector('#canvas .balloon-leader');
+  return l && [l.getAttribute('x1'), l.getAttribute('y1')].join(',');
+});
+await page.mouse.move(balloon.x + balloon.width / 2, balloon.y + balloon.height / 2);
+await page.mouse.down();
+await page.mouse.move(balloon.x + balloon.width / 2 + 80, balloon.y + balloon.height / 2 - 60, { steps: 8 });
+await page.mouse.up();
+await page.waitForTimeout(400);
+const balloonAfter = await page.locator('#canvas [data-balloon]').first().boundingBox();
+check('an item balloon can be dragged', Math.hypot(balloonAfter.x - balloon.x, balloonAfter.y - balloon.y), (v) => v > 50, 'moved more than 50px');
+check(
+  'and its leader stays on the item',
+  await page.evaluate(() => {
+    const l = document.querySelector('#canvas .balloon-leader');
+    return l && [l.getAttribute('x1'), l.getAttribute('y1')].join(',');
+  }),
+  (v) => v === balloonLeader,
+  balloonLeader,
+);
+check('the balloon place is kept with the drawing', await page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).itemOverrides ?? {}).length), (v) => v === 1, '1');
+
+// A dimension opens for typing on the pencil's touch itself, with a keypad
+// beside it, and the keypad's keys type into it.
+const figure = await page.locator('#canvas [data-dim]').first().boundingBox();
+await pen('mousePressed', figure.x + figure.width / 2, figure.y + figure.height / 2);
+await page.waitForTimeout(80);
+check('the dimension box opens on the touch, not the lift', await page.locator('.dim-editor').count(), (v) => v === 1, '1');
+check('and is focused', await page.evaluate(() => document.activeElement?.className), (v) => v === 'dim-editor', 'dim-editor');
+check('with a number keypad beside it', await page.locator('.dim-keypad button').count(), (v) => v === 12, '12');
+await pen('mouseReleased', figure.x + figure.width / 2, figure.y + figure.height / 2);
+await page.waitForTimeout(150);
+check('the box stays open when the pencil lifts', await page.locator('.dim-editor').count(), (v) => v === 1, '1');
+for (const k of ['9', '0', '0']) await page.locator(`.dim-keypad [data-key="${k}"]`).dispatchEvent('pointerdown', { bubbles: true });
+check('the keypad types over the old figure', await page.locator('.dim-editor').inputValue(), (v) => v === '900', '900');
+await page.locator('.dim-keypad [data-key="OK"]').dispatchEvent('pointerdown', { bubbles: true });
+await page.waitForTimeout(400);
+check('and OK sets the dimension', await page.evaluate(() => [...document.querySelectorAll('#canvas .dim-text')].map((t) => t.textContent)), (v) => v.includes('900'), 'a 900 figure');
+check('closing the box takes the keypad with it', await page.locator('.dim-keypad').count(), (v) => v === 0, '0');
+// A weld number opens the same way, with letters on its keypad.
+const markHit = await page.locator('#canvas [data-weld]:not([data-weld-tag])').first().boundingBox();
+await penTap(markHit.x + markHit.width / 2, markHit.y + markHit.height / 2);
+check('a weld number opens for typing on the touch', await page.locator('.dim-editor').count(), (v) => v === 1, '1');
+check('with letters on its keypad', await page.locator('.dim-keypad [data-key="W"]').count(), (v) => v === 1, '1');
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
+
+// Printing happens from the page itself, at the sheet's size, with nothing
+// else on the paper — a hidden frame prints blank on a tablet.
+await page.evaluate(() => {
+  window.__printed = 0;
+  window.print = () => {
+    window.__printed += 1;
+  };
+});
+await page.click('#print');
+await page.waitForTimeout(250);
+await page.selectOption('#sheet-size', 'A4');
+await page.click('[data-x="print"]');
+await page.waitForTimeout(400);
+check('Print prints the page', await page.evaluate(() => window.__printed), (v) => v === 1, '1');
+check('the sheet is in the page, ready to print', await page.locator('#print-root svg').count(), (v) => v === 1, '1');
+check('at the chosen sheet size', await page.evaluate(() => document.getElementById('print-page')?.textContent), (v) => /size: 297mm 210mm/.test(v), '@page size 297mm 210mm');
+await page.emulateMedia({ media: 'print' });
+check('on paper the app is hidden', await page.evaluate(() => getComputedStyle(document.getElementById('app')).display), (v) => v === 'none', 'none');
+check('and the sheet is shown', await page.evaluate(() => getComputedStyle(document.getElementById('print-root')).display), (v) => v === 'block', 'block');
+await page.emulateMedia({ media: 'screen' });
+check('on screen the sheet stays out of the way', await page.evaluate(() => getComputedStyle(document.getElementById('print-root')).display), (v) => v === 'none', 'none');
 
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 

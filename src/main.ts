@@ -208,8 +208,10 @@ function openInlineEditor(
   input.className = 'dim-editor';
   input.value = value;
   input.setAttribute('aria-label', mode === 'numeric' ? 'Dimension in millimetres' : 'Weld number');
-  input.style.left = `${Math.max(8, Math.min(rect.width - 96, clientX - rect.left - 44))}px`;
-  input.style.top = `${Math.max(8, Math.min(rect.height - 40, clientY - rect.top - 16))}px`;
+  const left = Math.max(8, Math.min(rect.width - 240, clientX - rect.left - 60));
+  const top = Math.max(8, Math.min(rect.height - 200, clientY - rect.top - 20));
+  input.style.left = `${left}px`;
+  input.style.top = `${top}px`;
   wrap.appendChild(input);
   dimensionEditor = input;
 
@@ -221,6 +223,37 @@ function openInlineEditor(
     closeDimensionEditor();
     onCommit(text);
   };
+
+  // A keypad beside the box: on a tablet the pencil never brings the keyboard
+  // up on its own, and a number is quicker to tap in anyway. Its keys keep
+  // the box focused, so the keyboard, if there is one, stays too.
+  // The first key typed replaces the old value, as typing over a selection would.
+  let fresh = true;
+  const keypad = document.createElement('div');
+  keypad.className = `dim-keypad ${mode}`;
+  const keys = mode === 'numeric' ? ['7', '8', '9', '4', '5', '6', '1', '2', '3', '⌫', '0', 'OK'] : ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', 'W', 'F', 'S', 'T', 'A', 'B', '-', '/', '⌫', 'OK'];
+  keypad.innerHTML = keys.map((k) => `<button type="button" data-key="${k}"${k === 'OK' ? ' class="ok"' : ''}>${k}</button>`).join('');
+  keypad.style.left = `${left}px`;
+  keypad.style.top = `${top + 40}px`;
+  keypad.addEventListener('pointerdown', (event) => {
+    event.preventDefault();
+    const key = (event.target as HTMLElement).closest<HTMLElement>('[data-key]')?.dataset.key;
+    if (!key) return;
+    if (key === 'OK') {
+      commit();
+      return;
+    }
+    if (key === '⌫') input.value = input.value.slice(0, -1);
+    else if (fresh) input.value = key;
+    else input.value += key;
+    fresh = false;
+    input.focus();
+  });
+  input.addEventListener('input', () => {
+    fresh = false;
+  });
+  wrap.appendChild(keypad);
+  keypadEl = keypad;
   input.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {
       event.preventDefault();
@@ -237,9 +270,13 @@ function openInlineEditor(
   input.select();
 }
 
+let keypadEl: HTMLElement | null = null;
+
 function closeDimensionEditor(): void {
   dimensionEditor?.remove();
   dimensionEditor = null;
+  keypadEl?.remove();
+  keypadEl = null;
 }
 
 /* ----------------------------------------------------------------- canvas */
@@ -377,9 +414,14 @@ const canvas = new Canvas(svg, {
     renderHud();
   },
 
-  /** Moves a weld number tag; the leader stays on the weld. */
+  /** Moves a weld number tag or an item balloon; the leader stays on what it points at. */
   onSlideTag(key, offset, commit) {
+    const balloon = key.startsWith('item:') ? key.slice(5) : null;
     const apply = (d: Drawing) => {
+      if (balloon) {
+        d.itemOverrides = { ...d.itemOverrides, [balloon]: { dx: offset.dx, dy: offset.dy } };
+        return;
+      }
       d.weldOverrides[key] = { ...d.weldOverrides[key], tag: { dx: offset.dx, dy: offset.dy } };
     };
     if (commit) {
@@ -387,7 +429,7 @@ const canvas = new Canvas(svg, {
         Object.assign(state.drawing, JSON.parse(tagFrom) as Drawing);
         tagFrom = null;
       }
-      host.edit('Move weld tag', apply);
+      host.edit(balloon ? 'Move balloon' : 'Move weld tag', apply);
       return;
     }
     if (!tagFrom) tagFrom = snapshot();
@@ -1085,32 +1127,44 @@ const SHEET_MM: Record<SheetSize, { w: number; h: number }> = {
   A2: { w: 594, h: 420 },
 };
 
+/**
+ * The sheet is printed from this page itself: it goes into a root that only
+ * shows in print, where it is the only thing on the page, at the sheet's size.
+ *
+ * It used to be printed from a hidden frame, which an iPad prints as a blank
+ * page — the frame has no size on screen, and that is the size it prints at.
+ */
 function printSheet(sheet: string, size: SheetSize): void {
-  const frame = document.createElement('iframe');
-  frame.setAttribute('aria-hidden', 'true');
-  frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
-  document.body.appendChild(frame);
-  const doc = frame.contentDocument;
-  if (!doc) {
-    frame.remove();
-    host.notify('Printing is not available here — export the SVG instead.');
-    return;
-  }
-  doc.open();
   const { w, h } = SHEET_MM[size];
-  doc.write(
-    `<!doctype html><html><head><title>${fileStem(host)}</title>` +
-      `<style>@page{size:${w}mm ${h}mm;margin:0}html,body{margin:0;padding:0}` +
-      `svg{display:block;width:${w}mm;height:${h}mm}</style></head><body>${sheet}</body></html>`,
-  );
-  doc.close();
-  const run = () => {
-    frame.contentWindow?.focus();
-    frame.contentWindow?.print();
-    setTimeout(() => frame.remove(), 1000);
+  let root = document.getElementById('print-root');
+  if (!root) {
+    root = document.createElement('div');
+    root.id = 'print-root';
+    root.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(root);
+  }
+  let page = document.getElementById('print-page') as HTMLStyleElement | null;
+  if (!page) {
+    page = document.createElement('style');
+    page.id = 'print-page';
+    document.head.appendChild(page);
+  }
+  page.textContent = `@page { size: ${w}mm ${h}mm; margin: 0; }\n@media print { #print-root svg { width: ${w}mm; height: ${h}mm; } }`;
+  root.innerHTML = sheet;
+
+  // The page title is what "Save as PDF" names the file.
+  const title = document.title;
+  document.title = fileStem(host);
+  const restore = () => {
+    document.title = title;
   };
-  if (doc.readyState === 'complete') setTimeout(run, 60);
-  else frame.addEventListener('load', () => setTimeout(run, 60));
+  window.addEventListener('afterprint', restore, { once: true });
+  setTimeout(restore, 4000);
+  try {
+    window.print();
+  } catch {
+    host.notify('Printing is not available here — install the app to print.');
+  }
 }
 
 /**

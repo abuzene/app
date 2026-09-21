@@ -48,7 +48,9 @@ export type ComponentKind =
   | 'INSTRUMENT'
   | 'SUPPORT'
   | 'ANCHOR'
-  | 'GUIDE';
+  | 'GUIDE'
+  /** Where the line goes into or comes out of the ground: the AG/UG mark. */
+  | 'GROUND';
 
 /** The flanges a line can be joined or terminated with. */
 export type FlangeKind = 'FLG_WN' | 'FLG_SO' | 'FLG_SW' | 'FLG_THD' | 'FLG_LAP' | 'FLG_BLIND';
@@ -250,4 +252,6 @@ export interface Drawing {
   nodes: IsoNode[];
   runs: Run[];
   weldOverrides: Record<string, WeldOverride>;
+  /** Where an item balloon was dragged to, in paper units from the item, by item key. */
+  itemOverrides?: Record<string, { dx: number; dy: number }>;
 }

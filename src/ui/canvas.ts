@@ -43,6 +43,8 @@ interface DragState {
   tapSelect?: Selection;
   /** A dimension a finger landed on, opened for typing if it was a tap. */
   tapDim?: string;
+  /** The editor was opened on the touch itself, so the lift has nothing to do. */
+  opened?: boolean;
 }
 
 const MIN_VIEW = 8;
@@ -201,6 +203,7 @@ export class Canvas {
     const compEl = target?.closest('[data-component]');
     const weldEl = target?.closest('[data-weld]');
     const tagEl = target?.closest('[data-weld-tag]');
+    const balloonEl = target?.closest('[data-balloon]');
     const dimEl = target?.closest('[data-dim]');
     const handleEl = target?.closest('[data-run-end]');
 
@@ -233,9 +236,9 @@ export class Canvas {
       return;
     }
 
-    // A dimension figure is tapped to be typed over. The box opens when the
-    // pointer lifts, which is when a keyboard is allowed to come up; the
-    // mouse events that would follow and take focus back are not let through.
+    // A dimension figure is tapped to be typed over. The box opens on the
+    // touch itself, which is when a tablet lets a keyboard come up; the mouse
+    // events that would follow and take focus back are not let through.
     if (!panRequested && dimEl) {
       event.preventDefault();
       this.drag = {
@@ -245,8 +248,10 @@ export class Canvas {
         startClientY: event.clientY,
         startView,
         moved: false,
-        tapDim: dimEl.getAttribute('data-dim')!,
+        opened: true,
       };
+      const [runId, index] = dimEl.getAttribute('data-dim')!.split(':');
+      this.cb.onEditDimension(runId, Number(index), event.clientX, event.clientY);
       return;
     }
 
@@ -270,7 +275,26 @@ export class Canvas {
       return;
     }
 
-    // The weld mark itself: picked, and opened to be typed over.
+    // An item balloon is dragged to where it reads best, its leader staying
+    // on the item. It carries nothing to type, so a tap on it does nothing.
+    if (!panRequested && balloonEl) {
+      event.preventDefault();
+      this.svg.setPointerCapture(event.pointerId);
+      this.drag = {
+        kind: 'slide-tag',
+        pointerId: event.pointerId,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        startView,
+        targetId: `item:${balloonEl.getAttribute('data-balloon')!}`,
+        anchor: { x: Number(balloonEl.getAttribute('data-ax')), y: Number(balloonEl.getAttribute('data-ay')) },
+        moved: false,
+      };
+      return;
+    }
+
+    // The weld mark itself: picked, and opened to be typed over, on the touch
+    // itself as a dimension is.
     if (!panRequested && weldEl) {
       event.preventDefault();
       const key = weldEl.getAttribute('data-weld')!;
@@ -283,7 +307,9 @@ export class Canvas {
         startView,
         targetId: key,
         moved: false,
+        opened: true,
       };
+      this.cb.onEditWeld(key, event.clientX, event.clientY);
       return;
     }
 
@@ -550,9 +576,10 @@ export class Canvas {
     }
     // A weld number tapped, not dragged: open it to be typed over.
     if (drag.kind === 'slide-tag' && !drag.moved) {
-      this.cb.onEditWeld(drag.targetId!, event.clientX, event.clientY);
+      if (!drag.opened && !drag.targetId!.startsWith('item:')) this.cb.onEditWeld(drag.targetId!, event.clientX, event.clientY);
       return;
     }
+    if (drag.opened) return;
 
     // A tap selects rather than pans; a tap on nothing puts the pencil down,
     // which is how drawing is stopped without a keyboard.

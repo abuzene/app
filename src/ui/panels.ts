@@ -1,6 +1,6 @@
 import type { ComponentKind, EndType, FittingKind, FlangeKind, JointType, TerminalKind } from '../model/types';
 import type { Host, TabId } from './types';
-import { COMPONENT_LABEL, DEFAULT_LOGO, TERMINAL_LABEL, fittingLabel, isValve, oletLabel, resolveEnds } from '../model/drawing';
+import { COMPONENT_LABEL, DEFAULT_LOGO, TERMINAL_LABEL, fittingLabel, isMark, isValve, oletLabel, resolveEnds } from '../model/drawing';
 import { COMMAND_HELP } from '../model/commands';
 import { DN_LIST, SIZE_LABELS, defaultValveEnds, schedulesFor, sizeLabel } from '../model/pipe-data';
 import { axisBetween } from '../model/iso';
@@ -182,6 +182,8 @@ function componentProperties(host: Host, compId: string): string {
   if (!run || !comp) return '';
   const total = runLength(drawing, run);
   const isReducer = comp.kind === 'RED_CONC' || comp.kind === 'RED_ECC';
+  // A mark on the line has no size or ends of its own: it is where it is.
+  const mark = isMark(comp.kind);
 
   return `
 <div class="section" data-editor="component" data-id="${comp.id}">
@@ -189,14 +191,16 @@ function componentProperties(host: Host, compId: string): string {
   <div class="row"><label>Type</label><select data-f="kind">${options(COMPONENT_KINDS, comp.kind, COMPONENT_LABEL)}</select></div>
   <div class="row"><label>From start</label><input type="number" data-f="offset" step="1" min="0" max="${Math.round(total)}" value="${Math.round(comp.offset)}" /></div>
   <div class="row"><label>To end</label><input type="number" data-f="toend" step="1" min="0" max="${Math.round(total)}" value="${Math.round(total - comp.offset)}" /></div>
-  <div class="row"><label>Size</label><select data-f="dn">${options(DN_LIST, comp.dn ?? run.dn, SIZE_LABELS)}</select></div>
+  ${mark ? '' : `<div class="row"><label>Size</label><select data-f="dn">${options(DN_LIST, comp.dn ?? run.dn, SIZE_LABELS)}</select></div>`}
   ${isReducer ? `<div class="row"><label>Reduces to</label><select data-f="dn2">${options(DN_LIST, comp.dn2 ?? run.dn, SIZE_LABELS)}</select></div>` : ''}
   ${
     comp.kind === 'TRANSITION'
       ? `<div class="row"><label>Steel side</label><select data-f="flip">${options(['end', 'start'], comp.flip ? 'start' : 'end', { end: 'Towards the end of the run', start: 'Towards the start of the run' })}</select></div>`
-      : ''
+      : comp.kind === 'GROUND'
+        ? `<div class="row"><label>AG side</label><select data-f="flip">${options(['end', 'start'], comp.flip ? 'start' : 'end', { end: 'As drawn (up a riser, else towards the end)', start: 'The other way' })}</select></div>`
+        : ''
   }
-  <div class="row"><label>Ends</label><select data-f="ends">${options(['auto', ...END_TYPES], comp.ends ?? 'auto', {
+  ${mark ? '' : `<div class="row"><label>Ends</label><select data-f="ends">${options(['auto', ...END_TYPES], comp.ends ?? 'auto', {
     auto: isValve(comp.kind)
       ? `By size (${defaultValveEnds(comp.dn ?? run.dn) === 'FLG' ? 'flanged' : 'threaded'})`
       : `Drawing default (${host.state.drawing.options.joint})`,
@@ -205,8 +209,12 @@ function componentProperties(host: Host, compId: string): string {
     SW: 'Socket weld',
     THD: 'Threaded',
     PLAIN: 'Plain',
-  })}</select></div>
-  <div class="row"><label>Tag</label><input type="text" data-f="tag" value="${esc(comp.tag ?? '')}" placeholder="e.g. HV-101" /></div>
+  })}</select></div>`}
+  ${
+    comp.kind === 'GROUND'
+      ? ''
+      : `<div class="row"><label>${comp.kind === 'SUPPORT' ? 'Name' : 'Tag'}</label><input type="text" data-f="tag" value="${esc(comp.tag ?? '')}" placeholder="${comp.kind === 'SUPPORT' ? 'e.g. A — reads SUPPORT A' : 'e.g. HV-101'}" /></div>`
+  }
   <p class="empty-note">Measured ${mm(comp.offset)} mm from the start of a ${mm(total)} mm run.${
     isValve(comp.kind)
       ? ` Valves come flanged over 1" and threaded at 1" and under; this one is ${

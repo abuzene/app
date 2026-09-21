@@ -48,6 +48,8 @@ const COMPONENT_ALIAS: Record<string, ComponentKind> = {
   GLOBE: 'GLOBE',
   BALL: 'BALL',
   BV: 'BALL',
+  GROUND: 'GROUND',
+  AGUG: 'GROUND',
   BALLAIR: 'BALL_ACT',
   BALL_ACT: 'BALL_ACT',
   ACT: 'BALL_ACT',

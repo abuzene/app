@@ -1,9 +1,9 @@
 import type { Analysis } from '../model/drawing';
 import type { Axis, Drawing, Run, Vec3 } from '../model/types';
-import { COMPONENT_LABEL, TERMINAL_LABEL, dimensionStops, fittingLabel, isValve, oletLegs, resolveEnds } from '../model/drawing';
+import { COMPONENT_LABEL, TERMINAL_LABEL, dimensionStops, fittingLabel, isMark, isValve, oletLegs, resolveEnds } from '../model/drawing';
 import { componentTakeout, sizeLabel } from '../model/pipe-data';
 import { AXIS_VECTOR, axisBetween, axisScreenDir, project, scale3, add } from '../model/iso';
-import { componentSymbol, flangeHub, flangeSymbol, frameFor, gasketLine, isFlange, jointMark, oletSymbol, terminalSymbol, transitionSymbol, type Frame } from './symbols';
+import { componentSymbol, flangeHub, flangeSymbol, frameFor, gasketLine, groundSymbol, isFlange, jointMark, oletSymbol, supportSymbol, terminalSymbol, transitionSymbol, type Facing, type Frame } from './symbols';
 
 export interface ViewBox {
   x: number;
@@ -399,7 +399,15 @@ export function renderDrawing(state: RenderState): string {
     }
 
     // Inline components, positioned by their true offset along the run.
-    const plane = symbolPlane(drawing, analysis.nodeById.get(run.from)!.pos, analysis.nodeById.get(run.to)!.pos);
+    const fromPos = analysis.nodeById.get(run.from)!.pos;
+    const toPos = analysis.nodeById.get(run.to)!.pos;
+    const plane = symbolPlane(drawing, fromPos, toPos);
+    // The AG/UG mark's above-ground side: up a riser, else on towards the
+    // end of the run, unless it has been turned round.
+    const groundSide = (flip?: boolean): Facing => {
+      const side: Facing = toPos.u - fromPos.u < 0 ? -1 : 1;
+      return flip ? ((-side) as Facing) : side;
+    };
     for (const comp of run.inline) {
       const t = total > 0 ? Math.max(0, Math.min(1, comp.offset / total)) : 0.5;
       const f = frameFor(a.x, a.y, b.x, b.y, t, size, plane?.across, plane?.up);
@@ -409,7 +417,14 @@ export function renderDrawing(state: RenderState): string {
       // The body reaches its real faces, so what bolts or welds to it sits
       // against it rather than floating off along the pipe.
       const faceHalf = isValve(comp.kind) ? faceReach(componentTakeout(comp.kind, dn, false), paperPerMm) : undefined;
-      comps += comp.kind === 'TRANSITION' ? transitionSymbol(f, comp.flip ? -1 : 1) : componentSymbol(comp.kind, f, faceHalf);
+      comps +=
+        comp.kind === 'TRANSITION'
+          ? transitionSymbol(f, comp.flip ? -1 : 1)
+          : comp.kind === 'GROUND'
+            ? groundSymbol(f, groundSide(comp.flip))
+            : comp.kind === 'SUPPORT'
+              ? supportSymbol(f, comp.tag)
+              : componentSymbol(comp.kind, f, faceHalf);
 
       // A flanged component is drawn with the flanges it bolts between, each
       // facing in towards it, which is how it is actually built.
@@ -419,7 +434,8 @@ export function renderDrawing(state: RenderState): string {
         comps += gasketLine(f, -faceHalf) + flangeSymbol(shifted(-faceHalf), 'FLG_WN', 1);
         comps += gasketLine(f, faceHalf) + flangeSymbol(shifted(faceHalf), 'FLG_WN', -1);
       }
-      const label = comp.tag ?? '';
+      // A support's name is part of its symbol; a mark has no tag of its own.
+      const label = isMark(comp.kind) ? '' : (comp.tag ?? '');
       if (label) {
         comps += `<text class="tag" x="${(f.cx + f.nx * size * 2.2).toFixed(2)}" y="${(f.cy + f.ny * size * 2.2).toFixed(2)}">${escapeText(label)}</text>`;
       }
@@ -645,18 +661,24 @@ export function renderDrawing(state: RenderState): string {
         // balloons go the other way and the two never fight for the same space.
         const inward = (centroid.x - f.cx) * f.nx + (centroid.y - f.cy) * f.ny >= 0 ? 1 : -1;
         const reach = size * 4.6;
+        // A balloon that was dragged somewhere stays there.
+        const placed = drawing.itemOverrides?.[item.key];
         return {
+          key: item.key,
           number: item.number,
           fromX: f.cx,
           fromY: f.cy,
-          x: f.cx + f.nx * reach * inward,
-          y: f.cy + f.ny * reach * inward,
+          x: placed ? f.cx + placed.dx : f.cx + f.nx * reach * inward,
+          y: placed ? f.cy + placed.dy : f.cy + f.ny * reach * inward,
+          placed: !!placed,
         };
       })
       .filter((m): m is NonNullable<typeof m> => m !== null);
 
     const r = size * 1.05;
-    for (const mark of spreadLabels(marks, r * 2.9, [...figures, ...weldLabels])) {
+    const placedMarks = marks.filter((m) => m.placed);
+    const spreadMarks = spreadLabels(marks.filter((m) => !m.placed), r * 2.9, [...figures, ...weldLabels, ...placedMarks]);
+    for (const mark of [...placedMarks, ...spreadMarks]) {
       // The leader stops at the balloon's edge rather than running into it.
       const dx = mark.x - mark.fromX;
       const dy = mark.y - mark.fromY;
@@ -669,6 +691,9 @@ export function renderDrawing(state: RenderState): string {
         `<circle class="balloon-ring" cx="${mark.x.toFixed(2)}" cy="${mark.y.toFixed(2)}" r="${r.toFixed(2)}"/>` +
         `<text class="balloon-no" x="${mark.x.toFixed(2)}" y="${(mark.y + size * 0.27).toFixed(2)}" text-anchor="middle">${mark.number}</text>` +
         `</g>`;
+      // The balloon is dragged to where it reads best, like a weld tag; its
+      // leader stays on the item.
+      weldHits += `<circle class="hit-dot" data-balloon="${mark.key}" data-ax="${mark.fromX.toFixed(2)}" data-ay="${mark.fromY.toFixed(2)}" cx="${mark.x.toFixed(2)}" cy="${mark.y.toFixed(2)}" r="${Math.max(r * 1.2, hitR * 0.55).toFixed(2)}"/>`;
     }
   }
 

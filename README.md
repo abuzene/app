@@ -95,7 +95,14 @@ Everything on the sheet is ballooned to the material list: every pipe run,
 fitting, flange and valve carries the number of its line, on a leader out to a
 circle. That is what a fitter reads, so it is on by default and weld numbers are
 not — welds are drawn as the solid dots they are, and their numbers can be turned
-on when the weld list is what matters.
+on when the weld list is what matters. A balloon or a weld number tag is dragged
+to wherever it reads best; its leader stays on what it points at.
+
+Two marks are placed by hand from the palette and are notes on the drawing
+rather than material: a **support**, drawn as the sheets draw it — the clamp on
+the pipe, the post down to its base plate, and "SUPPORT A" called out beside
+it — and the **AG/UG** line where the pipe goes into the ground, with an arrow
+each way out of it.
 
 ## Symbols
 
@@ -152,7 +159,12 @@ so they stay out of the weld schedule and its numbering.
 Print produces a complete A4, A3 or A2 landscape sheet: the drawing, the
 material list, the weld summary, the notes, and a title block carrying your logo
 and an AS MADE stamp. Choose Save as PDF in the printer dialog to keep a copy on
-the machine. View sheet shows it first without printing.
+the machine. View sheet shows it first without printing. On an iPad, Print
+opens the share sheet's printer, and Save as PDF is in the same place.
+
+Dimensions and weld numbers are typed right on the drawing: tap the figure and a
+box opens with a keypad beside it, so a pencil can type them without waiting
+for a keyboard.
 
 Printing is the whole of output — everything a fabrication drawing needs is on
 that sheet. The drawing itself still saves and opens as a file so no work is

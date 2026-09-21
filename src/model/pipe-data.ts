@@ -154,6 +154,9 @@ const VALVE_FF: Record<string, Record<string, number>> = {
   RELIEF: { DN25: 200, DN40: 230, DN50: 260, DN80: 320, DN100: 380 },
   STRAINER: { DN25: 127, DN40: 165, DN50: 178, DN80: 203, DN100: 229, DN150: 267, DN200: 292, DN250: 330, DN300: 356 },
 };
+// An actuated ball valve is the same body with an actuator on top, so it is
+// the same length between faces — and so drawn and dimensioned the same.
+VALVE_FF.BALL_ACT = VALVE_FF.BALL;
 
 /** Class 150 flange length through hub, mm. */
 const FLANGE_LEN: Record<string, Record<string, number>> = {
@@ -207,7 +210,7 @@ export function componentTakeout(kind: string, dn: string, flanged = false): num
   if (kind === 'UNION') return 25;
   // A PE/steel transition: the steel stub to its weld is about this long.
   if (kind === 'TRANSITION') return 120;
-  if (kind === 'INSTRUMENT' || kind === 'SUPPORT' || kind === 'ANCHOR' || kind === 'GUIDE') return 0;
+  if (kind === 'INSTRUMENT' || kind === 'SUPPORT' || kind === 'ANCHOR' || kind === 'GUIDE' || kind === 'GROUND') return 0;
   const table = VALVE_FF[kind];
   if (table) return (lookup(table, dn) ?? 0) / 2 + (flanged ? flangeLength(dn) : 0);
   return 0;

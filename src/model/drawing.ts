@@ -230,6 +230,7 @@ export const COMPONENT_LABEL: Record<string, string> = {
   SUPPORT: 'PIPE SUPPORT',
   ANCHOR: 'ANCHOR',
   GUIDE: 'GUIDE',
+  GROUND: 'AG/UG',
 };
 
 export const TERMINAL_LABEL: Record<string, string> = {
@@ -251,7 +252,7 @@ export const TERMINAL_LABEL: Record<string, string> = {
  * mark of its own — a support clamps on, a blind bolts between flanges.
  */
 function componentJoint(c: InlineComponent, fallback: JointType, dn: string): JointType | null {
-  if (['SUPPORT', 'ANCHOR', 'GUIDE', 'INSTRUMENT', 'SPECTACLE'].includes(c.kind)) return null;
+  if (['SUPPORT', 'ANCHOR', 'GUIDE', 'INSTRUMENT', 'SPECTACLE', 'GROUND'].includes(c.kind)) return null;
   // A flange's own type says how it joins the pipe, whatever the default is.
   if (isFlange(c.kind)) return flangeJoint(c.kind);
   // The size decides how a valve is connected, so it has to be the size the
@@ -269,6 +270,11 @@ function terminalJoint(kind: string, fallback: JointType): JointType | null {
   // A transition joint is welded on its steel side; the plastic side is fused.
   if (kind === 'TRANSITION') return 'BW';
   return kind === 'CAP' ? fallback : null;
+}
+
+/** Marks placed on the line that are neither material nor joints: a support, the AG/UG line. */
+export function isMark(kind: string): boolean {
+  return kind === 'SUPPORT' || kind === 'GROUND';
 }
 
 /** Valves are the components that come flanged or threaded by size. */
@@ -296,7 +302,7 @@ export function resolveEnds(
 function categoryOf(kind: string): BomLine['category'] {
   if (kind.startsWith('FLG_') || kind === 'SPECTACLE') return 'FLANGE';
   if (['RED_CONC', 'RED_ECC', 'UNION', 'TRANSITION'].includes(kind)) return 'FITTING';
-  if (['SUPPORT', 'ANCHOR', 'GUIDE', 'INSTRUMENT'].includes(kind)) return 'ITEM';
+  if (['SUPPORT', 'ANCHOR', 'GUIDE', 'INSTRUMENT', 'GROUND'].includes(kind)) return 'ITEM';
   return 'VALVE';
 }
 
@@ -795,6 +801,9 @@ export function analyse(drawing: Drawing): Analysis {
     const b = nodeById.get(run.to);
     const dir = a && b ? direction(a.pos, b.pos) : null;
     for (const comp of run.inline) {
+      // A support or a ground mark is a note on the drawing, not material on
+      // the list: the sheets call a support out by name beside it.
+      if (isMark(comp.kind)) continue;
       const dn = comp.dn ?? run.dn;
       const isReducer = comp.kind === 'RED_CONC' || comp.kind === 'RED_ECC';
       const description = isReducer

@@ -346,6 +346,59 @@ export function transitionSymbol(f: Frame, csSide: Facing = 1): string {
   return body + seam + label(px, py, 'PE') + label(cx, cy, 'CS');
 }
 
+/* ------------------------------------------------------------------- marks */
+
+/**
+ * The AG/UG mark: where the line leaves the ground, as the sheets draw it on a
+ * riser. A ground line lies across the pipe, and beside the pipe an arrow
+ * points each way out of it — AG on the above-ground side, UG on the buried
+ * one. `agSide` is which way along the frame is above ground.
+ */
+export function groundSymbol(f: Frame, agSide: Facing = 1): string {
+  const s = f.s;
+  const label = (x: number, y: number, text: string) =>
+    `<text class="sym-text" x="${x.toFixed(2)}" y="${y.toFixed(2)}" text-anchor="middle" dominant-baseline="middle" font-size="${(s * 0.85).toFixed(2)}">${text}</text>`;
+  // The ground line, drawn a little longer on the far side so it reads as a plane.
+  const ground = line(f, [0, -s * 1.9, 0], [0, s * 1.9, 0], 'sym-line');
+  const side = -s * 1.5;
+  const arrow = (dir: Facing, text: string): string => {
+    const from = dir * s * 0.45;
+    const tip = dir * s * 2.3;
+    const head = poly(
+      [pt(f, tip, side, 0), pt(f, tip - dir * s * 0.7, side - s * 0.28, 0), pt(f, tip - dir * s * 0.7, side + s * 0.28, 0)],
+      'sym-solid',
+    );
+    const [lx, ly] = pt(f, dir * s * 3.3, side, 0);
+    return line(f, [from, side, 0], [tip - dir * s * 0.5, side, 0], 'sym-thin') + head + label(lx, ly, text);
+  };
+  return ground + arrow(agSide, 'AG') + arrow((-agSide) as Facing, 'UG');
+}
+
+/**
+ * A pipe support as the sheets draw it: the clamp as a cross on the pipe, a
+ * post standing down to a base plate on the ground, and the support called
+ * out by name beside it — "SUPPORT A".
+ */
+export function supportSymbol(f: Frame, tag?: string): string {
+  const s = f.s;
+  const foot = -s * 3;
+  const clamp = line(f, [-s * 0.9, 0, 0], [s * 0.9, 0, 0], 'sym-face') + line(f, [0, -s * 0.9, 0], [0, s * 0.9, 0], 'sym-face');
+  const post = line(f, [0, 0, 0], [0, 0, foot], 'sym-heavy');
+  const plate = poly(
+    [pt(f, -s * 0.9, -s * 0.9, foot), pt(f, s * 0.9, -s * 0.9, foot), pt(f, s * 0.9, s * 0.9, foot), pt(f, -s * 0.9, s * 0.9, foot)],
+    'sym-fill',
+  );
+  const name = `SUPPORT${tag ? ` ${tag}` : ''}`;
+  // The callout: its leader runs from the words to the post.
+  const [ax, ay] = pt(f, 0, 0, foot * 0.5);
+  const [tx, ty] = pt(f, 0, -s * 3.2, foot * 0.5);
+  const [ex, ey] = pt(f, 0, -s * 3.5, foot * 0.5);
+  const leader = `<line class="sym-thin" x1="${ax.toFixed(2)}" y1="${ay.toFixed(2)}" x2="${tx.toFixed(2)}" y2="${ty.toFixed(2)}"/>`;
+  const anchor = f.nx < 0 ? 'start' : 'end';
+  const label = `<text class="sym-text" x="${ex.toFixed(2)}" y="${ey.toFixed(2)}" text-anchor="${anchor}" dominant-baseline="middle" font-size="${(s * 0.85).toFixed(2)}">${name}</text>`;
+  return plate + post + clamp + leader + label;
+}
+
 /* -------------------------------------------------------- inline components */
 
 /** The two opposed triangles that read as a valve body on an isometric. */
@@ -485,7 +538,9 @@ export function componentSymbol(kind: ComponentKind, f: Frame, reach?: number): 
     case 'INSTRUMENT':
       return line(f, [0, 0, 0], [0, 0, s * 1.6], 'sym-line') + circle(f, 0, 0, s * 0.85, 'sym-hollow', s * 2.4);
     case 'SUPPORT':
-      return poly([pt(f, 0, -s * 0.8, -s * 0.2), pt(f, 0, s * 0.8, -s * 0.2), pt(f, 0, 0, -s * 1.4)], 'sym-solid');
+      return supportSymbol(f);
+    case 'GROUND':
+      return groundSymbol(f, 1);
     case 'ANCHOR':
       return (
         poly([pt(f, 0, -s * 0.8, -s * 0.2), pt(f, 0, s * 0.8, -s * 0.2), pt(f, 0, 0, -s * 1.4)], 'sym-solid') +
