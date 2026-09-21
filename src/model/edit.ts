@@ -1,5 +1,5 @@
-import type { Axis, ComponentKind, Drawing, EndType, FlangeKind, InlineComponent, Run, Vec3 } from './types';
-import { add, axisBetween, equals3, length3, step, sub } from './iso';
+import type { Axis, ComponentKind, Drawing, EndType, FlangeKind, InlineComponent, IsoNode, Run, Vec3 } from './types';
+import { add, axisBetween, equals3, length3, scale3, step, sub } from './iso';
 import { uid } from './drawing';
 
 /** Finds an existing node at a position, so that routes join rather than overlap. */
@@ -324,6 +324,55 @@ export function setRunLength(drawing: Drawing, runId: string, length: number): b
     u: unit.u * (length - current),
   };
   if (Math.abs(delta.e) < 1e-6 && Math.abs(delta.n) < 1e-6 && Math.abs(delta.u) < 1e-6) return false;
+
+  // A point the line runs straight through — a tee, a flange, a plain joint —
+  // is placed by the lengths either side of it. Changing one side slides the
+  // point and the other side takes up the difference; nothing else moves.
+  const beyond = (nodeId: string, awayFrom: Vec3): Run | undefined =>
+    drawing.runs.find((other) => {
+      if (other.id === run.id || (other.from !== nodeId && other.to !== nodeId)) return false;
+      const farId = other.from === nodeId ? other.to : other.from;
+      const far = drawing.nodes.find((n) => n.id === farId);
+      const here = drawing.nodes.find((n) => n.id === nodeId);
+      if (!far || !here) return false;
+      const d = sub(far.pos, here.pos);
+      const l = length3(d);
+      if (l < 0.01) return false;
+      const dot = (d.e * unit.e + d.n * unit.n + d.u * unit.u) / l;
+      const wantDot = awayFrom === from.pos ? 1 : -1;
+      return dot * wantDot > 0.999;
+    });
+  const slideThrough = (node: IsoNode, next: Run, shift: Vec3): boolean => {
+    const farId = next.from === node.id ? next.to : next.from;
+    const far = drawing.nodes.find((n) => n.id === farId);
+    if (!far) return false;
+    const moved = add(node.pos, shift);
+    const remaining = sub(far.pos, moved);
+    const still = sub(far.pos, node.pos);
+    // The other side has to keep some pipe in it, on the same side of the point.
+    if (length3(remaining) < 1) return false;
+    if (remaining.e * still.e + remaining.n * still.n + remaining.u * still.u <= 0) return false;
+    node.pos = moved;
+    // What sits along the other side stays where it is in space.
+    const total = length3(remaining);
+    const along = length3(still) - total;
+    for (const comp of next.inline) {
+      const fromMoved = next.from === node.id ? comp.offset - along : comp.offset;
+      comp.offset = Math.max(0, Math.min(total, fromMoved));
+    }
+    return true;
+  };
+  const onward = beyond(to.id, from.pos);
+  if (onward && slideThrough(to, onward, delta)) {
+    for (const comp of run.inline) comp.offset = Math.max(0, Math.min(length, comp.offset));
+    return true;
+  }
+  const backward = beyond(from.id, to.pos);
+  if (backward && slideThrough(from, backward, scale3(delta, -1))) {
+    // The start moved, so what sits along this run keeps its distance from the end.
+    for (const comp of run.inline) comp.offset = Math.max(0, Math.min(length, comp.offset + (length - current)));
+    return true;
+  }
 
   // Collect the nodes reachable from `to` without passing back through the run.
   const adjacency = new Map<string, string[]>();

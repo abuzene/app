@@ -151,6 +151,13 @@ export interface Weld {
   pos: Vec3;
   /** Which way a one-sided symbol at this joint should face. */
   facing: 1 | -1;
+  /**
+   * For a weld on a flange: the flange face the joint belongs to, and the
+   * flange itself. The drawing puts the mark on the end of the flange symbol
+   * rather than at the true distance, so every flange reads the same.
+   */
+  face?: Vec3;
+  flange?: FlangeKind;
 }
 
 export interface WeldOverride {

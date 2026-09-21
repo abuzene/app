@@ -1,6 +1,6 @@
 import type { Analysis, BomLine } from '../model/drawing';
 import type { Drawing } from '../model/types';
-import { contentBounds, escapeText, renderDrawing } from './renderer';
+import { SYMBOL_SIZE, contentBounds, escapeText, renderDrawing } from './renderer';
 import { sizeLabel } from '../model/pipe-data';
 import { axisScreenDir } from '../model/iso';
 import { contentCss } from './style';
@@ -243,7 +243,6 @@ export function renderSheet(drawing: Drawing, analysis: Analysis, size: SheetSiz
     analysis,
     view,
     selection: null,
-    symbolSize: 3.1 / k,
   });
 
   // Right hand column: bill of materials, weld summary, title block.
@@ -286,7 +285,7 @@ text { font-family: "Helvetica Neue", Arial, sans-serif; }
 .compass-ring { fill: none; stroke: #12161c; stroke-width: 0.25; }
 .compass-needle { fill: #12161c; }
 .compass-label { font-size: 3px; font-weight: 700; }
-${contentCss({ k, u: 0.24 })}
+${contentCss({ k, u: 0.24, symbol: SYMBOL_SIZE })}
 </style>
 <rect class="sheet-bg" x="0" y="0" width="${W}" height="${H}"/>
 ${rect(MARGIN, MARGIN, W - MARGIN * 2, H - MARGIN * 2, 'frame')}

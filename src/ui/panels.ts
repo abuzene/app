@@ -85,6 +85,32 @@ function runProperties(host: Host, runId: string): string {
 </div>`;
 }
 
+/**
+ * For a point the line runs straight through — a tee, an olet, a flange, a
+ * plain joint — the two lengths either side of it. Setting one slides the
+ * point and the other takes up the difference, which is how something put
+ * into a drawn line is placed where it belongs.
+ */
+function alongLine(host: Host, nodeId: string): string {
+  const { drawing, analysis } = host.state;
+  const info = analysis.nodeInfo.get(nodeId);
+  if (!info) return '';
+  for (let i = 0; i < info.legs.length; i += 1) {
+    for (let j = i + 1; j < info.legs.length; j += 1) {
+      const a = info.legs[i];
+      const b = info.legs[j];
+      if (a.e * b.e + a.n * b.n + a.u * b.u > -0.999) continue;
+      const back = info.runs[i];
+      const on = info.runs[j];
+      const len = (r: import('../model/types').Run) => Math.round(analysis.runLengths.get(r.id)?.centre ?? runLength(drawing, r));
+      return `
+  <div class="row"><label>Before</label><input type="number" data-slide="${back.id}" data-node="${nodeId}" step="1" min="1" value="${len(back)}" /></div>
+  <div class="row"><label>After</label><input type="number" data-slide="${on.id}" data-node="${nodeId}" step="1" min="1" value="${len(on)}" /></div>`;
+    }
+  }
+  return '';
+}
+
 function nodeProperties(host: Host, nodeId: string): string {
   const { drawing, analysis } = host.state;
   const node = drawing.nodes.find((n) => n.id === nodeId);
@@ -125,6 +151,7 @@ function nodeProperties(host: Host, nodeId: string): string {
       ? `<div class="row"><label>Flange</label><select data-f="flange">${options(['none', ...FLANGE_KINDS], node.flange ?? 'none', { ...COMPONENT_LABEL, none: 'None — welded through' })}</select></div>`
       : ''
   }
+  ${alongLine(host, nodeId)}
   ${
     isOlet
       ? `<div class="row"><label>Olet type</label><select data-f="joint">${options(JOINTS, nodeJoint, { BW: 'Weldolet', SW: 'Sockolet', THD: 'Threadolet' })}</select></div>`
@@ -160,7 +187,8 @@ function componentProperties(host: Host, compId: string): string {
 <div class="section" data-editor="component" data-id="${comp.id}">
   <h3>${esc(COMPONENT_LABEL[comp.kind] ?? comp.kind)}</h3>
   <div class="row"><label>Type</label><select data-f="kind">${options(COMPONENT_KINDS, comp.kind, COMPONENT_LABEL)}</select></div>
-  <div class="row"><label>Position</label><input type="number" data-f="offset" step="1" min="0" max="${Math.round(total)}" value="${Math.round(comp.offset)}" /></div>
+  <div class="row"><label>From start</label><input type="number" data-f="offset" step="1" min="0" max="${Math.round(total)}" value="${Math.round(comp.offset)}" /></div>
+  <div class="row"><label>To end</label><input type="number" data-f="toend" step="1" min="0" max="${Math.round(total)}" value="${Math.round(total - comp.offset)}" /></div>
   <div class="row"><label>Size</label><select data-f="dn">${options(DN_LIST, comp.dn ?? run.dn, SIZE_LABELS)}</select></div>
   ${isReducer ? `<div class="row"><label>Reduces to</label><select data-f="dn2">${options(DN_LIST, comp.dn2 ?? run.dn, SIZE_LABELS)}</select></div>` : ''}
   <div class="row"><label>Ends</label><select data-f="ends">${options(['auto', ...END_TYPES], comp.ends ?? 'auto', {
@@ -226,6 +254,7 @@ function routeTab(host: Host): string {
   if (sel?.kind === 'run') props = runProperties(host, sel.id);
   else if (sel?.kind === 'node') props = nodeProperties(host, sel.id);
   else if (sel?.kind === 'component') props = componentProperties(host, sel.id);
+  else if (sel?.kind === 'weld') props = weldProperties(host, sel.key);
   else
     props = `<div class="section"><h3>Nothing selected</h3><p class="empty-note">Click a run, a point or a component on the drawing to edit it.</p></div>`;
   return props + runList(host);
@@ -295,15 +324,35 @@ function itemsTab(host: Host): string {
 
 /* ------------------------------------------------------------------ welds */
 
+/** One weld, picked on the drawing: its number is typed here. */
+function weldProperties(host: Host, key: string): string {
+  const weld = host.state.analysis.joints.find((j) => j.key === key);
+  if (!weld) return '';
+  const override = host.state.drawing.weldOverrides[key]?.number;
+  return `
+<div class="section" data-editor="weld" data-key="${esc(key)}">
+  <h3>Weld ${esc(weld.number)}</h3>
+  <div class="row"><label>Number</label><input type="text" data-f="number" value="${esc(weld.number)}" placeholder="e.g. W12" /></div>
+  <div class="row"><label>Size</label><span>${esc(sizeLabel(weld.dn))} ${esc(weld.schedule)}</span></div>
+  <div class="row"><label>Joins</label><span>${esc(weld.joins)}</span></div>
+  <p class="empty-note">${
+    override
+      ? 'Numbered by hand. Clear the number to go back to numbering along the route.'
+      : 'Numbered along the route. Type a number of your own to keep it whatever else changes.'
+  }</p>
+</div>`;
+}
+
 function weldsTab(host: Host): string {
   const { welds } = host.state.analysis;
   if (welds.length === 0) {
     return `<div class="section"><h3>Weld schedule</h3><p class="empty-note">Welds are generated from the route — every fitting, valve and flange adds its own.</p></div>`;
   }
+  const sel = host.state.selection;
   const rows = welds
     .map(
-      (w) => `<tr>
-  <td>${esc(w.number)}</td>
+      (w) => `<tr class="clickable${sel?.kind === 'weld' && sel.key === w.key ? ' is-selected' : ''}" data-weld-row="${esc(w.key)}">
+  <td><input class="cell" type="text" data-weld-no="${esc(w.key)}" value="${esc(w.number)}" /></td>
   <td>${esc(sizeLabel(w.dn))}</td>
   <td>${esc(w.joint)}</td>
   <td>${esc(w.joins)}</td>
@@ -317,7 +366,7 @@ function weldsTab(host: Host): string {
   return `
 <div class="section">
   <h3>Weld list</h3>
-  <p class="empty-note">Numbered along the route. Threaded joints are marked on the drawing but are not welds.</p>
+  <p class="empty-note">Numbered along the route; type over any number to set it by hand. Threaded joints are marked on the drawing but are not welds.</p>
   <table>
     <thead><tr><th>No.</th><th>Size</th><th>Prep</th><th>Joins</th></tr></thead>
     <tbody>${rows}</tbody>
@@ -528,6 +577,15 @@ function wire(body: HTMLElement, host: Host): void {
         if (node) node.fittingOverride = value === 'auto' ? undefined : (value as FittingKind);
       });
     });
+    nodeEditor.querySelectorAll<HTMLInputElement>('[data-slide]').forEach((input) => {
+      input.addEventListener('change', () => {
+        const value = Number(input.value);
+        if (!Number.isFinite(value) || value <= 0) return;
+        host.edit('Place point', (d) => {
+          if (!setRunLength(d, input.dataset.slide!, value)) return;
+        });
+      });
+    });
     // Double tapping a point works with a mouse, but is awkward with a pencil,
     // so picking the route back up is a button too.
     nodeEditor.querySelector('[data-a="draw-from"]')?.addEventListener('click', () => {
@@ -565,9 +623,18 @@ function wire(body: HTMLElement, host: Host): void {
         c.kind = (e.target as HTMLSelectElement).value as ComponentKind;
       }),
     );
+    // Placed by either distance: set one and the other follows, the run itself
+    // never changes length.
     field('offset')?.addEventListener('change', (e) => {
       const value = Number((e.target as HTMLInputElement).value);
       if (Number.isFinite(value)) withComponent('Move component', (c) => { c.offset = Math.max(0, value); });
+    });
+    field('toend')?.addEventListener('change', (e) => {
+      const value = Number((e.target as HTMLInputElement).value);
+      const run = drawing.runs.find((r) => r.inline.some((c) => c.id === id));
+      if (!run || !Number.isFinite(value)) return;
+      const total = runLength(drawing, run);
+      withComponent('Move component', (c) => { c.offset = Math.max(0, Math.min(total, total - value)); });
     });
     field('dn')?.addEventListener('change', (e) =>
       withComponent('Change component size', (c) => {
@@ -638,6 +705,29 @@ function wire(body: HTMLElement, host: Host): void {
   body.querySelector('[data-a="copy-bom"]')?.addEventListener('click', () => {
     host.copy('Bill of materials', bomCsv());
   });
+  // Weld numbers, typed either on the list or against the picked weld.
+  const renumber = (key: string, value: string) => {
+    host.edit('Renumber weld', (d) => {
+      const number = value.trim();
+      if (number) d.weldOverrides[key] = { ...d.weldOverrides[key], number };
+      else delete d.weldOverrides[key];
+    }, { keepPanel: true });
+  };
+  body.querySelectorAll<HTMLInputElement>('[data-weld-no]').forEach((input) => {
+    input.addEventListener('change', () => renumber(input.dataset.weldNo!, input.value));
+  });
+  body.querySelectorAll<HTMLElement>('[data-weld-row]').forEach((row) => {
+    row.addEventListener('click', (event) => {
+      if ((event.target as HTMLElement).tagName === 'INPUT') return;
+      host.select({ kind: 'weld', key: row.dataset.weldRow! });
+    });
+  });
+  const weldEditor = body.querySelector<HTMLElement>('[data-editor="weld"]');
+  if (weldEditor) {
+    weldEditor.querySelector<HTMLInputElement>('[data-f="number"]')?.addEventListener('change', (e) => {
+      renumber(weldEditor.dataset.key!, (e.target as HTMLInputElement).value);
+    });
+  }
   body.querySelector('[data-a="copy-welds"]')?.addEventListener('click', () => {
     host.copy('Weld schedule', weldCsv());
   });

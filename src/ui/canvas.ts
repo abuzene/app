@@ -1,7 +1,7 @@
 import type { Analysis } from '../model/drawing';
 import type { Axis, Drawing } from '../model/types';
 import type { Preview, Selection, ViewBox } from '../render/renderer';
-import { contentBounds, paperOf, renderDrawing } from '../render/renderer';
+import { SYMBOL_SIZE, contentBounds, paperOf, renderDrawing } from '../render/renderer';
 import { axisFromScreenDelta, lengthAlongAxis } from '../model/iso';
 import { contentCss } from '../render/style';
 
@@ -114,9 +114,9 @@ export class Canvas {
       view: this.view,
       selection: this.selection,
       preview: this.preview,
-      symbolSize: 13 / this.k,
+      hitSize: 14 / this.k,
     });
-    this.svg.innerHTML = `<style>${contentCss({ k: this.k, u: 1 })}</style>${body}`;
+    this.svg.innerHTML = `<style>${contentCss({ k: this.k, u: 1, symbol: SYMBOL_SIZE })}</style>${body}`;
   }
 
   fit(): void {
@@ -185,6 +185,7 @@ export class Canvas {
     const nodeEl = target?.closest('[data-node]');
     const runEl = target?.closest('[data-run]');
     const compEl = target?.closest('[data-component]');
+    const weldEl = target?.closest('[data-weld]');
 
     const startView = { ...this.view };
     const panRequested = fingers || event.button === 1 || event.button === 2 || event.shiftKey;
@@ -200,7 +201,9 @@ export class Canvas {
         startClientY: event.clientY,
         startView,
         moved: false,
-        tapSelect: compEl
+        tapSelect: weldEl
+          ? { kind: 'weld', key: weldEl.getAttribute('data-weld')! }
+          : compEl
           ? { kind: 'component', id: compEl.getAttribute('data-component')! }
           : nodeEl
             ? { kind: 'node', id: nodeEl.getAttribute('data-node')! }
@@ -208,6 +211,12 @@ export class Canvas {
               ? { kind: 'run', id: runEl.getAttribute('data-run')! }
               : null,
       };
+      return;
+    }
+
+    // A weld number is picked to be edited; it is not something to drag.
+    if (!panRequested && weldEl) {
+      this.cb.onSelect({ kind: 'weld', key: weldEl.getAttribute('data-weld')! });
       return;
     }
 
@@ -232,9 +241,10 @@ export class Canvas {
     if (!panRequested && nodeEl) {
       const id = nodeEl.getAttribute('data-node')!;
       this.svg.setPointerCapture(event.pointerId);
-      // A branch or a joint sitting along a line slides along it. A corner or
-      // an end has nothing to slide along, so dragging routes from it.
-      if (this.slidesAlongLine(id)) {
+      // A branch or a joint sitting along a line slides along it, and so does
+      // an end that is not the one being drawn from: dragging it moves the end
+      // of the pipe. A corner has nothing to slide along, so dragging routes.
+      if (this.slidesAlongLine(id) || (this.anchor !== id && this.isFreeEnd(id))) {
         this.drag = {
           kind: 'slide-node',
           pointerId: event.pointerId,
@@ -381,6 +391,11 @@ export class Canvas {
       }
     }
     return false;
+  }
+
+  private isFreeEnd(nodeId: string): boolean {
+    const info = this.analysis?.nodeInfo.get(nodeId);
+    return !!info && info.runs.length === 1;
   }
 
   /** Offers the run that would be drawn from `fromId` to the pointer. */

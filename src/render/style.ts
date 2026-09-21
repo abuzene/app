@@ -12,11 +12,19 @@ export interface ContentStyleOptions {
   k: number;
   /** Size of one output unit: 1 for pixels, about 0.3 for a millimetre sheet. */
   u: number;
+  /**
+   * Symbol half-size in paper units. Text is sized from it, so lettering
+   * belongs to the drawing and zooms with it, the way symbols do; only line
+   * weights stay fixed on the screen.
+   */
+  symbol?: number;
   dark?: boolean;
 }
 
-export function contentCss({ k, u, dark = false }: ContentStyleOptions): string {
+export function contentCss({ k, u, symbol = 4, dark = false }: ContentStyleOptions): string {
   const w = (value: number) => ((value * u) / k).toFixed(4);
+  /** A font size as a share of the symbol size, in paper units. */
+  const t = (share: number) => (symbol * share).toFixed(3);
   const ink = dark ? '#e8edf4' : '#12161c';
   const faint = dark ? '#2b3440' : '#d8dee8';
   const accent = dark ? '#6fb2ff' : '#0b62d6';
@@ -57,19 +65,23 @@ export function contentCss({ k, u, dark = false }: ContentStyleOptions): string 
   stroke-width: ${w(2.6)};
   stroke-linejoin: round;
 }
-.weld-no { fill: ${dim}; font-size: ${w(9)}px; font-family: inherit; }
+.weld-no { fill: ${dim}; font-size: ${t(0.72)}px; font-family: inherit; }
+.weld.selected .weld-no { fill: ${accent}; font-weight: 700; }
+.weld.selected .joint-bw { fill: ${accent}; stroke: ${accent}; }
 .weld-leader { stroke: ${dim}; stroke-width: ${w(0.7)}; fill: none; }
-.branch-note { fill: ${ink}; font-size: ${w(9.5)}px; pointer-events: none;
+.branch-note { fill: ${ink}; font-size: ${t(0.75)}px; pointer-events: none;
   paint-order: stroke fill; stroke: ${dark ? '#0d1117' : '#ffffff'}; stroke-width: ${w(2.6)}; stroke-linejoin: round; }
 .balloon { pointer-events: none; }
-.balloon-leader { stroke: ${ink}; stroke-width: ${w(0.9)}; fill: none; }
-.balloon-ring { fill: ${dark ? '#0d1117' : '#ffffff'}; stroke: ${ink}; stroke-width: ${w(1.2)}; }
-.balloon-no { fill: ${ink}; font-size: ${w(11)}px; font-weight: 600; }
+/* Balloons and weld tags are the same family of annotation: one thin line
+   weight for both leaders and the ring, lighter than the pipe. */
+.balloon-leader { stroke: ${dim}; stroke-width: ${w(0.7)}; fill: none; }
+.balloon-ring { fill: ${dark ? '#0d1117' : '#ffffff'}; stroke: ${dim}; stroke-width: ${w(0.7)}; }
+.balloon-no { fill: ${ink}; font-size: ${t(0.72)}px; font-weight: 600; }
 .dim-line, .dim-ext, .dim-tick { stroke: ${dim}; stroke-width: ${w(0.9)}; fill: none; }
 .dim-ext { stroke-dasharray: ${w(3)} ${w(3)}; }
-.dim-text { fill: ${ink}; font-size: ${w(11)}px; text-anchor: middle; }
-.tag, .note { fill: ${ink}; font-size: ${w(10)}px; }
-.node-label { fill: ${accent}; font-size: ${w(11)}px; font-weight: 600; }
+.dim-text { fill: ${ink}; font-size: ${t(0.85)}px; text-anchor: middle; }
+.tag, .note { fill: ${ink}; font-size: ${t(0.78)}px; }
+.node-label { fill: ${accent}; font-size: ${t(0.85)}px; font-weight: 600; }
 .node-mark { fill: none; stroke: ${accent}; stroke-width: ${w(2)}; }
 .node.selected .node-label { fill: ${accent}; }
 `;

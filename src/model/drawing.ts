@@ -3,6 +3,7 @@ import type {
   EndType,
   DrawingOptions,
   FittingKind,
+  FlangeKind,
   InlineComponent,
   IsoNode,
   JointType,
@@ -422,6 +423,7 @@ export function analyse(drawing: Drawing): Analysis {
     facing: 1 | -1,
     sortRun: number,
     sortDist: number,
+    onFlange?: { face: Vec3; flange: FlangeKind },
   ) => {
     if (jointMap.has(key)) return;
     jointMap.set(key, {
@@ -435,6 +437,8 @@ export function analyse(drawing: Drawing): Analysis {
       facing,
       sortRun,
       sortDist,
+      face: onFlange?.face,
+      flange: onFlange?.flange,
     });
   };
 
@@ -484,6 +488,7 @@ export function analyse(drawing: Drawing): Analysis {
             facing,
             idx,
             at,
+            isFlange(terminal) ? { face: node.pos, flange: terminal === 'FLG_BLIND' ? 'FLG_WN' : terminal } : undefined,
           );
         }
       } else if (info.fitting === 'OLET') {
@@ -539,6 +544,7 @@ export function analyse(drawing: Drawing): Analysis {
             facing,
             idx,
             at,
+            { face: node.pos, flange: node.flange },
           );
         }
       } else if (info.fitting === 'NONE') {
@@ -574,8 +580,10 @@ export function analyse(drawing: Drawing): Analysis {
       if (!joint) continue;
       const ends = resolveEnds(comp.kind, dn, comp.ends, defaultJoint);
       const takeout = componentTakeout(comp.kind, dn, ends === 'FLG');
+      const faceHalf = componentTakeout(comp.kind, dn, false);
       for (const side of [0, 1] as const) {
         const distance = side === 0 ? comp.offset - takeout : comp.offset + takeout;
+        const faceAt = side === 0 ? comp.offset - faceHalf : comp.offset + faceHalf;
         pushJoint(
           `c:${comp.id}:${side}`,
           joint,
@@ -586,6 +594,7 @@ export function analyse(drawing: Drawing): Analysis {
           side === 0 ? 1 : -1,
           idx,
           distance,
+          ends === 'FLG' && !isFlange(comp.kind) ? { face: add(a.pos, scale3(dir, faceAt)), flange: 'FLG_WN' } : undefined,
         );
       }
     }
@@ -806,9 +815,16 @@ export function analyse(drawing: Drawing): Analysis {
   bom.forEach((line, i) => {
     if (line.key) numberOf.set(line.key, i + 1);
   });
+  // One balloon per line of the list is enough: the first place each item
+  // number appears carries it, and the fitter reads the rest from the list.
+  const ballooned = new Set<number>();
   const items: ItemInstance[] = instances
     .map((inst) => ({ key: inst.key, number: numberOf.get(inst.bomKey) ?? 0, pos: inst.pos }))
-    .filter((inst) => inst.number > 0);
+    .filter((inst) => {
+      if (inst.number <= 0 || ballooned.has(inst.number)) return false;
+      ballooned.add(inst.number);
+      return true;
+    });
 
   return {
     nodeInfo,

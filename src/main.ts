@@ -134,6 +134,11 @@ const host: Host = {
 
 const canvas = new Canvas(svg, {
   onSelect(selection: Selection) {
+    // Something picked on the drawing is edited in the Route tab, so that is
+    // where the panel goes — unless the weld list is open, which edits welds too.
+    if (selection && state.tab !== 'route' && !(selection.kind === 'weld' && state.tab === 'welds')) {
+      state.tab = 'route';
+    }
     host.select(selection);
   },
   onRoute(fromId, axis, length) {
@@ -231,7 +236,7 @@ const canvas = new Canvas(svg, {
       node.pos = slideNodeFrom.pos;
       slideNodeFrom = null;
       const pos = { ...moved };
-      host.edit('Move branch', (d) => {
+      host.edit('Move point', (d) => {
         const target = d.nodes.find((n) => n.id === nodeId);
         if (target) target.pos = pos;
       });
@@ -273,6 +278,30 @@ function offsetFromPaper(run: Run, paper: { x: number; y: number }): number | nu
 function slideNodeTo(nodeId: string, paper: { x: number; y: number }): Vec3 | null {
   const info = state.analysis.nodeInfo.get(nodeId);
   if (!info) return null;
+
+  // A free end slides along the one run it ends: the far point stays put and
+  // the run gets longer or shorter. That is how an end is moved once drawn.
+  if (info.runs.length === 1 && info.legs.length === 1) {
+    const run = info.runs[0];
+    const farId = run.from === nodeId ? run.to : run.from;
+    const far = state.analysis.nodeById.get(farId);
+    const here = state.drawing.nodes.find((n) => n.id === nodeId);
+    if (!far || !here) return null;
+    const dir = sub(here.pos, far.pos);
+    const len = length3(dir);
+    if (len < 1) return null;
+    const unit = scale3(dir, 1 / len);
+    const pf = toPaper(far.pos, state.drawing);
+    const ph = toPaper(here.pos, state.drawing);
+    const vx = ph.x - pf.x;
+    const vy = ph.y - pf.y;
+    const lenSq = vx * vx + vy * vy;
+    if (lenSq < 1) return null;
+    const snap = Math.max(1, state.drawing.options.snap);
+    const raw = (((paper.x - pf.x) * vx + (paper.y - pf.y) * vy) / lenSq) * len;
+    const at = Math.max(snap, Math.round(raw / snap) * snap);
+    return add(far.pos, scale3(unit, at));
+  }
 
   // The line through the point is the pair of legs that face each other.
   let through: [Run, Run] | null = null;
@@ -350,8 +379,14 @@ function renderHud(): void {
   const parts: string[] = [];
   if (hoverMessage) parts.push(`<span>${hoverMessage}</span>`);
   else if (canvas.drawingFrom) parts.push('<span>drawing — tap where the pipe goes</span>');
-  // No keyboard on a tablet, so stopping the line is a button as well as Esc.
+  // No keyboard on a tablet, so stopping the line is a button as well as Esc,
+  // and so is deleting what is selected.
   if (canvas.drawingFrom) parts.push('<button class="hud-stop" id="hud-stop" type="button">Stop drawing</button>');
+  const sel = state.selection;
+  if (sel && sel.kind !== 'weld') {
+    const what = sel.kind === 'run' ? 'run' : sel.kind === 'node' ? 'point' : 'item';
+    parts.push(`<button class="hud-stop hud-delete" id="hud-delete" type="button">Delete ${what}</button>`);
+  }
   parts.push(`<span>snap ${state.drawing.options.snap} mm</span>`);
   if (state.drawing.options.schematic) parts.push('<span>not to scale</span>');
   for (const warning of state.analysis.warnings.slice(0, 2)) {
@@ -360,6 +395,7 @@ function renderHud(): void {
   if (toast && toast.until > Date.now()) parts.push(`<span>${toast.message}</span>`);
   hudEl.innerHTML = parts.join('');
   hudEl.querySelector('#hud-stop')?.addEventListener('click', stopDrawing);
+  hudEl.querySelector('#hud-delete')?.addEventListener('click', deleteSelection);
 }
 
 /** Puts the pencil down: the route stays as drawn, nothing more is armed. */
@@ -946,19 +982,25 @@ window.addEventListener('keydown', (event) => {
   } else if (event.key === 'w' || event.key === 'W') {
     setLayout('wide', !appEl.classList.contains('wide'));
   } else if (event.key === 'Delete' || event.key === 'Backspace') {
-    const sel = state.selection;
-    if (!sel) return;
+    if (!state.selection) return;
     event.preventDefault();
-    host.edit('Delete', (d) => {
-      if (sel.kind === 'run') deleteRun(d, sel.id);
-      else if (sel.kind === 'node') deleteNode(d, sel.id);
-      else removeComponent(d, sel.id);
-    });
-    if (sel.kind === 'node') canvas.setAnchor(null);
-    state.preview = null;
-    host.select(null);
+    deleteSelection();
   }
 });
+
+/** Removes whatever is selected: a run, a point and its runs, or an item. */
+function deleteSelection(): void {
+  const sel = state.selection;
+  if (!sel || sel.kind === 'weld') return;
+  host.edit('Delete', (d) => {
+    if (sel.kind === 'run') deleteRun(d, sel.id);
+    else if (sel.kind === 'node') deleteNode(d, sel.id);
+    else removeComponent(d, sel.id);
+  });
+  if (sel.kind === 'node') canvas.setAnchor(null);
+  state.preview = null;
+  host.select(null);
+}
 
 /* --------------------------------------------------------------- sample */
 

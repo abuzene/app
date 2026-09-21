@@ -167,12 +167,29 @@ export function flangeJoint(kind: FlangeKind): JointType | null {
  * the analysis at the true distance, so `hub` is that distance in paper units
  * and the taper ends exactly where the dot is drawn.
  */
+/**
+ * How far behind its face a flange reaches, in paper units: where its weld or
+ * socket mark sits. Every flange of a kind is drawn the same whatever its
+ * size, which is how the sheets read.
+ */
+export function flangeHub(kind: FlangeKind, s: number): number {
+  switch (kind) {
+    case 'FLG_SW':
+    case 'FLG_THD':
+      return s * 0.7;
+    case 'FLG_SO':
+      return s * 0.77;
+    default:
+      return s * 1.1;
+  }
+}
+
 export function flangeSymbol(f: Frame, kind: FlangeKind, facing: Facing = 1, hub?: number): string {
   const s = f.s;
   const d = facing;
   const r = s * 1.0;
   const t = s * 0.2;
-  const reach = Math.max(hub ?? s * 1.1, t * 1.5);
+  const reach = Math.max(hub ?? flangeHub(kind, s), t * 1.5);
 
   // The plate, from the face back by its thickness.
   const plate = (from: number, thick: number, cls = 'sym-fill') =>
@@ -269,17 +286,12 @@ export function capSymbol(f: Frame, facing: Facing = 1): string {
  * A concentric reducer: both ends on the same centreline, the body tapering
  * between them. Filled, so the pipe does not show through the middle of it.
  */
-function concentricReducer(f: Frame): string {
+function concentricReducer(f: Frame, reach = f.s * 0.9): string {
   const s = f.s;
   const big = s * 0.85;
   const small = s * 0.42;
   return poly(
-    [
-      pt(f, -s * 0.9, 0, -big),
-      pt(f, -s * 0.9, 0, big),
-      pt(f, s * 0.9, 0, small),
-      pt(f, s * 0.9, 0, -small),
-    ],
+    [pt(f, -reach, 0, -big), pt(f, -reach, 0, big), pt(f, reach, 0, small), pt(f, reach, 0, -small)],
     'sym-fill',
   );
 }
@@ -290,17 +302,12 @@ function concentricReducer(f: Frame): string {
  * how it is fitted on a horizontal line to keep the invert level and let the
  * line drain.
  */
-function eccentricReducer(f: Frame): string {
+function eccentricReducer(f: Frame, reach = f.s * 0.9): string {
   const s = f.s;
   const big = s * 0.85;
   const small = s * 0.42;
   return poly(
-    [
-      pt(f, -s * 0.9, 0, -big),
-      pt(f, -s * 0.9, 0, big),
-      pt(f, s * 0.9, 0, -big + small * 2),
-      pt(f, s * 0.9, 0, -big),
-    ],
+    [pt(f, -reach, 0, -big), pt(f, -reach, 0, big), pt(f, reach, 0, -big + small * 2), pt(f, reach, 0, -big)],
     'sym-fill',
   );
 }
@@ -428,9 +435,10 @@ export function componentSymbol(kind: ComponentKind, f: Frame, reach?: number): 
         line(f, [-s * 0.42, 0, 0], [s * 0.42, 0, 0], 'sym-line')
       );
     case 'RED_CONC':
-      return concentricReducer(f);
+      // Drawn to its real length, so the weld on each end lands on its end.
+      return concentricReducer(f, Math.max(s * 0.6, reach ?? s * 0.9));
     case 'RED_ECC':
-      return eccentricReducer(f);
+      return eccentricReducer(f, Math.max(s * 0.6, reach ?? s * 0.9));
     case 'CAP':
       return capSymbol(f, 1);
     case 'UNION':

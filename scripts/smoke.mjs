@@ -82,9 +82,9 @@ await page.click('#tabs button:has-text("Welds")');
 await page.waitForTimeout(200);
 const weldRows = await page.locator('#tab-body tbody tr').count();
 check('weld schedule is populated', weldRows, (v) => v > 10, 'more than 10');
-const weldTable = await page.locator('#tab-body').innerText();
-check('welds are numbered plainly', weldTable, (v) => /\bW1\b/.test(v), 'W1');
-check('no shop or field column', weldTable, (v) => !/SHOP|FIELD/.test(v), 'neither word');
+const weldNumbers = await page.locator('#tab-body [data-weld-no]').evaluateAll((els) => els.map((e) => e.value));
+check('welds are numbered plainly', weldNumbers[0], (v) => v === 'W1', 'W1');
+check('no shop or field column', await page.locator('#tab-body').innerText(), (v) => !/SHOP|FIELD/.test(v), 'neither word');
 
 // Draw a run with the mouse.
 await page.click('#tabs button:has-text("Route")');
@@ -103,6 +103,12 @@ for (const handle of handles) {
   }
 }
 if (!node) throw new Error('no point available inside the canvas to drag from');
+// Dragging routes from a point only while drawing from it; otherwise it moves
+// the point. So pick the route up there first.
+await page.mouse.click(node.x + node.width / 2, node.y + node.height / 2);
+await page.waitForTimeout(250);
+await page.click('#tab-body [data-a="draw-from"]');
+await page.waitForTimeout(250);
 await page.mouse.move(node.x + node.width / 2, node.y + node.height / 2);
 await page.mouse.down();
 await page.mouse.move(node.x + 170, node.y + 100, { steps: 14 });
@@ -533,6 +539,12 @@ check(
   (v) => v === true,
   'all within the list',
 );
+check(
+  'each item number is ballooned once',
+  balloonNumbers.length === new Set(balloonNumbers).size,
+  (v) => v === true,
+  'no number twice',
+);
 
 // New must actually clear the drawing, and must keep the job details.
 await page.click('#tabs button:has-text("Title")');
@@ -881,6 +893,159 @@ check(
   (v) => v === true,
   'true',
 );
+
+/* --------------------------------------------- what the drawing is made of */
+
+// Symbols, balloons and lettering belong to the drawing: they zoom with it and
+// keep their size against the pipe, and every flange is drawn the same.
+await startNewDrawing();
+await page.click('#tabs button:has-text("Command")');
+await page.waitForTimeout(200);
+await page.fill('#command-text', '3"\nSCH40\nORIGIN 0 0 0\nE 1500\n+FLG 700\nN 1200\n+BALL 500\nU 900\n+RED 450\nE 800\nEND FLG');
+await page.click('[data-a="run-commands"]');
+await page.waitForTimeout(500);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(200);
+const measure = () =>
+  page.evaluate(() => {
+    const plates = [...document.querySelectorAll('#canvas .node polygon.sym-fill')].map((p) => p.getBBox());
+    const text = document.querySelector('#canvas .dim-text');
+    const balloon = document.querySelector('#canvas .balloon-ring');
+    return {
+      plateHeights: plates.map((b) => Math.round(Math.hypot(b.width, b.height) * 10) / 10),
+      font: text ? getComputedStyle(text).fontSize : null,
+      balloonR: balloon ? balloon.getAttribute('r') : null,
+    };
+  });
+const before6 = await measure();
+const anyBox = await page.locator('#canvas circle.hit-dot[data-component]').first().boundingBox();
+for (let i = 0; i < 4; i += 1) {
+  await page.mouse.move(anyBox.x + anyBox.width / 2, anyBox.y + anyBox.height / 2);
+  await page.mouse.wheel(0, -300);
+  await page.waitForTimeout(60);
+}
+await page.waitForTimeout(250);
+const after6 = await measure();
+check('zooming in changes the view', await page.locator('#canvas').getAttribute('viewBox'), (v) => !/^-?\d+\.\d+ -?\d+\.\d+ 8\d\d/.test(v ?? ''), 'a narrower viewBox');
+check('symbols keep their size against the pipe when zoomed', JSON.stringify(after6.plateHeights), (v) => v === JSON.stringify(before6.plateHeights), JSON.stringify(before6.plateHeights));
+check('and so does the lettering', after6.font, (v) => v === before6.font, before6.font);
+check('and so do the balloons', after6.balloonR, (v) => v === before6.balloonR, before6.balloonR);
+// Each flange is a plate and a hub, so two sizes in all, whatever the flanges.
+check('every flange is drawn the same', new Set(before6.plateHeights).size, (v) => v <= 2, 'at most 2 distinct sizes');
+await page.click('#fit');
+await page.waitForTimeout(250);
+
+// A reducer is welded at both ends.
+await page.click('#tabs button:has-text("Welds")');
+await page.waitForTimeout(250);
+const reducerWelds = (await page.locator('#tab-body').innerText().then((t) => t.match(/PIPE \/ CONCENTRIC REDUCER/g) ?? [])).length;
+check('a reducer has a weld at each end', reducerWelds, (v) => v === 2, '2');
+
+// Weld numbers can be typed, on the list or against the weld on the drawing.
+const firstNo = page.locator('#tab-body [data-weld-no]').first();
+await firstNo.fill('W7A');
+await firstNo.press('Enter');
+await page.waitForTimeout(350);
+check(
+  'a weld number typed in the list shows on the drawing',
+  await page.evaluate(() => [...document.querySelectorAll('#canvas .weld-no')].some((t) => t.textContent === 'W7A')),
+  (v) => v === true,
+  'true',
+);
+await page.click('#tabs button:has-text("Route")');
+await page.waitForTimeout(200);
+const tags = await page.locator('#canvas [data-weld]').all();
+await tags[tags.length - 1].click({ force: true });
+await page.waitForTimeout(300);
+check('tapping a weld number on the drawing opens it', await page.locator('#tab-body [data-editor="weld"]').count(), (v) => v === 1, '1');
+await page.fill('#tab-body [data-f="number"]', 'W-END');
+await page.press('#tab-body [data-f="number"]', 'Enter');
+await page.waitForTimeout(350);
+check(
+  'and its number can be typed there',
+  await page.evaluate(() => [...document.querySelectorAll('#canvas .weld-no')].some((t) => t.textContent === 'W-END')),
+  (v) => v === true,
+  'true',
+);
+check(
+  'other welds keep their numbers along the route',
+  await page.evaluate(() => [...document.querySelectorAll('#canvas .weld-no')].map((t) => t.textContent).filter((t) => /^W\d+$/.test(t)).length),
+  (v) => v >= 10,
+  'at least 10',
+);
+
+// Something put into a drawn line is placed by the length on either side of
+// it, and the other side takes up the difference.
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
+await page.locator('#canvas circle.hit-dot[data-component]').first().click({ force: true });
+await page.waitForTimeout(250);
+const fromStart = page.locator('#tab-body [data-f="offset"]');
+const toEnd = page.locator('#tab-body [data-f="toend"]');
+const total6 = Number(await fromStart.inputValue()) + Number(await toEnd.inputValue());
+await toEnd.fill('300');
+await toEnd.press('Enter');
+await page.waitForTimeout(350);
+check('setting the distance to the end moves the valve', Number(await page.locator('#tab-body [data-f="offset"]').inputValue()), (v) => v === total6 - 300, `${total6 - 300}`);
+await page.locator('#canvas circle.hit-dot[data-component]').first().click({ force: true });
+await page.waitForTimeout(250);
+check('and the run keeps its length', Number(await page.locator('#tab-body [data-f="offset"]').inputValue()) + Number(await page.locator('#tab-body [data-f="toend"]').inputValue()), (v) => v === total6, `${total6}`);
+
+// The same for a point in the line — here the flanged joint.
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
+let jointHandle = null;
+for (const handle of await page.locator('#canvas circle.hit-dot[data-node]').all()) {
+  await handle.click({ force: true });
+  await page.waitForTimeout(150);
+  if (/FLANGED JOINT/.test(await page.locator('#tab-body').innerText())) {
+    jointHandle = handle;
+    break;
+  }
+}
+check('the joint offers the length either side of it', await page.locator('#tab-body [data-slide]').count(), (v) => v === 2, '2');
+const sides = page.locator('#tab-body [data-slide]');
+const sideTotal = Number(await sides.nth(0).inputValue()) + Number(await sides.nth(1).inputValue());
+await sides.nth(0).fill('400');
+await sides.nth(0).press('Enter');
+await page.waitForTimeout(350);
+if (jointHandle) {
+  await jointHandle.click({ force: true }).catch(() => {});
+  await page.waitForTimeout(200);
+}
+const sidesAfter = page.locator('#tab-body [data-slide]');
+check('setting one side slides the joint', Number(await sidesAfter.nth(0).inputValue()), (v) => v === 400, '400');
+check('and the other side takes up the difference', Number(await sidesAfter.nth(1).inputValue()), (v) => v === sideTotal - 400, `${sideTotal - 400}`);
+
+// An end is moved by dragging it, once it is not the one being drawn from.
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
+let endBox = null;
+for (const handle of await page.locator('#canvas circle.hit-dot[data-node]').all()) {
+  const box = await handle.boundingBox();
+  if (box && (!endBox || box.x > endBox.x)) endBox = box;
+}
+const runsBeforeEndDrag = await page.locator('#tab-body .run-list tbody tr').count();
+const lastLenBefore = Number(await page.locator('#tab-body [data-run-len]').last().inputValue());
+await page.mouse.move(endBox.x + endBox.width / 2, endBox.y + endBox.height / 2);
+await page.mouse.down();
+await page.mouse.move(endBox.x + endBox.width / 2 + 70, endBox.y + endBox.height / 2 + 40, { steps: 10 });
+await page.mouse.up();
+await page.waitForTimeout(400);
+check('dragging an end draws no new run', await page.locator('#tab-body .run-list tbody tr').count(), (v) => v === runsBeforeEndDrag, `${runsBeforeEndDrag}`);
+check('it moves the end instead', Number(await page.locator('#tab-body [data-run-len]').last().inputValue()), (v) => v > lastLenBefore, `more than ${lastLenBefore}`);
+
+// Deleting needs no keyboard either.
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
+await page.locator('#canvas [data-run]').last().click({ force: true });
+await page.waitForTimeout(250);
+check('a Delete button shows for the selection', await page.locator('#hud-delete').innerText(), (v) => /Delete run/.test(v), 'Delete run');
+await page.click('#hud-delete');
+await page.waitForTimeout(350);
+check('and it deletes', await page.locator('#tab-body .run-list tbody tr').count(), (v) => v === runsBeforeEndDrag - 1, `${runsBeforeEndDrag - 1}`);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(200);
 
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 

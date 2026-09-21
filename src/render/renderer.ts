@@ -1,9 +1,9 @@
 import type { Analysis } from '../model/drawing';
 import type { Axis, Drawing, Run, Vec3 } from '../model/types';
 import { COMPONENT_LABEL, TERMINAL_LABEL, fittingLabel, isValve, oletLegs, resolveEnds } from '../model/drawing';
-import { componentTakeout, fittingTakeout, flangeLength, sizeLabel } from '../model/pipe-data';
+import { componentTakeout, fittingTakeout, sizeLabel } from '../model/pipe-data';
 import { AXIS_VECTOR, axisBetween, axisScreenDir, length3, project, scale3, add, sub } from '../model/iso';
-import { componentSymbol, flangeSymbol, frameFor, gasketLine, isFlange, jointMark, oletSymbol, terminalSymbol, type Frame } from './symbols';
+import { componentSymbol, flangeHub, flangeSymbol, frameFor, gasketLine, isFlange, jointMark, oletSymbol, terminalSymbol, type Frame } from './symbols';
 
 export interface ViewBox {
   x: number;
@@ -16,7 +16,18 @@ export type Selection =
   | { kind: 'run'; id: string }
   | { kind: 'node'; id: string }
   | { kind: 'component'; id: string }
+  | { kind: 'weld'; key: string }
   | null;
+
+/**
+ * Symbol half-size in paper units. Symbols, balloons and lettering are part of
+ * the drawing: they keep their size against the pipe whatever the zoom, and
+ * shrink with it on a crowded sheet, as on a drawn isometric.
+ */
+export const SYMBOL_SIZE = 4;
+
+/** Half the gap between two bolted flange faces, as a share of the symbol size. */
+const FLANGE_GAP = 0.25;
 
 export interface Preview {
   fromId: string;
@@ -30,8 +41,8 @@ export interface RenderState {
   view: ViewBox;
   selection: Selection;
   preview?: Preview | null;
-  /** Symbol half-size in paper units. */
-  symbolSize?: number;
+  /** Radius of the invisible touch targets, in paper units: kept constant on screen. */
+  hitSize?: number;
 }
 
 export interface Pt {
@@ -215,7 +226,8 @@ function renderDimension(
 
 export function renderDrawing(state: RenderState): string {
   const { drawing, analysis, view, selection } = state;
-  const size = state.symbolSize ?? 11;
+  const size = SYMBOL_SIZE;
+  const hitR = state.hitSize ?? size * 1.2;
   const sel = selection;
 
   const bounds = contentBounds(drawing, analysis);
@@ -297,24 +309,24 @@ export function renderDrawing(state: RenderState): string {
       comps += `<g class="component${selectedComp ? ' selected' : ''}" data-component="${comp.id}">`;
       // The body reaches its real faces, so what bolts or welds to it sits
       // against it rather than floating off along the pipe.
-      const faceHalf = isValve(comp.kind) ? componentTakeout(comp.kind, dn, false) * paperPerMm : undefined;
+      const toFaces = isValve(comp.kind) || comp.kind === 'RED_CONC' || comp.kind === 'RED_ECC';
+      const faceHalf = toFaces ? componentTakeout(comp.kind, dn, false) * paperPerMm : undefined;
       comps += componentSymbol(comp.kind, f, faceHalf);
 
       // A flanged component is drawn with the flanges it bolts between, each
       // facing in towards it, which is how it is actually built.
       const ends = resolveEnds(comp.kind, dn, comp.ends, drawing.options.joint ?? 'BW');
       if (ends === 'FLG' && !isFlange(comp.kind) && faceHalf !== undefined) {
-        const hub = flangeLength(dn) * paperPerMm;
         const face = Math.max(faceHalf, size);
         const shifted = (by: number): Frame => ({ ...f, cx: f.cx + f.dx * by, cy: f.cy + f.dy * by });
-        comps += gasketLine(f, -face) + flangeSymbol(shifted(-face), 'FLG_WN', 1, hub);
-        comps += gasketLine(f, face) + flangeSymbol(shifted(face), 'FLG_WN', -1, hub);
+        comps += gasketLine(f, -face) + flangeSymbol(shifted(-face), 'FLG_WN', 1);
+        comps += gasketLine(f, face) + flangeSymbol(shifted(face), 'FLG_WN', -1);
       }
       const label = comp.tag ?? '';
       if (label) {
         comps += `<text class="tag" x="${(f.cx + f.nx * size * 2.2).toFixed(2)}" y="${(f.cy + f.ny * size * 2.2).toFixed(2)}">${escapeText(label)}</text>`;
       }
-      comps += `<circle class="hit-dot" data-component="${comp.id}" cx="${f.cx.toFixed(2)}" cy="${f.cy.toFixed(2)}" r="${(size * 1.3).toFixed(2)}"/>`;
+      comps += `<circle class="hit-dot" data-component="${comp.id}" cx="${f.cx.toFixed(2)}" cy="${f.cy.toFixed(2)}" r="${hitR.toFixed(2)}"/>`;
       comps += `</g>`;
     }
   }
@@ -360,13 +372,10 @@ export function renderDrawing(state: RenderState): string {
         if (!q || !other) continue;
         const plane = symbolPlane(drawing, node.pos, other.pos);
         const f = frameFor(p.x, p.y, q.x, q.y, 0, size, plane?.across, plane?.up);
-        const trueLen = length3(sub(other.pos, node.pos));
-        const scaleHere = trueLen > 0 ? Math.hypot(q.x - p.x, q.y - p.y) / trueLen : 0;
-        const gap = size * 0.25;
-        const hub = componentTakeout(node.flange, run.dn) * scaleHere - gap;
+        const gap = size * FLANGE_GAP;
         if (first) nodes += gasketLine(f, 0);
         first = false;
-        nodes += flangeSymbol({ ...f, cx: f.cx + f.dx * gap, cy: f.cy + f.dy * gap }, node.flange, -1, hub);
+        nodes += flangeSymbol({ ...f, cx: f.cx + f.dx * gap, cy: f.cy + f.dy * gap }, node.flange, -1);
       }
     }
 
@@ -380,10 +389,7 @@ export function renderDrawing(state: RenderState): string {
         const other = analysis.nodeById.get(otherId);
         const endPlane = other ? symbolPlane(drawing, other.pos, node.pos) : null;
         const f = frameFor(q.x, q.y, p.x, p.y, 1, size, endPlane?.across, endPlane?.up);
-        const trueLen = other ? length3(sub(node.pos, other.pos)) : 0;
-        const scaleHere = trueLen > 0 ? Math.hypot(p.x - q.x, p.y - q.y) / trueLen : 0;
-        const hub = isFlange(node.terminal.kind) ? componentTakeout(node.terminal.kind, run.dn) * scaleHere : undefined;
-        nodes += terminalSymbol(node.terminal.kind, f, node.joint ?? drawing.options.joint ?? 'BW', hub);
+        nodes += terminalSymbol(node.terminal.kind, f, node.joint ?? drawing.options.joint ?? 'BW');
         if (node.terminal.note) {
           nodes += `<text class="note" x="${(p.x + f.dx * size * 2.4).toFixed(2)}" y="${(p.y + f.dy * size * 2.4).toFixed(2)}">${escapeText(node.terminal.note)}</text>`;
         }
@@ -394,7 +400,7 @@ export function renderDrawing(state: RenderState): string {
       nodes += `<text class="node-label" x="${(p.x + size * 1.2).toFixed(2)}" y="${(p.y - size * 1.2).toFixed(2)}">${escapeText(node.label)}</text>`;
     }
 
-    nodes += `<circle class="hit-dot" data-node="${node.id}" cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="${(size * 1.1).toFixed(2)}"/>`;
+    nodes += `<circle class="hit-dot" data-node="${node.id}" cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="${hitR.toFixed(2)}"/>`;
     if (selected) nodes += `<circle class="node-mark" cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="${(size * 0.8).toFixed(2)}"/>`;
     nodes += `</g>`;
   }
@@ -403,24 +409,40 @@ export function renderDrawing(state: RenderState): string {
   // They are part of the fitting symbol, so they are always drawn; only the
   // weld numbers follow the Welds toggle.
   let welds = '';
+  // Weld marks and tags sit on top of everything, so their touch targets do too.
+  let weldHits = '';
   const jointPoints = new Map<string, Pt>();
-  const weldLabels: { x: number; y: number; text: string; fromX: number; fromY: number }[] = [];
+  const weldLabels: { x: number; y: number; text: string; fromX: number; fromY: number; key: string }[] = [];
 
   analysis.joints.forEach((joint, index) => {
     const place = weldPlacement(drawing, analysis, joint.pos);
     if (!place) return;
-    const f = frameFor(
-      place.a.x,
-      place.a.y,
-      place.b.x,
-      place.b.y,
-      place.t,
-      size,
-      place.plane?.across,
-      place.plane?.up,
-    );
+    let f = frameFor(place.a.x, place.a.y, place.b.x, place.b.y, place.t, size, place.plane?.across, place.plane?.up);
+    // On a flange the mark goes on the end of the flange symbol, which is the
+    // same length for every flange, rather than at the true weld distance.
+    if (joint.face && joint.flange) {
+      const at = weldPlacement(drawing, analysis, joint.face);
+      if (at) {
+        const face = frameFor(at.a.x, at.a.y, at.b.x, at.b.y, at.t, size, at.plane?.across, at.plane?.up);
+        const dx = f.cx - face.cx;
+        const dy = f.cy - face.cy;
+        const len = Math.hypot(dx, dy) || 1;
+        const back = flangeHub(joint.flange, size) + (joint.key.includes(':flg:') ? size * FLANGE_GAP : 0);
+        f = { ...f, cx: face.cx + (dx / len) * back, cy: face.cy + (dy / len) * back };
+      }
+    }
     jointPoints.set(joint.key, { x: f.cx, y: f.cy });
-    welds += `<g class="weld">${jointMark(f, joint.joint, joint.facing)}</g>`;
+    const selectedWeld = sel?.kind === 'weld' && sel.key === joint.key;
+    welds += `<g class="weld${selectedWeld ? ' selected' : ''}">${jointMark(f, joint.joint, joint.facing)}</g>`;
+    // The mark is a touch target unless it sits on a point, whose own target
+    // it would otherwise cover; the number tag is always one.
+    const onPoint = [...analysis.nodeById.keys()].some((id) => {
+      const q = paper(id);
+      return q && Math.hypot(q.x - f.cx, q.y - f.cy) < size * 0.6;
+    });
+    if (joint.number && !onPoint) {
+      weldHits += `<circle class="hit-dot" data-weld="${joint.key}" cx="${f.cx.toFixed(2)}" cy="${f.cy.toFixed(2)}" r="${(hitR * 0.7).toFixed(2)}"/>`;
+    }
     if (drawing.options.showWelds && joint.number) {
       // Joints cluster around fittings, so stagger the tags either side of the
       // pipe rather than stacking them all on the same one.
@@ -431,6 +453,7 @@ export function renderDrawing(state: RenderState): string {
         text: joint.number,
         fromX: f.cx,
         fromY: f.cy,
+        key: joint.key,
       });
     }
   });
@@ -443,7 +466,10 @@ export function renderDrawing(state: RenderState): string {
       reach > size * 3.6
         ? `<line class="weld-leader" x1="${label.fromX.toFixed(2)}" y1="${label.fromY.toFixed(2)}" x2="${label.x.toFixed(2)}" y2="${label.y.toFixed(2)}"/>`
         : '';
-    welds += `<g class="weld">${leader}<text class="weld-no" x="${label.x.toFixed(2)}" y="${(label.y + size * 0.3).toFixed(2)}" text-anchor="middle">${escapeText(label.text)}</text></g>`;
+    const selectedWeld = sel?.kind === 'weld' && sel.key === label.key;
+    welds += `<g class="weld${selectedWeld ? ' selected' : ''}">${leader}<text class="weld-no" x="${label.x.toFixed(2)}" y="${(label.y + size * 0.3).toFixed(2)}" text-anchor="middle">${escapeText(label.text)}</text></g>`;
+    // The tag itself is a touch target too: it is what is read, so it is what gets tapped.
+    weldHits += `<circle class="hit-dot" data-weld="${label.key}" cx="${label.x.toFixed(2)}" cy="${label.y.toFixed(2)}" r="${hitR.toFixed(2)}"/>`;
   }
 
   // Item balloons: every pipe run, fitting, flange and valve carries the number
@@ -470,7 +496,7 @@ export function renderDrawing(state: RenderState): string {
       })
       .filter((m): m is NonNullable<typeof m> => m !== null);
 
-    const r = size * 1.3;
+    const r = size * 1.05;
     for (const mark of spreadLabels(marks, r * 2.9)) {
       // The leader stops at the balloon's edge rather than running into it.
       const dx = mark.x - mark.fromX;
@@ -482,7 +508,7 @@ export function renderDrawing(state: RenderState): string {
         `<g class="balloon">` +
         `<line class="balloon-leader" x1="${mark.fromX.toFixed(2)}" y1="${mark.fromY.toFixed(2)}" x2="${ex.toFixed(2)}" y2="${ey.toFixed(2)}"/>` +
         `<circle class="balloon-ring" cx="${mark.x.toFixed(2)}" cy="${mark.y.toFixed(2)}" r="${r.toFixed(2)}"/>` +
-        `<text class="balloon-no" x="${mark.x.toFixed(2)}" y="${(mark.y + size * 0.42).toFixed(2)}" text-anchor="middle">${mark.number}</text>` +
+        `<text class="balloon-no" x="${mark.x.toFixed(2)}" y="${(mark.y + size * 0.27).toFixed(2)}" text-anchor="middle">${mark.number}</text>` +
         `</g>`;
     }
   }
@@ -540,7 +566,7 @@ export function renderDrawing(state: RenderState): string {
 
   // Hit targets for runs go under the node and component handles so that a
   // drag starting on a point is never swallowed by the run beneath it.
-  return grid + dims + pipes + `<g class="hits">${hits}</g>` + comps + nodes + welds + preview;
+  return grid + dims + pipes + `<g class="hits">${hits}</g>` + comps + nodes + welds + `<g class="hits">${weldHits}</g>` + preview;
 }
 
 /**
