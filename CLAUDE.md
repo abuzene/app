@@ -110,8 +110,9 @@ ships, and the decisions already taken, so they are not re-litigated.
 - **Pipe net** (Welds tab column, `Analysis.pieces`, `PipePiece`, `ROOT_GAP`
   = 2.5 mm): every length of pipe between its welds as cut: take-outs off
   and a 2.5 mm root gap off at each BW weld to a fitting/valve/flange/cap.
-  Pipe-to-pipe welds take no gap (his spec: "from every fitting"), the
-  header takes nothing at an olet and runs through it as one piece (merged
+  A pipe-to-pipe BW weld takes its 2.5 mm off one of the two pieces (the
+  first in route order; he said "one of them, whichever"), the header
+  takes nothing at an olet and runs through it as one piece (merged
   in `analyse`; the header weld shows that whole length). Copy list carries
   the column. The printed sheet has the same as a **WELD LIST — PIPE CUT**
   table under the weld summary (`weldList` in sheet.ts), as many rows as the

@@ -402,7 +402,7 @@ function weldsTab(host: Host): string {
     <thead><tr><th>No.</th><th>Size</th><th>Prep</th><th>Joins</th><th class="num">Pipe net</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>
-  <p class="empty-note">Pipe net: the pipe at the weld as it is cut — take-outs off, and a ${ROOT_GAP} mm root gap off for every fitting butt-welded to it. An olet takes nothing off its header; pipe to pipe takes no gap.</p>
+  <p class="empty-note">Pipe net: the pipe at the weld as it is cut — take-outs off, and a ${ROOT_GAP} mm root gap off for every fitting butt-welded to it. Pipe to pipe takes its gap off one of the two; an olet takes nothing off its header.</p>
   <div class="totals">
     ${Object.entries(byPrep)
       .map(([prep, n]) => `<span>${esc(prep)} <strong>${n}</strong></span>`)

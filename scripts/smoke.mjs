@@ -1994,7 +1994,7 @@ await page.locator('.tool[data-weld="BW"]').click();
 await page.waitForTimeout(400);
 await page.keyboard.press('Escape');
 await page.waitForTimeout(150);
-check('pipe to pipe shows the pipe either side, with no gap', await pipeNets(), (v) => v.some((r) => r === 'PIPE / PIPE = 1500 / 1383.5'), '1500 / 1383.5: the far piece less the elbow and its gap');
+check('pipe to pipe shows the pipe either side, the gap off one of them', await pipeNets(), (v) => v.some((r) => r === 'PIPE / PIPE = 1497.5 / 1383.5'), '1497.5 / 1383.5: the gap off the first, the second less the elbow and its gap');
 check('the list copies with the net lengths', await page.evaluate(() => document.querySelector('[data-a="copy-welds"]') !== null), (v) => v === true, 'a Copy list button');
 await page.keyboard.press('Escape');
 await page.waitForTimeout(150);

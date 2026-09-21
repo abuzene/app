@@ -729,9 +729,9 @@ export function analyse(drawing: Drawing): Analysis {
   // The pipe as it is cut: the lengths between the welds. Each run's pipe
   // starts past the fitting at one end and stops short of the one at the
   // other, and whatever sits in the line takes its own length out of the
-  // middle. A butt weld to a fitting keeps a root gap; pipe to pipe, and the
-  // olet sitting on a header, take none, and a header carries straight on
-  // through its olet as one length.
+  // middle. A butt weld to a fitting keeps a root gap, and so does a pipe
+  // to pipe weld, off one of the two; the olet sitting on a header takes
+  // none, and a header carries straight on through its olet as one length.
   const jointByKey = new Map(joints.map((j) => [j.key, j]));
   const jointAt = (idx: number, distance: number, nodeId: string | null): Weld | undefined => {
     for (let i = 0; i < ordered.length; i += 1) {
@@ -816,6 +816,13 @@ export function analyse(drawing: Drawing): Analysis {
         entry.piece = merged;
       }
     }
+  }
+  // Pipe to pipe: the root gap comes off one of the two, whichever; the
+  // first in route order takes it.
+  for (const joint of joints) {
+    if (joint.joins !== 'PIPE / PIPE' || joint.joint !== 'BW' || joint.skipped) continue;
+    const at = pieces.flatMap((p) => p.ends.filter((e) => e.key === joint.key));
+    if (at.length > 0) at[0].gap = ROOT_GAP;
   }
   for (const piece of pieces) piece.net = Math.max(0, piece.length - piece.ends[0].gap - piece.ends[1].gap);
 
