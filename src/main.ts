@@ -355,15 +355,39 @@ for (const [id, key] of [
   });
 }
 
-$('new').addEventListener('click', () => {
-  if (state.drawing.runs.length > 0 && !confirm('Start a new drawing? The current one will be cleared.')) return;
+$('new').addEventListener('click', async () => {
+  if (state.drawing.runs.length > 0) {
+    const ok = await confirmDialog(
+      'Start a new drawing',
+      'The route on this drawing will be cleared. Your logo, project and pipe settings are kept.',
+      'Start new drawing',
+    );
+    if (!ok) return;
+  }
   undoStack.push(snapshot());
   redoStack.length = 0;
-  Object.assign(state.drawing, emptyDrawing());
+
+  // A new sheet on the same job: the route goes, but the company mark, the
+  // project and the way the pipe is specified carry over, because retyping
+  // them for every isometric is the opposite of useful.
+  const fresh = emptyDrawing();
+  const kept = state.drawing;
+  Object.assign(state.drawing, {
+    ...fresh,
+    options: { ...kept.options },
+    meta: {
+      ...fresh.meta,
+      logo: kept.meta.logo,
+      project: kept.meta.project,
+      drawnBy: kept.meta.drawnBy,
+    },
+  });
+
   state.selection = null;
   state.preview = null;
+  hoverMessage = null;
   canvas.setAnchor(null);
-  state.commandState = initialCommandState();
+  state.commandState = initialCommandState(state.currentDn, state.currentSchedule);
   recompute();
   persist();
   render();
@@ -556,6 +580,40 @@ function printSheet(sheet: string, size: SheetSize): void {
   };
   if (doc.readyState === 'complete') setTimeout(run, 60);
   else frame.addEventListener('load', () => setTimeout(run, 60));
+}
+
+/**
+ * Asks the viewer to confirm something destructive.
+ *
+ * Deliberately not `confirm()`: embedded viewers run the page sandboxed without
+ * modals, where the browser ignores the call and it returns false — which
+ * silently turned New into a button that did nothing at all.
+ */
+function confirmDialog(title: string, message: string, confirmLabel: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const backdrop = document.createElement('div');
+    backdrop.className = 'dialog-backdrop';
+    backdrop.innerHTML = `
+<div class="dialog" role="dialog" aria-label="${title}">
+  <h3>${title}</h3>
+  <p>${message}</p>
+  <div class="btn-row">
+    <button class="btn-line solid" data-confirm>${confirmLabel}</button>
+    <button class="btn-line" data-cancel>Cancel</button>
+  </div>
+</div>`;
+    document.body.appendChild(backdrop);
+    const close = (answer: boolean) => {
+      backdrop.remove();
+      resolve(answer);
+    };
+    backdrop.querySelector('[data-confirm]')?.addEventListener('click', () => close(true));
+    backdrop.querySelector('[data-cancel]')?.addEventListener('click', () => close(false));
+    backdrop.addEventListener('click', (event) => {
+      if (event.target === backdrop) close(false);
+    });
+    backdrop.querySelector<HTMLButtonElement>('[data-confirm]')?.focus();
+  });
 }
 
 /** Full-screen overlay used to show something the page cannot hand over as a file. */

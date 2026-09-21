@@ -36,6 +36,17 @@ await page.evaluate(() => localStorage.clear());
 await page.reload();
 await page.waitForTimeout(400);
 
+/** Clears the drawing, answering the in-page confirmation if it appears. */
+async function startNewDrawing() {
+  await page.click('#new');
+  await page.waitForTimeout(250);
+  const confirmButton = page.locator('.dialog-backdrop [data-confirm]');
+  if (await confirmButton.count()) {
+    await confirmButton.click();
+  }
+  await page.waitForTimeout(400);
+}
+
 check('empty hint shown on a blank drawing', await page.locator('#empty-hint').isVisible(), (v) => v === true, 'true');
 
 // Route the example line through the command language.
@@ -178,9 +189,7 @@ check('drawing survives a reload', await page.locator('#canvas .pipe').count(), 
 
 // Routing back along an axis that already carries a run must reuse it rather
 // than laying a second pipe on top of the first.
-page.once('dialog', (d) => d.accept());
-await page.click('#new');
-await page.waitForTimeout(400);
+await startNewDrawing();
 await page.click('#tabs button:has-text("Command")');
 await page.waitForTimeout(200);
 await page.fill('#command-text', 'DN50\nSTD\nORIGIN 0 0 0\nMARK o\nE 2000\nGOTO o\nE 800');
@@ -198,9 +207,7 @@ const overlapBom = await page.locator('#tab-body').innerText();
 check('no phantom bend is taken off', overlapBom, (v) => !/BEND/.test(v), 'no BEND line');
 
 // Joint type drives every mark on the drawing and decides what counts as a weld.
-page.once('dialog', (d) => d.accept());
-await page.click('#new');
-await page.waitForTimeout(400);
+await startNewDrawing();
 await page.click('#tabs button:has-text("Command")');
 await page.waitForTimeout(200);
 await page.fill('#command-text', 'DN80\nSTD\nORIGIN 0 0 0\nE 2000\nN 1500\nEND CAP');
@@ -231,9 +238,7 @@ await page.waitForTimeout(300);
 check('switching back restores the weld schedule', await page.locator('#tab-body tbody tr').count(), (v) => v === buttWeldDots, `${buttWeldDots}`);
 
 // A branch of a different size is a reducing tee, drawn and taken off as one.
-page.once('dialog', (d) => d.accept());
-await page.click('#new');
-await page.waitForTimeout(400);
+await startNewDrawing();
 await page.click('#tabs button:has-text("Command")');
 await page.waitForTimeout(200);
 await page.fill('#command-text', 'DN80\nSTD\nORIGIN 0 0 0\nE 2000\nMARK t\nE 2000\nGOTO t\nDN50\nN 1500');
@@ -252,9 +257,7 @@ check('the reducing tee is taken off with its branch size', await page.locator('
 
 // A flange picked against the end of a line terminates it; it must not land
 // half way along the last run.
-page.once('dialog', (d) => d.accept());
-await page.click('#new');
-await page.waitForTimeout(400);
+await startNewDrawing();
 await page.click('#tabs button:has-text("Command")');
 await page.waitForTimeout(200);
 await page.fill('#command-text', '3"\nSTD\nORIGIN 0 0 0\nE 2000');
@@ -297,9 +300,7 @@ await page.waitForTimeout(400);
 
 // An olet is welded to the header wall, so the header keeps its full length
 // and the branch pays for the fitting.
-page.once('dialog', (d) => d.accept());
-await page.click('#new');
-await page.waitForTimeout(400);
+await startNewDrawing();
 await page.click('#tabs button:has-text("Command")');
 await page.waitForTimeout(200);
 await page.fill('#command-text', '6"\nSTD\nORIGIN 0 0 0\nE 4000');
@@ -393,9 +394,7 @@ if (oletFound) {
 }
 
 // A tee placed on a header, then branched, is taken off as a tee.
-page.once('dialog', (d) => d.accept());
-await page.click('#new');
-await page.waitForTimeout(400);
+await startNewDrawing();
 await page.click('#tabs button:has-text("Command")');
 await page.waitForTimeout(200);
 await page.fill('#command-text', '6"\nSCH40\nORIGIN 0 0 0\nE 4000');
@@ -437,9 +436,7 @@ check('changing the pipe schedule carries to every run', schBom, (v) => /PIPE, S
 check('the fittings stay at their own thickness', schBom, (v) => /REDUCING TEE[^\n]*STD/.test(v), 'STD fittings');
 
 // Valves come flanged over an inch and threaded under, without being asked.
-page.once('dialog', (d) => d.accept());
-await page.click('#new');
-await page.waitForTimeout(400);
+await startNewDrawing();
 await page.click('#tabs button:has-text("Command")');
 await page.waitForTimeout(200);
 await page.fill('#command-text', '3"\nSCH40\nORIGIN 0 0 0\nE 3000\n+BALL');
@@ -455,9 +452,7 @@ await page.click('#tabs button:has-text("Welds")');
 await page.waitForTimeout(300);
 check('a flanged valve is welded in through its flanges', await page.locator('#tab-body tbody tr').count(), (v) => v === 2, '2');
 
-page.once('dialog', (d) => d.accept());
-await page.click('#new');
-await page.waitForTimeout(400);
+await startNewDrawing();
 await page.click('#tabs button:has-text("Command")');
 await page.waitForTimeout(200);
 await page.fill('#command-text', '1"\nSCH40\nORIGIN 0 0 0\nE 3000\n+BALL');
@@ -474,9 +469,7 @@ check('a threaded valve takes no welds', await page.locator('#tab-body tbody tr'
 
 // Drawing is a continuous tool: touch once to put a point down, then keep
 // clicking where the pipe goes.
-page.once('dialog', (d) => d.accept());
-await page.click('#new');
-await page.waitForTimeout(400);
+await startNewDrawing();
 const canvasArea = await page.locator('#canvas').boundingBox();
 await page.mouse.click(canvasArea.x + canvasArea.width * 0.35, canvasArea.y + canvasArea.height * 0.5);
 await page.waitForTimeout(500);
@@ -530,9 +523,70 @@ check(
   'all within the list',
 );
 
+// New must actually clear the drawing, and must keep the job details.
+await page.click('#tabs button:has-text("Title")');
+await page.waitForTimeout(250);
+await page.fill('[data-meta="project"]', 'Carried Over');
+await page.fill('[data-meta="lineNumber"]', '6"-P-9999');
+await page.locator('[data-meta="lineNumber"]').blur();
+await page.waitForTimeout(300);
+await startNewDrawing();
+check('New clears the route', await page.locator('#canvas .pipe').count(), (v) => v === 0, '0');
+await page.click('#tabs button:has-text("Title")');
+await page.waitForTimeout(250);
+check('New keeps the project', await page.inputValue('[data-meta="project"]'), (v) => v === 'Carried Over', 'Carried Over');
+check('New clears the line number', await page.inputValue('[data-meta="lineNumber"]'), (v) => v === '', 'empty');
+
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 
 await browser.close();
+
+/* ------------------------------------------------------------- sandboxed */
+
+// The app also runs embedded in a viewer that sandboxes it without modals.
+// That is where a native confirm() is silently ignored, so the buttons that
+// ask a question are exercised there too — running only the local file is
+// what let a dead New button ship.
+{
+  const { writeFile, rm } = await import('node:fs/promises');
+  const inner = await readFile('dist/artifact.html', 'utf8');
+  await writeFile(
+    'dist/_sandbox-page.html',
+    `<!doctype html><html><head><meta charset="utf-8"><style>html,body{height:100%;margin:0}</style></head><body>${inner}</body></html>`,
+  );
+  await writeFile(
+    'dist/_sandbox-host.html',
+    '<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;height:100%}iframe{border:0;width:100%;height:100%;display:block}</style></head>' +
+      '<body><iframe src="_sandbox-page.html" sandbox="allow-scripts allow-same-origin"></iframe></body></html>',
+  );
+
+  const sandboxBrowser = await chromium.launch(launchOptions);
+  const host = await sandboxBrowser.newPage({ viewport: { width: 1400, height: 900 } });
+  const ignored = [];
+  host.on('console', (m) => {
+    if (/Ignored call to/i.test(m.text())) ignored.push(m.text());
+  });
+  await host.goto(`file://${process.cwd()}/dist/_sandbox-host.html`);
+  await host.waitForTimeout(800);
+  const frame = host.frames()[1];
+
+  await frame.click('[data-a="load-sample"]');
+  await host.waitForTimeout(800);
+  check('the app draws inside a sandboxed viewer', await frame.locator('#canvas .pipe').count(), (v) => v === 5, '5');
+
+  await frame.click('#new');
+  await host.waitForTimeout(400);
+  check('New asks in the page, not through a blocked dialog', await frame.locator('.dialog-backdrop [data-confirm]').count(), (v) => v === 1, '1');
+  await frame.click('.dialog-backdrop [data-confirm]');
+  await host.waitForTimeout(600);
+  check('New works in a sandboxed viewer', await frame.locator('#canvas .pipe').count(), (v) => v === 0, '0');
+  check('nothing was silently ignored by the sandbox', ignored, (v) => v.length === 0, 'no ignored calls');
+
+  await sandboxBrowser.close();
+  await rm('dist/_sandbox-page.html', { force: true });
+  await rm('dist/_sandbox-host.html', { force: true });
+}
+
 console.log(`\nscreenshots and sheet in ${out}`);
 if (failures.length > 0) {
   console.error(`\n${failures.length} check(s) failed: ${failures.join(', ')}`);
