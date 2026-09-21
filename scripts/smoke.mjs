@@ -1339,6 +1339,8 @@ check('a drawing has weld tags to measure', smallSymbol, (v) => v > 0, 'more tha
 await page.click('#print');
 await page.waitForTimeout(300);
 check('the print dialog offers the drawing scale', await page.locator('#sheet-scale').count(), (v) => v === 1, '1');
+check('the print dialog says which build this is', await page.locator('.dialog-backdrop').innerText(), (v) => /App version [0-9a-f]{12} · 20\d\d-/.test(v), 'App version <hash> · <date>');
+check('and offers to look for a new one', await page.locator('.dialog-backdrop [data-x="update"]').count(), (v) => v === 1, '1');
 check('at 1:15 to begin with', await page.locator('#sheet-scale').inputValue(), (v) => v === '15', '15');
 await page.selectOption('#sheet-scale', '50');
 await page.waitForTimeout(400);

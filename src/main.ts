@@ -745,9 +745,41 @@ if ('serviceWorker' in navigator) {
   });
   navigator.serviceWorker.ready
     .then((registration) => {
-      setInterval(() => void registration.update().catch(() => {}), 60 * 60 * 1000);
+      const look = () => void registration.update().catch(() => {});
+      // Now, every hour, and whenever the app is brought back to the front:
+      // a tablet keeps the app alive in the background, so coming back to it
+      // is not a fresh start, and this is when a new version would be missed.
+      look();
+      setInterval(look, 60 * 60 * 1000);
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') look();
+      });
     })
     .catch(() => {});
+}
+
+/** The build this page is, stamped in by the app build; 'dev' when run from source. */
+const APP_VERSION = document.querySelector('meta[name="app-version"]')?.getAttribute('content') ?? 'dev';
+
+/** Asks the worker for a new version now, and says what came of it. */
+async function checkForUpdate(): Promise<void> {
+  const registration = 'serviceWorker' in navigator ? await navigator.serviceWorker.getRegistration().catch(() => undefined) : undefined;
+  if (!registration) {
+    host.notify(`Version ${APP_VERSION}. Not installed as an app here — reload the page to get the latest.`);
+    return;
+  }
+  host.notify('Looking for a new version…');
+  try {
+    await registration.update();
+  } catch {
+    host.notify('Could not reach the update server — try again when online.');
+    return;
+  }
+  if (registration.installing || registration.waiting) {
+    host.notify('A new version is on its way: the bar below will offer to reload.');
+    return;
+  }
+  host.notify(`This is the latest version (${APP_VERSION}).`);
 }
 
 /** Puts the pencil down: the route stays as drawn, nothing more is armed. */
@@ -1117,6 +1149,7 @@ function openPrintDialog(): void {
     <button class="btn-line" data-x="preview">View sheet first</button>
     <button class="btn-line" data-x="close">Cancel</button>
   </div>
+  <p class="empty-note" style="margin-top:12px">App version ${APP_VERSION} · <button class="btn-line" data-x="update" type="button">Check for a new version</button></p>
   ${
     embedded
       ? '<p class="empty-note" style="margin-top:12px">Running inside a viewer, printing can be blocked. Installed as an app it prints straight to your printer dialog.</p>'
@@ -1144,6 +1177,11 @@ function openPrintDialog(): void {
     button.addEventListener('click', () => {
       const what = button.dataset.x;
       if (what === 'close') return close();
+      if (what === 'update') {
+        close();
+        void checkForUpdate();
+        return;
+      }
       const sheet = renderSheet(state.drawing, state.analysis, sheetSize());
       if (what === 'preview') {
         openOverlay(
