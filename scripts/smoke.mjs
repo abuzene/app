@@ -181,6 +181,7 @@ check('sheet carries the title block', svg, (v) => v.includes('Smoke Test Plant'
 check('sheet carries the AS MADE stamp', svg, (v) => v.includes('AS MADE'), 'an AS MADE stamp');
 check('sheet carries the material list', svg, (v) => v.includes('DESCRIPTION'), 'a material list header');
 check('sheet carries the weld list', svg, (v) => v.includes('WELDS'), 'a weld summary');
+check('and under it every weld with the pipe at it as cut', svg, (v) => v.includes('WELD LIST') && v.includes('PIPE NET') && />W1<\/text>/.test(v) && /PIPE \/ WELD NECK FLANGE/.test(v), 'a WELD LIST — PIPE CUT table with W1');
 check('the side column is a quarter of the sheet', svg, (v) => {
   const divider = Number(v.match(/<line class="frame" x1="([\d.]+)"/)?.[1] ?? 0);
   return divider >= 420 * 0.7;
@@ -387,7 +388,14 @@ await page.waitForTimeout(200);
 let oletFound = false;
 const pointCount = await page.locator('#canvas circle.hit-dot[data-node]').count();
 for (let i = 0; i < pointCount; i += 1) {
-  await page.locator('#canvas circle.hit-dot[data-node]').nth(i).click({ force: true });
+  // Touched through the events themselves: a selection redraws the canvas
+  // under a click, and the handle it was aimed at can be gone by the time
+  // the click lands.
+  const handle = page.locator('#canvas circle.hit-dot[data-node]').nth(i);
+  const at = { bubbles: true, pointerId: 5, pointerType: 'mouse', button: 0, isPrimary: true };
+  await handle.dispatchEvent('pointerdown', at);
+  await page.waitForTimeout(60);
+  await handle.dispatchEvent('pointerup', at);
   await page.waitForTimeout(250);
   const heading = await page.locator('#tab-body h3').first().innerText();
   if (/OLET/.test(heading)) {

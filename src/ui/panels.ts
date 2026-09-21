@@ -1,6 +1,6 @@
 import type { ComponentKind, EndType, FittingKind, FlangeKind, JointType, TerminalKind } from '../model/types';
 import type { Host, TabId } from './types';
-import { COMPONENT_LABEL, DEFAULT_LOGO, ROOT_GAP, TERMINAL_LABEL, fittingLabel, isMark, isSupport, isValve, oletLabel, oletLegs, resolveEnds, type Analysis } from '../model/drawing';
+import { COMPONENT_LABEL, DEFAULT_LOGO, ROOT_GAP, TERMINAL_LABEL, fittingLabel, isMark, isSupport, isValve, oletLabel, pipeNetAt, resolveEnds } from '../model/drawing';
 import { COMMAND_HELP } from '../model/commands';
 import { DN_LIST, SIZE_LABELS, defaultValveEnds, schedulesFor, sizeLabel } from '../model/pipe-data';
 import { axisBetween } from '../model/iso';
@@ -360,29 +360,6 @@ function weldProperties(host: Host, key: string): string {
       : 'Numbered along the route. Type a number of your own to keep it whatever else changes.'
   }</p>
 </div>`;
-}
-
-/**
- * The cut length of the pipe at a weld: what the fitter marks on the pipe
- * this weld joins. Pipe to pipe has one either side.
- */
-function pipeNetAt(analysis: Analysis, key: string): string {
-  let at = analysis.pieces.filter((p) => p.ends.some((e) => e.key === key));
-  // An olet's header weld: the header is the pipe it sits on, whole.
-  const header = key.match(/^n:(.+):header$/);
-  if (at.length === 0 && header) {
-    const info = analysis.nodeInfo.get(header[1]);
-    const legs = info ? oletLegs(info) : null;
-    if (legs) at = analysis.pieces.filter((p) => legs.header.every((r) => p.runIds.includes(r.id)));
-  }
-  if (at.length === 0) return '';
-  return at.map((p) => fmtMm(p.net)).join(' / ');
-}
-
-/** Millimetres to the half, plainly: 2881 or 2878.5. */
-function fmtMm(mm: number): string {
-  const half = Math.round(mm * 2) / 2;
-  return Number.isInteger(half) ? String(half) : half.toFixed(1);
 }
 
 function weldsTab(host: Host): string {

@@ -1040,6 +1040,29 @@ export function analyse(drawing: Drawing): Analysis {
 }
 
 /**
+ * The cut length of the pipe at a weld, as text: what the fitter marks on
+ * the pipe this weld joins. Pipe to pipe has one either side; an olet's
+ * header weld shows the header whole, since it sits on it.
+ */
+export function pipeNetAt(analysis: Analysis, key: string): string {
+  let at = analysis.pieces.filter((p) => p.ends.some((e) => e.key === key));
+  const header = key.match(/^n:(.+):header$/);
+  if (at.length === 0 && header) {
+    const info = analysis.nodeInfo.get(header[1]);
+    const legs = info ? oletLegs(info) : null;
+    if (legs) at = analysis.pieces.filter((p) => legs.header.every((r) => p.runIds.includes(r.id)));
+  }
+  if (at.length === 0) return '';
+  return at.map((p) => fmtMm(p.net)).join(' / ');
+}
+
+/** Millimetres to the half, plainly: 2881 or 2878.5. */
+export function fmtMm(mm: number): string {
+  const half = Math.round(mm * 2) / 2;
+  return Number.isInteger(half) ? String(half) : half.toFixed(1);
+}
+
+/**
  * Where a run's dimension breaks, in mm from its start: at each valve face,
  * since the pipe either side of a valve is its own piece and the valve's
  * face-to-face stands on its own between them.

@@ -1,4 +1,4 @@
-import type { Analysis, BomLine } from '../model/drawing';
+import { pipeNetAt, type Analysis, type BomLine } from '../model/drawing';
 import type { Drawing } from '../model/types';
 import { contentBounds, drawingScale, escapeText, renderDrawing, sheetScale, symbolSizeFor } from './renderer';
 import { sizeLabel } from '../model/pipe-data';
@@ -200,6 +200,60 @@ function weldTable(analysis: Analysis, x: number, y: number, w: number): { svg: 
   return { svg: out, height: h };
 }
 
+/**
+ * Every weld by number: what it joins, and the pipe at it as cut — the
+ * take-outs and root gaps off — which is what is marked on the pipe before
+ * anything is welded. As many rows as the column has room for.
+ */
+function weldList(analysis: Analysis, x: number, y: number, w: number, maxRows: number): { svg: string; height: number } {
+  const welds = analysis.welds;
+  if (welds.length === 0 || maxRows < 1) return { svg: '', height: 0 };
+  const rowH = 4.2;
+  const headH = 5;
+  const shown = welds.length > maxRows ? welds.slice(0, Math.max(0, maxRows - 1)) : welds;
+  const more = welds.length - shown.length;
+  const rows = shown.length + (more > 0 ? 1 : 0);
+  const h = headH * 2 + rowH * rows;
+
+  let out = rect(x, y, w, h, 'block');
+  out += text(x + 1.2, y + headH * 0.72, 'WELD LIST — PIPE CUT', 'tb-head');
+  out += hline(x, x + w, y + headH, 'rule-strong');
+  out += hline(x, x + w, y + headH * 2, 'rule');
+
+  const cols = [0.12, 0.13, 0.5, 0.25];
+  const xs: number[] = [];
+  let acc = x;
+  for (const c of cols) {
+    xs.push(acc);
+    acc += w * c;
+  }
+  // The "and more" line runs across the whole width, under the columns.
+  const colsBottom = more > 0 ? y + h - rowH : y + h;
+  for (let i = 1; i < xs.length; i += 1) out += vline(xs[i], y + headH, colsBottom);
+
+  const hy = y + headH * 1.72;
+  out += text(xs[0] + 1.2, hy, 'NO.', 'tb-head');
+  out += text(xs[1] + 1.2, hy, 'SIZE', 'tb-head');
+  out += text(xs[2] + 1.2, hy, 'JOINS', 'tb-head');
+  out += text(x + w - 1.2, hy, 'PIPE NET', 'tb-head', 'end');
+
+  shown.forEach((weld, i) => {
+    const ry = y + headH * 2 + rowH * i;
+    if (i > 0) out += hline(x, x + w, ry, 'rule-faint');
+    const ty = ry + rowH * 0.7;
+    out += text(xs[0] + 1.2, ty, weld.number, 'tb-cell');
+    out += text(xs[1] + 1.2, ty, sizeLabel(weld.dn), 'tb-cell');
+    out += text(xs[2] + 1.2, ty, clip(weld.joins, Math.floor((w * cols[2]) / 1.15)), 'tb-cell');
+    out += text(x + w - 1.2, ty, pipeNetAt(analysis, weld.key), 'tb-cell', 'end');
+  });
+  if (more > 0) {
+    const ry = y + headH * 2 + rowH * shown.length;
+    out += hline(x, x + w, ry, 'rule-faint');
+    out += text(xs[0] + 1.2, ry + rowH * 0.7, `AND ${more} MORE — SEE THE WELD LIST IN THE APP`, 'tb-cell');
+  }
+  return { svg: out, height: h };
+}
+
 function compass(drawing: Drawing, cx: number, cy: number, r: number): string {
   const dir = axisScreenDir('N', drawing.options.northRotation);
   const tipX = cx + dir.x * r;
@@ -270,6 +324,10 @@ export function renderSheet(drawing: Drawing, analysis: Analysis, size: SheetSiz
   ];
 
   const noteY = stampY - 4 - notes.length * 3.2;
+  // The weld list takes what is left between the weld summary and the notes.
+  const listY = MARGIN + bom.height + 4 + welds.height + 4;
+  const listRoom = noteY - 6 - listY;
+  const list = weldList(analysis, dividerX, listY, col, Math.floor((listRoom - 10) / 4.2));
   let notesSvg = '';
   notes.forEach((n, i) => {
     notesSvg += text(dividerX, noteY + i * 3.2, n, 'note-text');
@@ -304,6 +362,7 @@ ${vline(dividerX, MARGIN, H - MARGIN, 'frame')}
 ${compass(drawing, areaX + 16, areaY + 16, 5)}
 ${bom.svg}
 ${welds.svg}
+${list.svg}
 ${notesSvg}
 ${asMadeStamp(dividerX, stampY, col, stampH)}
 ${titleBlock(drawing, dividerX, tbY, col, tbH)}

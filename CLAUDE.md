@@ -113,7 +113,9 @@ ships, and the decisions already taken, so they are not re-litigated.
   Pipe-to-pipe welds take no gap (his spec: "from every fitting"), the
   header takes nothing at an olet and runs through it as one piece (merged
   in `analyse`; the header weld shows that whole length). Copy list carries
-  the column.
+  the column. The printed sheet has the same as a **WELD LIST — PIPE CUT**
+  table under the weld summary (`weldList` in sheet.ts), as many rows as the
+  column has room for, then "AND n MORE".
 - Supports and the AG/UG mark are **notes, not material**: no BOM line, no
   welds. Supports are numbered along the line unless named.
 - Printing happens from the page itself (`#print-root`, `@page` size); a
