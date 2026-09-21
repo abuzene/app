@@ -205,11 +205,15 @@ function weldTable(analysis: Analysis, x: number, y: number, w: number): { svg: 
  * take-outs and root gaps off — which is what is marked on the pipe before
  * anything is welded. As many rows as the column has room for.
  */
+const LIST_ROW = 3.4;
+
 function weldList(analysis: Analysis, x: number, y: number, w: number, maxRows: number): { svg: string; height: number } {
   const welds = analysis.welds;
   if (welds.length === 0 || maxRows < 1) return { svg: '', height: 0 };
-  const rowH = 4.2;
-  const headH = 5;
+  // Tight rows: this is the long table on the sheet, and every row that
+  // fits is one less to look up in the app.
+  const rowH = LIST_ROW;
+  const headH = 4.2;
   const shown = welds.length > maxRows ? welds.slice(0, Math.max(0, maxRows - 1)) : welds;
   const more = welds.length - shown.length;
   const rows = shown.length + (more > 0 ? 1 : 0);
@@ -241,15 +245,15 @@ function weldList(analysis: Analysis, x: number, y: number, w: number, maxRows: 
     const ry = y + headH * 2 + rowH * i;
     if (i > 0) out += hline(x, x + w, ry, 'rule-faint');
     const ty = ry + rowH * 0.7;
-    out += text(xs[0] + 1.2, ty, weld.number, 'tb-cell');
-    out += text(xs[1] + 1.2, ty, sizeLabel(weld.dn), 'tb-cell');
-    out += text(xs[2] + 1.2, ty, clip(weld.joins, Math.floor((w * cols[2]) / 1.15)), 'tb-cell');
-    out += text(x + w - 1.2, ty, pipeNetAt(analysis, weld.key), 'tb-cell', 'end');
+    out += text(xs[0] + 1.2, ty, weld.number, 'tb-small');
+    out += text(xs[1] + 1.2, ty, sizeLabel(weld.dn), 'tb-small');
+    out += text(xs[2] + 1.2, ty, clip(weld.joins, Math.floor((w * cols[2]) / 1.0)), 'tb-small');
+    out += text(x + w - 1.2, ty, pipeNetAt(analysis, weld.key), 'tb-small', 'end');
   });
   if (more > 0) {
     const ry = y + headH * 2 + rowH * shown.length;
     out += hline(x, x + w, ry, 'rule-faint');
-    out += text(xs[0] + 1.2, ry + rowH * 0.7, `AND ${more} MORE — SEE THE WELD LIST IN THE APP`, 'tb-cell');
+    out += text(xs[0] + 1.2, ry + rowH * 0.7, `AND ${more} MORE — SEE THE WELD LIST IN THE APP`, 'tb-small');
   }
   return { svg: out, height: h };
 }
@@ -315,7 +319,8 @@ export function renderSheet(drawing: Drawing, analysis: Analysis, size: SheetSiz
   const tbY = H - MARGIN - tbH;
   const stampY = tbY - stampH - 3;
   const bom = bomTable(analysis.bom, dividerX, MARGIN, col, Math.floor((stampY - MARGIN - 34) / 4.2));
-  const welds = weldTable(analysis, dividerX, MARGIN + bom.height + 4, col);
+  // The tables stack with no gap: a blank strip reads as an empty row.
+  const welds = weldTable(analysis, dividerX, MARGIN + bom.height, col);
 
   const notes = [
     'ALL DIMENSIONS IN MILLIMETRES.',
@@ -325,9 +330,9 @@ export function renderSheet(drawing: Drawing, analysis: Analysis, size: SheetSiz
 
   const noteY = stampY - 4 - notes.length * 3.2;
   // The weld list takes what is left between the weld summary and the notes.
-  const listY = MARGIN + bom.height + 4 + welds.height + 4;
-  const listRoom = noteY - 6 - listY;
-  const list = weldList(analysis, dividerX, listY, col, Math.floor((listRoom - 10) / 4.2));
+  const listY = MARGIN + bom.height + welds.height;
+  const listRoom = noteY - 5 - listY;
+  const list = weldList(analysis, dividerX, listY, col, Math.floor((listRoom - 8.4) / LIST_ROW));
   let notesSvg = '';
   notes.forEach((n, i) => {
     notesSvg += text(dividerX, noteY + i * 3.2, n, 'note-text');
@@ -349,6 +354,7 @@ text { font-family: "Helvetica Neue", Arial, sans-serif; }
 .tb-value { font-size: 2.4px; fill: #12161c; }
 .tb-head { font-size: 1.9px; font-weight: 700; letter-spacing: 0.05em; }
 .tb-cell { font-size: 2.05px; }
+.tb-small { font-size: 1.8px; }
 .note-text { font-size: 1.95px; fill: #3d4756; }
 .compass-ring { fill: none; stroke: #12161c; stroke-width: 0.25; }
 .compass-needle { fill: #12161c; }
