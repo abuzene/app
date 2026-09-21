@@ -1655,6 +1655,38 @@ check('and asks for an upright page', await page.evaluate(() => document.getElem
 const upright = await page.pdf({ format: 'A4', margin: { top: '15mm', bottom: '15mm', left: '12mm', right: '12mm' } });
 check('and prints on one page of upright A4 with the printer\'s own margins', pdfPages(upright), (v) => v === 1, '1');
 
+// A tablet prints nothing that is pinned to the page, so there the sheet
+// is laid out in the flow, at a width that fits inside the tablet's own
+// margins and footer. Seen as an iPad, the app prints that way.
+{
+  const tablet = await browser.newContext({
+    viewport: { width: 1180, height: 820 },
+    userAgent: 'Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+  });
+  const tp = await tablet.newPage();
+  await tp.goto(`file://${process.cwd()}/dist/index.html`);
+  await tp.evaluate(() => localStorage.clear());
+  await tp.reload();
+  await tp.waitForTimeout(300);
+  await tp.click('[data-a="load-sample"]');
+  await tp.waitForTimeout(400);
+  await tp.evaluate(() => {
+    window.print = () => {};
+  });
+  await tp.click('#print');
+  await tp.waitForTimeout(200);
+  check('a tablet is offered upright paper first', await tp.locator('#sheet-paper').inputValue(), (v) => v === 'upright', 'upright');
+  await tp.click('[data-x="print"]');
+  await tp.waitForTimeout(300);
+  check('and prints the sheet in the flow, not pinned', await tp.evaluate(() => document.getElementById('print-root').className), (v) => v === 'tablet', 'tablet');
+  await tp.evaluate(() => {
+    document.getElementById('print-page').textContent = '';
+  });
+  const tabletPdf = await tp.pdf({ format: 'A4', margin: { top: '17mm', bottom: '20mm', left: '10mm', right: '12mm' } });
+  check('on one page inside the tablet\'s own margins', pdfPages(tabletPdf), (v) => v === 1, '1');
+  await tablet.close();
+}
+
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 
 await browser.close();

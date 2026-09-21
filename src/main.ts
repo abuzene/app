@@ -1203,6 +1203,10 @@ function printSheet(sheet: string, size: SheetSize, upright = false): void {
     .replace(/<svg([^>]*)viewBox="0 0 ([\d.]+) ([\d.]+)"([^>]*)width="[^"]*" height="[^"]*"/, (_m, a, sw, sh, b) =>
       `<svg${a}viewBox="0 0 ${sh} ${sw}"${b}width="${sh}mm" height="${sw}mm"><g transform="translate(${sh} 0) rotate(90)">`)
     .replace(/<\/svg>\s*$/, '</g></svg>');
+  // A tablet prints nothing that is pinned to the page, so there the sheet
+  // is laid out in the flow instead, at a width whose height is sure to fit
+  // inside the margins and footer the tablet keeps for itself.
+  root.className = tabletPrinter ? 'tablet' : '';
   root.innerHTML = upright ? turned : sheet;
 
   // The page title is what "Save as PDF" names the file.

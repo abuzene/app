@@ -409,4 +409,9 @@ tr.selected { background: var(--accent-soft); }
   body > * { display: none !important; }
   #print-root { display: block !important; position: fixed; top: 0; left: 0; width: 100%; height: 100%; overflow: hidden; }
   #print-root svg { display: block; width: 100% !important; height: 100% !important; }
+  /* A tablet prints nothing that is pinned, keeps margins and a footer of its
+     own, and its vh is not the printable height: there the sheet sits in the
+     flow at a width whose height is sure to fit on the page. */
+  #print-root.tablet { position: static; height: auto; overflow: visible; }
+  #print-root.tablet svg { width: 88% !important; height: auto !important; margin: 0 auto; }
 }
