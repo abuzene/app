@@ -71,20 +71,23 @@ function titleBlock(drawing: Drawing, x: number, y: number, w: number, h: number
   const m = drawing.meta;
   let out = rect(x, y, w, h, 'block');
 
-  const logoH = h * 0.3;
-  const rowH = (h - logoH) / 4;
+  const logoH = h * 0.46;
+  const rowH = (h - logoH) / 3;
 
-  // The company mark sits across the top of the block.
+  // The company mark sits left in the top band with the job name beside it,
+  // so a tall mark does not leave the band mostly empty.
   out += hline(x, x + w, y + logoH);
+  const pad = 2.2;
+  const markW = w * 0.44;
   if (m.logo) {
-    const pad = 2.5;
     out +=
       `<image href="${escapeText(m.logo)}" x="${(x + pad).toFixed(2)}" y="${(y + pad).toFixed(2)}" ` +
-      `width="${(w - pad * 2).toFixed(2)}" height="${(logoH - pad * 2).toFixed(2)}" ` +
+      `width="${(markW - pad).toFixed(2)}" height="${(logoH - pad * 2).toFixed(2)}" ` +
       `preserveAspectRatio="xMidYMid meet"/>`;
-  } else {
-    out += text(x + w / 2, y + logoH / 2 + 1.2, m.project || 'PIPING ISOMETRIC', 'tb-title', 'middle');
   }
+  const nameX = m.logo ? x + markW + 2 : x + w / 2;
+  const nameAnchor = m.logo ? 'start' : 'middle';
+  out += text(nameX, y + logoH / 2 + 1.1, clip(m.project || 'PIPING ISOMETRIC', 26), 'tb-title', nameAnchor);
 
   const cell = (col: number, row: number, cols: number, label: string, value: string) => {
     const cw = w / cols;
@@ -97,13 +100,12 @@ function titleBlock(drawing: Drawing, x: number, y: number, w: number, h: number
     return out2;
   };
 
-  out += cell(0, 0, 1, 'PROJECT', m.project);
-  out += cell(0, 1, 1, 'LINE NUMBER', m.lineNumber);
-  out += cell(0, 2, 3, 'DWG No.', m.drawingNo);
-  out += cell(1, 2, 3, 'SHEET', m.sheet);
-  out += cell(2, 2, 3, 'REV', m.revision);
-  out += cell(0, 3, 2, 'DRAWN', m.drawnBy);
-  out += cell(1, 3, 2, 'DATE', m.date);
+  out += cell(0, 0, 1, 'LINE NUMBER', m.lineNumber);
+  out += cell(0, 1, 3, 'DWG No.', m.drawingNo);
+  out += cell(1, 1, 3, 'SHEET', m.sheet);
+  out += cell(2, 1, 3, 'REV', m.revision);
+  out += cell(0, 2, 2, 'DRAWN', m.drawnBy);
+  out += cell(1, 2, 2, 'DATE', m.date);
   return out;
 }
 
@@ -245,7 +247,7 @@ export function renderSheet(drawing: Drawing, analysis: Analysis, size: SheetSiz
   });
 
   // Right hand column: bill of materials, weld summary, title block.
-  const tbH = 46;
+  const tbH = 50;
   const stampH = 13;
   const tbY = H - MARGIN - tbH;
   const stampY = tbY - stampH - 3;
@@ -273,7 +275,7 @@ text { font-family: "Helvetica Neue", Arial, sans-serif; }
 .rule { stroke: #12161c; stroke-width: 0.25; }
 .rule-strong { stroke: #12161c; stroke-width: 0.4; }
 .rule-faint { stroke: #9aa5b4; stroke-width: 0.15; }
-.tb-title { font-size: 3.4px; font-weight: 700; letter-spacing: 0.04em; }
+.tb-title { font-size: 3px; font-weight: 700; letter-spacing: 0.04em; }
 .stamp { fill: none; stroke: #12161c; stroke-width: 0.5; }
 .stamp-text { font-size: 3.6px; font-weight: 700; letter-spacing: 0.12em; }
 .tb-label { font-size: 1.7px; fill: #5b6675; letter-spacing: 0.06em; }

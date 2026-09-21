@@ -14,6 +14,7 @@ import type {
 import { add, angleBetween, direction, length3, scale3, sub } from './iso';
 import { componentTakeout, defaultValveEnds, fittingTakeout, oletTakeout, sizeLabel } from './pipe-data';
 import { flangeJoint, isFlange } from '../render/symbols';
+import platinumLogo from '../assets/platinum-logo.png';
 
 let counter = 0;
 export function uid(prefix: string): string {
@@ -22,20 +23,11 @@ export function uid(prefix: string): string {
 }
 
 /**
- * The default mark on the sheet until a real logo is loaded. Drawn rather than
- * embedded so it stays sharp at any sheet size and costs the drawing nothing.
+ * The company mark carried on every sheet. Imported rather than pasted in as a
+ * string so the build inlines it, which keeps it out of the source and out of
+ * every saved drawing that has not replaced it.
  */
-export const DEFAULT_LOGO =
-  'data:image/svg+xml;utf8,' +
-  encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 64">' +
-      '<text x="130" y="30" text-anchor="middle" font-family="Helvetica Neue,Arial,sans-serif" ' +
-      'font-size="26" font-weight="700" letter-spacing="6" fill="#12161c">PLATINUM</text>' +
-      '<line x1="34" y1="42" x2="226" y2="42" stroke="#12161c" stroke-width="1.5"/>' +
-      '<text x="130" y="56" text-anchor="middle" font-family="Helvetica Neue,Arial,sans-serif" ' +
-      'font-size="9" letter-spacing="3.5" fill="#5b6675">PIPING AND FABRICATION</text>' +
-      '</svg>',
-  );
+export const DEFAULT_LOGO = platinumLogo;
 
 export function emptyMeta(): Meta {
   return {
