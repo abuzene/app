@@ -1,12 +1,13 @@
 import './styles.css';
-import type { Drawing, Vec3 } from './model/types';
+import type { Drawing, Run, Vec3 } from './model/types';
 import type { Preview, Selection } from './render/renderer';
 import type { AppState, Host } from './ui/types';
 import { analyse, emptyDrawing } from './model/drawing';
+import { add, length3, scale3, sub } from './model/iso';
 import { initialCommandState, runCommands } from './model/commands';
 import { deleteNode, deleteRun, ensureNode, removeComponent, route } from './model/edit';
 import { DN_LIST, schedulesFor, sizeLabel } from './model/pipe-data';
-import { northArrow } from './render/renderer';
+import { northArrow, toPaper } from './render/renderer';
 import { renderSheet, type SheetSize } from './render/sheet';
 import { Canvas } from './ui/canvas';
 import { fileStem, renderPanel, renderTabs } from './ui/panels';
@@ -110,6 +111,13 @@ const host: Host = {
   pickLogo() {
     logoInput.click();
   },
+  continueFrom(nodeId) {
+    canvas.setAnchor(nodeId);
+    state.selection = { kind: 'node', id: nodeId };
+    state.commandState.currentNode = nodeId;
+    render();
+    host.notify('Carry on clicking to continue the line.');
+  },
   notify(message) {
     toast = { message, until: Date.now() + 3200 };
     render();
@@ -158,7 +166,138 @@ const canvas = new Canvas(svg, {
     hoverMessage = message;
     renderHud();
   },
+
+  /**
+   * Slides a component along the run it sits in. The drag is live but only the
+   * drop is recorded, so one move is one undo rather than a hundred.
+   */
+  onSlideComponent(componentId, paper, commit) {
+    const run = state.drawing.runs.find((r) => r.inline.some((c) => c.id === componentId));
+    const comp = run?.inline.find((c) => c.id === componentId);
+    if (!run || !comp) return;
+    const offset = offsetFromPaper(run, paper);
+    if (offset === null) return;
+
+    // The drag is shown live by moving the real thing, so the position before
+    // it started is kept and put back before the edit is recorded. Otherwise
+    // undo would restore the drawing to half way through the drag.
+    if (!slideFrom || slideFrom.id !== componentId) {
+      slideFrom = { id: componentId, offset: comp.offset };
+    }
+
+    if (commit) {
+      comp.offset = slideFrom.offset;
+      slideFrom = null;
+      host.edit('Move component', (d) => {
+        const target = d.runs.flatMap((r) => r.inline).find((c) => c.id === componentId);
+        if (target) target.offset = offset;
+      });
+      return;
+    }
+    comp.offset = offset;
+    recompute();
+    renderCanvasOnly();
+    hoverMessage = `${Math.round(offset)} mm along the run`;
+    renderHud();
+  },
+
+  /** Slides a branch point along the line that runs through it. */
+  onSlideNode(nodeId, paper, commit) {
+    const node = state.drawing.nodes.find((n) => n.id === nodeId);
+    if (!node) return;
+    const moved = slideNodeTo(nodeId, paper);
+    if (!moved) return;
+
+    if (!slideNodeFrom || slideNodeFrom.id !== nodeId) {
+      slideNodeFrom = { id: nodeId, pos: { ...node.pos } };
+    }
+
+    if (commit) {
+      node.pos = slideNodeFrom.pos;
+      slideNodeFrom = null;
+      const pos = { ...moved };
+      host.edit('Move branch', (d) => {
+        const target = d.nodes.find((n) => n.id === nodeId);
+        if (target) target.pos = pos;
+      });
+      return;
+    }
+    node.pos = moved;
+    recompute();
+    renderCanvasOnly();
+    hoverMessage = 'sliding along the line';
+    renderHud();
+  },
 });
+
+/** What a slide started from, so undo returns there and not to mid-drag. */
+let slideFrom: { id: string; offset: number } | null = null;
+let slideNodeFrom: { id: string; pos: Vec3 } | null = null;
+
+/** Where along a run a paper point falls, snapped, or null if it cannot be read. */
+function offsetFromPaper(run: Run, paper: { x: number; y: number }): number | null {
+  const a = state.analysis.nodeById.get(run.from);
+  const b = state.analysis.nodeById.get(run.to);
+  if (!a || !b) return null;
+  const pa = toPaper(a.pos, state.drawing);
+  const pb = toPaper(b.pos, state.drawing);
+  const vx = pb.x - pa.x;
+  const vy = pb.y - pa.y;
+  const lenSq = vx * vx + vy * vy;
+  if (lenSq < 1) return null;
+  const t = Math.max(0, Math.min(1, ((paper.x - pa.x) * vx + (paper.y - pa.y) * vy) / lenSq));
+  const total = length3(sub(b.pos, a.pos));
+  const snap = Math.max(1, state.drawing.options.snap);
+  return Math.max(0, Math.min(total, Math.round((t * total) / snap) * snap));
+}
+
+/**
+ * The position a branch point would slide to: along the line that runs through
+ * it, never off either end of the runs it joins.
+ */
+function slideNodeTo(nodeId: string, paper: { x: number; y: number }): Vec3 | null {
+  const info = state.analysis.nodeInfo.get(nodeId);
+  if (!info) return null;
+
+  // The line through the point is the pair of legs that face each other.
+  let through: [Run, Run] | null = null;
+  for (let i = 0; i < info.legs.length && !through; i += 1) {
+    for (let j = i + 1; j < info.legs.length; j += 1) {
+      const a = info.legs[i];
+      const b = info.legs[j];
+      if (a.e * b.e + a.n * b.n + a.u * b.u < -0.999) {
+        through = [info.runs[i], info.runs[j]];
+        break;
+      }
+    }
+  }
+  if (!through) return null;
+
+  const node = state.drawing.nodes.find((n) => n.id === nodeId);
+  if (!node) return null;
+  const farOf = (run: Run) => {
+    const id = run.from === nodeId ? run.to : run.from;
+    return state.analysis.nodeById.get(id);
+  };
+  const back = farOf(through[0]);
+  const forward = farOf(through[1]);
+  if (!back || !forward) return null;
+
+  // Slide between the two ends, leaving a little pipe either side.
+  const span = sub(forward.pos, back.pos);
+  const spanLen = length3(span);
+  if (spanLen < 1) return null;
+  const pa = toPaper(back.pos, state.drawing);
+  const pb = toPaper(forward.pos, state.drawing);
+  const vx = pb.x - pa.x;
+  const vy = pb.y - pa.y;
+  const lenSq = vx * vx + vy * vy;
+  if (lenSq < 1) return null;
+  const snap = Math.max(1, state.drawing.options.snap);
+  const raw = (((paper.x - pa.x) * vx + (paper.y - pa.y) * vy) / lenSq) * spanLen;
+  const at = Math.max(snap, Math.min(spanLen - snap, Math.round(raw / snap) * snap));
+  return add(back.pos, scale3(span, at / spanLen));
+}
 
 let hoverMessage: string | null = null;
 

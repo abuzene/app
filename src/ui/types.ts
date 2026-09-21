@@ -40,4 +40,6 @@ export interface Host {
   notify(message: string): void;
   /** Asks for an image file and stores it in the title block. */
   pickLogo(): void;
+  /** Leaves the route ready to carry on from this point. */
+  continueFrom(nodeId: string): void;
 }

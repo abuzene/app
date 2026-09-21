@@ -171,6 +171,9 @@ function place(host: Host, kind: ComponentKind): void {
         const node = d.nodes.find((n) => n.id === nodeId);
         if (node) node.terminal = { kind: kind as TerminalKind, note: node.terminal?.note };
       });
+      // A flange is as often a joint in the line as the end of it, so the route
+      // stays ready to carry on from here rather than stopping dead.
+      if (kind !== 'CAP') host.continueFrom(nodeId);
       return;
     }
 
@@ -237,8 +240,11 @@ function placeBranch(host: Host, tool: BranchTool): void {
     }
   });
   if (nodeId) {
-    host.select({ kind: 'node', id: nodeId });
-    host.notify(`Now drag from the ${label} to route the branch.`);
+    // The route is left ready at the new point, so the branch is drawn by
+    // clicking where it goes. Dragging the point instead slides it along the
+    // header, which is how it gets to where it actually belongs.
+    host.continueFrom(nodeId);
+    host.notify(`Click where the branch goes, or drag the ${label} along the line to move it.`);
   }
 }
 

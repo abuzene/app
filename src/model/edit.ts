@@ -80,7 +80,33 @@ export function route(
 
   const target = step(from.pos, axis, length);
   const toId = ensureNode(drawing, target);
-  return { run: addRun(drawing, fromId, toId, dn, schedule), nodeId: toId };
+  const run = addRun(drawing, fromId, toId, dn, schedule);
+  // A point the line carries on through is no longer an end, so whatever was
+  // terminating it stops applying — a flange there becomes a joint in the line.
+  if (run) {
+    for (const id of [fromId, toId]) {
+      const node = drawing.nodes.find((n) => n.id === id);
+      const touching = drawing.runs.filter((r) => r.from === id || r.to === id).length;
+      if (node?.terminal && touching > 1) node.terminal = undefined;
+    }
+  }
+  return { run, nodeId: toId };
+}
+
+/**
+ * Where along a run a point sits, as a distance from its start. Used to place
+ * and then slide the things that sit in the line.
+ */
+export function offsetAlongRun(drawing: Drawing, run: Run, pos: Vec3): number {
+  const a = drawing.nodes.find((n) => n.id === run.from);
+  const b = drawing.nodes.find((n) => n.id === run.to);
+  if (!a || !b) return 0;
+  const v = sub(b.pos, a.pos);
+  const len = length3(v);
+  if (len < 0.01) return 0;
+  const d = sub(pos, a.pos);
+  const t = (d.e * v.e + d.n * v.n + d.u * v.u) / (len * len);
+  return Math.max(0, Math.min(len, t * len));
 }
 
 /** The run leaving `nodeId` along `axis`, if there is one. */

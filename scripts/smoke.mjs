@@ -278,9 +278,19 @@ await page.click('#tabs button:has-text("Items")');
 await page.waitForTimeout(300);
 const flangeBom = await page.locator('#tab-body').innerText();
 check('a flange on the line end is taken off once', flangeBom, (v) => /WELD NECK FLANGE/.test(v), 'a weld neck flange');
+// A flange leaves the route ready to carry on, so stop drawing before poking
+// at the drawing again.
+await page.keyboard.press('Escape');
+await page.waitForTimeout(200);
 await page.click('#tabs button:has-text("Route")');
 await page.waitForTimeout(300);
-await endBoxes[0].h.click();
+const endHandles = await page.locator('#canvas circle.hit-dot[data-node]').all();
+let farthest = null;
+for (const handle of endHandles) {
+  const box = await handle.boundingBox();
+  if (box && (!farthest || box.x > farthest.box.x)) farthest = { handle, box };
+}
+await farthest.handle.click({ force: true });
 await page.waitForTimeout(300);
 check(
   'the flange became the end of the line, not a mid-run item',
@@ -329,16 +339,16 @@ await page.locator('.tool[data-olet="BW"]').click();
 await page.waitForTimeout(500);
 check('the header is still whole before the branch is drawn', await headerCut(), (v) => v === 4000, '4000');
 
-// Route a 1" branch off the olet.
+// Route a 1" branch off the olet by clicking where it goes.
 const oletHandle = await page.locator('#canvas .node.selected circle.hit-dot').boundingBox();
 await page.selectOption('#dn', 'DN25');
 await page.waitForTimeout(250);
-await page.mouse.move(oletHandle.x + oletHandle.width / 2, oletHandle.y + oletHandle.height / 2);
-await page.mouse.down();
-await page.mouse.move(oletHandle.x + 130, oletHandle.y - 95, { steps: 14 });
-await page.waitForTimeout(150);
-await page.mouse.up();
+await page.mouse.move(oletHandle.x + 130, oletHandle.y - 95, { steps: 10 });
+await page.waitForTimeout(200);
+await page.mouse.click(oletHandle.x + 130, oletHandle.y - 95);
 await page.waitForTimeout(600);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(200);
 
 check('the olet saddle is drawn on the header', await page.locator('#canvas .olet').count(), (v) => v === 1, '1');
 check('the header loses no length to the olet', await headerCut(), (v) => v === 4000, '4000');
@@ -410,12 +420,12 @@ await page.waitForTimeout(450);
 const teeHandle = await page.locator('#canvas .node.selected circle.hit-dot').boundingBox();
 await page.selectOption('#dn', 'DN80');
 await page.waitForTimeout(250);
-await page.mouse.move(teeHandle.x + teeHandle.width / 2, teeHandle.y + teeHandle.height / 2);
-await page.mouse.down();
-await page.mouse.move(teeHandle.x + 130, teeHandle.y - 95, { steps: 14 });
-await page.waitForTimeout(150);
-await page.mouse.up();
+await page.mouse.move(teeHandle.x + 130, teeHandle.y - 95, { steps: 10 });
+await page.waitForTimeout(200);
+await page.mouse.click(teeHandle.x + 130, teeHandle.y - 95);
 await page.waitForTimeout(600);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(200);
 await page.click('#tabs button:has-text("Items")');
 await page.waitForTimeout(300);
 const teeBom = await page.locator('#tab-body').innerText();
@@ -536,6 +546,81 @@ await page.click('#tabs button:has-text("Title")');
 await page.waitForTimeout(250);
 check('New keeps the project', await page.inputValue('[data-meta="project"]'), (v) => v === 'Carried Over', 'Carried Over');
 check('New clears the line number', await page.inputValue('[data-meta="lineNumber"]'), (v) => v === '', 'empty');
+
+// Things that sit in the line are dragged to where they belong, not left in
+// the middle of the run they were dropped on.
+await startNewDrawing();
+await page.click('#tabs button:has-text("Command")');
+await page.waitForTimeout(200);
+await page.fill('#command-text', '6"\nSCH40\nORIGIN 0 0 0\nE 4000\n+BALL');
+await page.click('[data-a="run-commands"]');
+await page.waitForTimeout(500);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(200);
+await page.click('#tabs button:has-text("Route")');
+await page.waitForTimeout(250);
+
+const valveHandle = await page.locator('#canvas circle.hit-dot[data-component]').first().boundingBox();
+await page.locator('#canvas circle.hit-dot[data-component]').first().click({ force: true });
+await page.waitForTimeout(300);
+const offsetOf = async () => Number(await page.locator('#tab-body [data-f="offset"]').inputValue());
+const middle = await offsetOf();
+check('a valve lands in the middle to begin with', middle, (v) => v === 2000, '2000');
+
+// Drag it back along the pipe towards the start.
+await page.mouse.move(valveHandle.x + valveHandle.width / 2, valveHandle.y + valveHandle.height / 2);
+await page.mouse.down();
+await page.mouse.move(valveHandle.x - 150, valveHandle.y - 87, { steps: 14 });
+await page.waitForTimeout(200);
+await page.mouse.up();
+await page.waitForTimeout(500);
+const dragged = await offsetOf();
+check('dragging slides it along the pipe', dragged, (v) => v < middle - 200, `well under ${middle}`);
+check('and it stays on the pipe', dragged, (v) => v >= 0 && v <= 4000, 'within the run');
+
+await page.click('#undo');
+await page.waitForTimeout(400);
+await page.locator('#canvas circle.hit-dot[data-component]').first().click({ force: true });
+await page.waitForTimeout(300);
+check('undo puts it back where it was', await offsetOf(), (v) => v === middle, `${middle}`);
+
+// A flange on the end does not stop the line: it carries on through.
+await startNewDrawing();
+await page.click('#tabs button:has-text("Command")');
+await page.waitForTimeout(200);
+await page.fill('#command-text', '6"\nSCH40\nORIGIN 0 0 0\nE 2000\nEND FLG');
+await page.click('[data-a="run-commands"]');
+await page.waitForTimeout(500);
+await page.click('#tabs button:has-text("Route")');
+await page.waitForTimeout(250);
+const runsBeforeFlange = await page.locator('#tab-body .run-list tbody tr').count();
+// Typed commands leave the route armed at the end they finished on; find that
+// end by position, since nothing is selected.
+let flangedEnd = null;
+for (const handle of await page.locator('#canvas circle.hit-dot[data-node]').all()) {
+  const box = await handle.boundingBox();
+  if (box && (!flangedEnd || box.x > flangedEnd.x)) flangedEnd = box;
+}
+await page.mouse.move(flangedEnd.x + 140, flangedEnd.y - 82, { steps: 10 });
+await page.waitForTimeout(200);
+await page.mouse.click(flangedEnd.x + 140, flangedEnd.y - 82);
+await page.waitForTimeout(500);
+check(
+  'the line carries on past a flange',
+  await page.locator('#tab-body .run-list tbody tr').count(),
+  (v) => v === runsBeforeFlange + 1,
+  `${runsBeforeFlange + 1}`,
+);
+await page.click('#tabs button:has-text("Items")');
+await page.waitForTimeout(300);
+check(
+  'and the flange is no longer counted as an end',
+  await page.locator('#tab-body').innerText(),
+  (v) => !/WELD NECK FLANGE/.test(v),
+  'no end flange',
+);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(200);
 
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 

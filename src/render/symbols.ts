@@ -228,33 +228,50 @@ export function capSymbol(f: Frame, facing: Facing = 1): string {
   );
 }
 
-/** A concentric reducer: large end square on, tapering to the small end. */
+/**
+ * A concentric reducer: both ends on the same centreline, the body tapering
+ * between them. Filled, so the pipe does not show through the middle of it.
+ */
 function concentricReducer(f: Frame): string {
   const s = f.s;
+  const big = s * 0.85;
+  const small = s * 0.42;
   return poly(
-    [pt(f, -s * 0.9, 0, -s * 0.85), pt(f, -s * 0.9, 0, s * 0.85), pt(f, s * 0.9, 0, 0)],
-    'sym-hollow',
+    [
+      pt(f, -s * 0.9, 0, -big),
+      pt(f, -s * 0.9, 0, big),
+      pt(f, s * 0.9, 0, small),
+      pt(f, s * 0.9, 0, -small),
+    ],
+    'sym-fill',
   );
 }
 
-/** An eccentric reducer: the same taper, flat on one side. */
+/**
+ * An eccentric reducer: the same taper with one side flat, so the two ends
+ * share that side rather than a centreline. Drawn flat on the bottom, which is
+ * how it is fitted on a horizontal line to keep the invert level and let the
+ * line drain.
+ */
 function eccentricReducer(f: Frame): string {
   const s = f.s;
+  const big = s * 0.85;
+  const small = s * 0.42;
   return poly(
     [
-      pt(f, -s * 0.9, 0, -s * 0.85),
-      pt(f, -s * 0.9, 0, s * 0.85),
-      pt(f, s * 0.9, 0, s * 0.85),
-      pt(f, s * 0.9, 0, s * 0.35),
+      pt(f, -s * 0.9, 0, -big),
+      pt(f, -s * 0.9, 0, big),
+      pt(f, s * 0.9, 0, -big + small * 2),
+      pt(f, s * 0.9, 0, -big),
     ],
-    'sym-hollow',
+    'sym-fill',
   );
 }
 
 /**
  * An olet: the forged body that straddles the header where the branch leaves
  * it, drawn as the hexagon these sheets use. The frame runs along the branch,
- * so the hexagon is laid out across it — that is, along the header it sits on.
+ * so the hexagon is laid out in the plane the branch and header share.
  */
 export function oletSymbol(f: Frame): string {
   const r = f.s * 0.85;

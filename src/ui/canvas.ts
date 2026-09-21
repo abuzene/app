@@ -11,15 +11,21 @@ export interface CanvasCallbacks {
   onStart(): void;
   onPreview(preview: Preview | null): void;
   onHover(message: string | null): void;
+  /** Slides a component along the run it sits in. */
+  onSlideComponent(componentId: string, paper: { x: number; y: number }, commit: boolean): void;
+  /** Slides a branch point along the line it sits in. */
+  onSlideNode(nodeId: string, paper: { x: number; y: number }, commit: boolean): void;
 }
 
 interface DragState {
-  kind: 'pan' | 'route';
+  kind: 'pan' | 'route' | 'slide-component' | 'slide-node';
   pointerId: number;
   startClientX: number;
   startClientY: number;
   startView: ViewBox;
   fromId?: string;
+  /** What is being slid, for the slide drags. */
+  targetId?: string;
   moved: boolean;
   /** A pan that places a run instead, if the pointer never really moved. */
   placing?: boolean;
@@ -180,13 +186,41 @@ export class Canvas {
     const panRequested = event.button === 1 || event.button === 2 || event.shiftKey;
 
     if (!panRequested && compEl) {
-      this.cb.onSelect({ kind: 'component', id: compEl.getAttribute('data-component')! });
+      const id = compEl.getAttribute('data-component')!;
+      this.cb.onSelect({ kind: 'component', id });
+      // Dragging slides it along the pipe: dropping something in the middle of
+      // a run and leaving it there is never where it actually goes.
+      this.svg.setPointerCapture(event.pointerId);
+      this.drag = {
+        kind: 'slide-component',
+        pointerId: event.pointerId,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        startView,
+        targetId: id,
+        moved: false,
+      };
       return;
     }
 
     if (!panRequested && nodeEl) {
       const id = nodeEl.getAttribute('data-node')!;
       this.svg.setPointerCapture(event.pointerId);
+      // A branch or a joint sitting along a line slides along it. A corner or
+      // an end has nothing to slide along, so dragging routes from it.
+      if (this.slidesAlongLine(id)) {
+        this.drag = {
+          kind: 'slide-node',
+          pointerId: event.pointerId,
+          startClientX: event.clientX,
+          startClientY: event.clientY,
+          startView,
+          targetId: id,
+          moved: false,
+        };
+        this.cb.onSelect({ kind: 'node', id });
+        return;
+      }
       this.drag = {
         kind: 'route',
         pointerId: event.pointerId,
@@ -280,6 +314,13 @@ export class Canvas {
     const dyScreen = event.clientY - drag.startClientY;
     if (Math.abs(dxScreen) > 2 || Math.abs(dyScreen) > 2) drag.moved = true;
 
+    if (drag.kind === 'slide-component' || drag.kind === 'slide-node') {
+      const here = this.toPaper(event.clientX, event.clientY);
+      if (drag.kind === 'slide-component') this.cb.onSlideComponent(drag.targetId!, here, false);
+      else this.cb.onSlideNode(drag.targetId!, here, false);
+      return;
+    }
+
     if (drag.kind === 'pan') {
       const rect = this.svg.getBoundingClientRect();
       this.view.x = drag.startView.x - (dxScreen / Math.max(rect.width, 1)) * drag.startView.w;
@@ -292,6 +333,25 @@ export class Canvas {
     // far along it the pointer has reached.
     this.previewFrom(drag.fromId!, event.clientX, event.clientY);
   };
+
+  /**
+   * Whether a point has a line running straight through it — a tee, an olet or
+   * a plain joint — in which case dragging should slide it along that line.
+   */
+  private slidesAlongLine(nodeId: string): boolean {
+    if (!this.analysis) return false;
+    const info = this.analysis.nodeInfo.get(nodeId);
+    if (!info || info.legs.length < 2) return false;
+    for (let i = 0; i < info.legs.length; i += 1) {
+      for (let j = i + 1; j < info.legs.length; j += 1) {
+        const a = info.legs[i];
+        const b = info.legs[j];
+        const dot = a.e * b.e + a.n * b.n + a.u * b.u;
+        if (dot < -0.999) return true;
+      }
+    }
+    return false;
+  }
 
   /** Offers the run that would be drawn from `fromId` to the pointer. */
   private previewFrom(fromId: string, clientX: number, clientY: number): boolean {
@@ -325,6 +385,14 @@ export class Canvas {
     this.drag = null;
     this.svg.classList.remove('panning');
     if (this.svg.hasPointerCapture(event.pointerId)) this.svg.releasePointerCapture(event.pointerId);
+
+    if ((drag.kind === 'slide-component' || drag.kind === 'slide-node') && drag.moved) {
+      const here = this.toPaper(event.clientX, event.clientY);
+      if (drag.kind === 'slide-component') this.cb.onSlideComponent(drag.targetId!, here, true);
+      else this.cb.onSlideNode(drag.targetId!, here, true);
+      this.cb.onHover(null);
+      return;
+    }
 
     if (drag.kind === 'route' && this.preview && drag.moved) {
       this.cb.onRoute(this.preview.fromId, this.preview.axis, this.preview.length);
