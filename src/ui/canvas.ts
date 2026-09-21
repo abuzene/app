@@ -17,10 +17,20 @@ export interface CanvasCallbacks {
   onSlideNode(nodeId: string, paper: { x: number; y: number }, commit: boolean): void;
   /** A dimension figure was tapped, to be typed over. */
   onEditDimension(runId: string, index: number, clientX: number, clientY: number): void;
+  /** A weld number was tapped, to be typed over. */
+  onEditWeld(key: string, clientX: number, clientY: number): void;
+  /** Drags one end of a run along the run's own line. */
+  onStretchRun(runId: string, end: 'from' | 'to', paper: { x: number; y: number }, commit: boolean): void;
+  /** Moves a weld number tag; the offset is from the weld, in paper units. */
+  onSlideTag(key: string, offset: { dx: number; dy: number }, commit: boolean): void;
 }
 
 interface DragState {
-  kind: 'pan' | 'route' | 'slide-component' | 'slide-node';
+  kind: 'pan' | 'route' | 'slide-component' | 'slide-node' | 'stretch' | 'slide-tag';
+  /** Which end of the run a stretch moves. */
+  end?: 'from' | 'to';
+  /** Where a dragged tag's weld is, in paper units. */
+  anchor?: { x: number; y: number };
   pointerId: number;
   startClientX: number;
   startClientY: number;
@@ -190,13 +200,16 @@ export class Canvas {
     const runEl = target?.closest('[data-run]');
     const compEl = target?.closest('[data-component]');
     const weldEl = target?.closest('[data-weld]');
+    const tagEl = target?.closest('[data-weld-tag]');
     const dimEl = target?.closest('[data-dim]');
+    const handleEl = target?.closest('[data-run-end]');
 
     const startView = { ...this.view };
     const panRequested = fingers || event.button === 1 || event.button === 2 || event.shiftKey;
 
     // A finger drag moves the sheet; a finger tap selects whatever is under it.
     if (fingers) {
+      if (dimEl || weldEl) event.preventDefault();
       this.svg.setPointerCapture(event.pointerId);
       this.svg.classList.add('panning');
       this.drag = {
@@ -220,19 +233,75 @@ export class Canvas {
       return;
     }
 
-    // A dimension figure is tapped to be typed over.
+    // A dimension figure is tapped to be typed over. The box opens when the
+    // pointer lifts, which is when a keyboard is allowed to come up; the
+    // mouse events that would follow and take focus back are not let through.
     if (!panRequested && dimEl) {
-      // The box that opens takes focus; the mouse events that follow this
-      // pointer would take it straight back, so they are not let through.
       event.preventDefault();
-      const [runId, index] = dimEl.getAttribute('data-dim')!.split(':');
-      this.cb.onEditDimension(runId, Number(index), event.clientX, event.clientY);
+      this.drag = {
+        kind: 'pan',
+        pointerId: event.pointerId,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        startView,
+        moved: false,
+        tapDim: dimEl.getAttribute('data-dim')!,
+      };
       return;
     }
 
-    // A weld number is picked to be edited; it is not something to drag.
+    // A weld number tag is dragged to where it reads best, its leader staying
+    // on the weld; tapped, it opens to be typed over.
+    if (!panRequested && tagEl) {
+      event.preventDefault();
+      this.svg.setPointerCapture(event.pointerId);
+      const key = tagEl.getAttribute('data-weld')!;
+      this.cb.onSelect({ kind: 'weld', key });
+      this.drag = {
+        kind: 'slide-tag',
+        pointerId: event.pointerId,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        startView,
+        targetId: key,
+        anchor: { x: Number(tagEl.getAttribute('data-ax')), y: Number(tagEl.getAttribute('data-ay')) },
+        moved: false,
+      };
+      return;
+    }
+
+    // The weld mark itself: picked, and opened to be typed over.
     if (!panRequested && weldEl) {
-      this.cb.onSelect({ kind: 'weld', key: weldEl.getAttribute('data-weld')! });
+      event.preventDefault();
+      const key = weldEl.getAttribute('data-weld')!;
+      this.cb.onSelect({ kind: 'weld', key });
+      this.drag = {
+        kind: 'slide-tag',
+        pointerId: event.pointerId,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        startView,
+        targetId: key,
+        moved: false,
+      };
+      return;
+    }
+
+    // A handle on the end of a picked run: dragged along the run's line to
+    // make it longer or shorter, never to turn it.
+    if (!panRequested && handleEl) {
+      const [runId, end] = handleEl.getAttribute('data-run-end')!.split(':');
+      this.svg.setPointerCapture(event.pointerId);
+      this.drag = {
+        kind: 'stretch',
+        pointerId: event.pointerId,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        startView,
+        targetId: runId,
+        end: end as 'from' | 'to',
+        moved: false,
+      };
       return;
     }
 
@@ -261,16 +330,28 @@ export class Canvas {
       // an end: dragging it makes the pipe longer or shorter, never turns it.
       // Drawing on is done by tapping. A corner has nothing to slide along, so
       // dragging routes from it.
-      if (this.slidesAlongLine(id) || this.isFreeEnd(id)) {
-        this.drag = {
-          kind: 'slide-node',
-          pointerId: event.pointerId,
-          startClientX: event.clientX,
-          startClientY: event.clientY,
-          startView,
-          targetId: id,
-          moved: false,
-        };
+      const endOf = this.freeEndOf(id);
+      if (this.slidesAlongLine(id) || endOf) {
+        this.drag = endOf
+          ? {
+              kind: 'stretch',
+              pointerId: event.pointerId,
+              startClientX: event.clientX,
+              startClientY: event.clientY,
+              startView,
+              targetId: endOf.runId,
+              end: endOf.end,
+              moved: false,
+            }
+          : {
+              kind: 'slide-node',
+              pointerId: event.pointerId,
+              startClientX: event.clientX,
+              startClientY: event.clientY,
+              startView,
+              targetId: id,
+              moved: false,
+            };
         // Touching a point while drawing moves the route there.
         if (this.anchor) this.anchor = id;
         this.cb.onSelect({ kind: 'node', id });
@@ -375,10 +456,13 @@ export class Canvas {
     const dyScreen = event.clientY - drag.startClientY;
     if (Math.abs(dxScreen) > 2 || Math.abs(dyScreen) > 2) drag.moved = true;
 
-    if (drag.kind === 'slide-component' || drag.kind === 'slide-node') {
+    if (drag.kind === 'slide-component' || drag.kind === 'slide-node' || drag.kind === 'stretch' || drag.kind === 'slide-tag') {
+      if (!drag.moved) return;
       const here = this.toPaper(event.clientX, event.clientY);
       if (drag.kind === 'slide-component') this.cb.onSlideComponent(drag.targetId!, here, false);
-      else this.cb.onSlideNode(drag.targetId!, here, false);
+      else if (drag.kind === 'slide-node') this.cb.onSlideNode(drag.targetId!, here, false);
+      else if (drag.kind === 'stretch') this.cb.onStretchRun(drag.targetId!, drag.end!, here, false);
+      else if (drag.anchor) this.cb.onSlideTag(drag.targetId!, { dx: here.x - drag.anchor.x, dy: here.y - drag.anchor.y }, false);
       return;
     }
 
@@ -414,9 +498,12 @@ export class Canvas {
     return false;
   }
 
-  private isFreeEnd(nodeId: string): boolean {
+  /** The one run a free end belongs to, and which end of it this is. */
+  private freeEndOf(nodeId: string): { runId: string; end: 'from' | 'to' } | null {
     const info = this.analysis?.nodeInfo.get(nodeId);
-    return !!info && info.runs.length === 1;
+    if (!info || info.runs.length !== 1) return null;
+    const run = info.runs[0];
+    return { runId: run.id, end: run.from === nodeId ? 'from' : 'to' };
   }
 
   /** Offers the run that would be drawn from `fromId` to the pointer. */
@@ -452,11 +539,18 @@ export class Canvas {
     this.svg.classList.remove('panning');
     if (this.svg.hasPointerCapture(event.pointerId)) this.svg.releasePointerCapture(event.pointerId);
 
-    if ((drag.kind === 'slide-component' || drag.kind === 'slide-node') && drag.moved) {
+    if ((drag.kind === 'slide-component' || drag.kind === 'slide-node' || drag.kind === 'stretch' || drag.kind === 'slide-tag') && drag.moved) {
       const here = this.toPaper(event.clientX, event.clientY);
       if (drag.kind === 'slide-component') this.cb.onSlideComponent(drag.targetId!, here, true);
-      else this.cb.onSlideNode(drag.targetId!, here, true);
+      else if (drag.kind === 'slide-node') this.cb.onSlideNode(drag.targetId!, here, true);
+      else if (drag.kind === 'stretch') this.cb.onStretchRun(drag.targetId!, drag.end!, here, true);
+      else if (drag.anchor) this.cb.onSlideTag(drag.targetId!, { dx: here.x - drag.anchor.x, dy: here.y - drag.anchor.y }, true);
       this.cb.onHover(null);
+      return;
+    }
+    // A weld number tapped, not dragged: open it to be typed over.
+    if (drag.kind === 'slide-tag' && !drag.moved) {
+      this.cb.onEditWeld(drag.targetId!, event.clientX, event.clientY);
       return;
     }
 
@@ -464,9 +558,12 @@ export class Canvas {
     // which is how drawing is stopped without a keyboard.
     if (drag.kind === 'pan' && !drag.moved && drag.tapDim) {
       const [runId, index] = drag.tapDim.split(':');
-      // After the touch's own mouse events, which would blur the box.
-      const { clientX, clientY } = event;
-      setTimeout(() => this.cb.onEditDimension(runId, Number(index), clientX, clientY), 60);
+      this.cb.onEditDimension(runId, Number(index), event.clientX, event.clientY);
+      return;
+    }
+    if (drag.kind === 'pan' && !drag.moved && drag.tapSelect?.kind === 'weld') {
+      this.cb.onSelect(drag.tapSelect);
+      this.cb.onEditWeld(drag.tapSelect.key, event.clientX, event.clientY);
       return;
     }
     if (drag.kind === 'pan' && !drag.moved && drag.tapSelect !== undefined) {

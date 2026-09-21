@@ -1146,6 +1146,163 @@ check(
 await page.keyboard.press('Escape');
 await page.waitForTimeout(200);
 
+/* --------------------------------------------- stretching, tags, flanges */
+
+// A picked run shows a handle at each end; dragging one makes the run longer
+// or shorter along its own line.
+await startNewDrawing();
+await page.click('#tabs button:has-text("Command")');
+await page.waitForTimeout(200);
+await page.fill('#command-text', '3"\nSCH40\nORIGIN 0 0 0\nE 1000\nN 800');
+await page.click('[data-a="run-commands"]');
+await page.waitForTimeout(500);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(200);
+await page.click('#tabs button:has-text("Route")');
+await page.waitForTimeout(150);
+await page.locator('#canvas [data-run]').first().click({ force: true });
+await page.waitForTimeout(250);
+check('a picked run shows handles at both ends', await page.locator('#canvas [data-run-end]').count(), (v) => v === 2, '2');
+const toHandle = await page.locator('#canvas [data-run-end$=":to"]').first().boundingBox();
+const lenBefore = Number(await page.locator('#tab-body [data-f="length"]').inputValue());
+await page.mouse.move(toHandle.x + toHandle.width / 2, toHandle.y + toHandle.height / 2);
+await page.mouse.down();
+// Pull along east, and a little off it: the run must not turn.
+await page.mouse.move(toHandle.x + toHandle.width / 2 + 90, toHandle.y + toHandle.height / 2 + 40, { steps: 10 });
+await page.mouse.up();
+await page.waitForTimeout(400);
+await page.locator('#canvas [data-run]').first().click({ force: true });
+await page.waitForTimeout(250);
+check('dragging a handle lengthens the run', Number(await page.locator('#tab-body [data-f="length"]').inputValue()), (v) => v > lenBefore, `more than ${lenBefore}`);
+check('and keeps its direction', await page.locator('#tab-body .run-list tbody tr').first().innerText(), (v) => /\tE\t/.test(v), 'still E');
+check('and the rest of the route came along', Number(await page.locator('#tab-body [data-run-len]').nth(1).inputValue()), (v) => v === 800, 'the N run still 800');
+await page.click('#undo');
+await page.waitForTimeout(300);
+
+// Not to scale, a run is drawn to where the pencil put it, and stays there
+// when its true length is typed; dragging its end changes only the drawing.
+await page.click('#view-menu-button').catch(() => {});
+await page.click('#opt-schematic');
+await page.waitForTimeout(400);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
+const nodesS = await page.locator('#canvas circle.hit-dot[data-node]').all();
+let topS = null;
+for (const h of nodesS) {
+  const bb = await h.boundingBox();
+  if (bb && (!topS || bb.y < topS.y)) topS = bb;
+}
+await page.mouse.click(topS.x + topS.width / 2, topS.y + topS.height / 2);
+await page.waitForTimeout(200);
+await page.click('#tab-body [data-a="draw-from"]');
+await page.waitForTimeout(200);
+const upX = topS.x + topS.width / 2;
+const upY = topS.y + topS.height / 2 - 70;
+await page.mouse.move(upX, upY, { steps: 6 });
+await page.waitForTimeout(100);
+await page.mouse.click(upX, upY);
+await page.waitForTimeout(400);
+let newEnd = null;
+for (const h of await page.locator('#canvas circle.hit-dot[data-node]').all()) {
+  const bb = await h.boundingBox();
+  if (bb && (!newEnd || bb.y < newEnd.y)) newEnd = bb;
+}
+check('not to scale, the run ends where it was drawn to', Math.abs(newEnd.y + newEnd.height / 2 - upY), (v) => v < 6, 'within 6px');
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
+const figures5 = await page.locator('#canvas [data-dim]').all();
+await figures5[figures5.length - 1].click({ force: true });
+await page.waitForTimeout(300);
+await page.fill('.dim-editor', '2500');
+await page.press('.dim-editor', 'Enter');
+await page.waitForTimeout(400);
+let endAfterType = null;
+for (const h of await page.locator('#canvas circle.hit-dot[data-node]').all()) {
+  const bb = await h.boundingBox();
+  if (bb && (!endAfterType || bb.y < endAfterType.y)) endAfterType = bb;
+}
+check('typing its true length does not move the drawn end', Math.abs(endAfterType.y - newEnd.y), (v) => v < 2, 'unchanged');
+const arcBefore = await page.evaluate(() => document.querySelector('#canvas path.pipe')?.getAttribute('d'));
+await page.mouse.move(endAfterType.x + endAfterType.width / 2, endAfterType.y + endAfterType.height / 2);
+await page.mouse.down();
+await page.mouse.move(endAfterType.x + endAfterType.width / 2, endAfterType.y + endAfterType.height / 2 - 50, { steps: 8 });
+await page.mouse.up();
+await page.waitForTimeout(400);
+let endAfterDrag = null;
+for (const h of await page.locator('#canvas circle.hit-dot[data-node]').all()) {
+  const bb = await h.boundingBox();
+  if (bb && (!endAfterDrag || bb.y < endAfterDrag.y)) endAfterDrag = bb;
+}
+check('dragging the end moves it on the drawing', endAfterType.y - endAfterDrag.y, (v) => v > 30, 'up by more than 30px');
+check('without touching the elbows', await page.evaluate(() => document.querySelector('#canvas path.pipe')?.getAttribute('d')), (v) => v === arcBefore, 'the same arc');
+await page.locator('#canvas [data-run]').last().click({ force: true });
+await page.waitForTimeout(250);
+check('and without changing the true length', Number(await page.locator('#tab-body [data-f="length"]').inputValue()), (v) => v === 2500, '2500');
+await page.click('#view-menu-button').catch(() => {});
+await page.click('#opt-schematic');
+await page.waitForTimeout(400);
+
+// A weld number tag is dragged to where it reads best; its leader stays put.
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
+const tag = await page.locator('#canvas [data-weld-tag]').first().boundingBox();
+const leaderBefore = await page.evaluate(() => {
+  const l = document.querySelector('#canvas .weld-leader');
+  return l && [l.getAttribute('x1'), l.getAttribute('y1')].join(',');
+});
+await page.mouse.move(tag.x + tag.width / 2, tag.y + tag.height / 2);
+await page.mouse.down();
+await page.mouse.move(tag.x + tag.width / 2 + 80, tag.y + tag.height / 2 - 60, { steps: 8 });
+await page.mouse.up();
+await page.waitForTimeout(400);
+const tagAfter = await page.locator('#canvas [data-weld-tag]').first().boundingBox();
+check('a weld tag can be dragged', Math.hypot(tagAfter.x - tag.x, tagAfter.y - tag.y), (v) => v > 50, 'moved more than 50px');
+check(
+  'and its leader stays on the weld',
+  await page.evaluate(() => {
+    const l = document.querySelector('#canvas .weld-leader');
+    return l && [l.getAttribute('x1'), l.getAttribute('y1')].join(',');
+  }),
+  (v) => v === leaderBefore,
+  leaderBefore,
+);
+// Tapped, it opens to be typed over, keyboard and all.
+await page.mouse.click(tagAfter.x + tagAfter.width / 2, tagAfter.y + tagAfter.height / 2);
+await page.waitForTimeout(300);
+check('tapping a weld tag opens it for typing', await page.locator('.dim-editor').count(), (v) => v === 1, '1');
+check('with the number in it', await page.locator('.dim-editor').inputValue(), (v) => /^W\d+$/.test(v), 'a weld number');
+check('as text, so a name can be typed', await page.locator('.dim-editor').getAttribute('type'), (v) => v === 'text', 'text');
+await page.fill('.dim-editor', 'TGU 3.2');
+await page.press('.dim-editor', 'Enter');
+await page.waitForTimeout(400);
+check(
+  'and the typed name shows',
+  await page.evaluate(() => [...document.querySelectorAll('#canvas .weld-no')].some((t) => t.textContent === 'TGU 3.2')),
+  (v) => v === true,
+  'true',
+);
+
+// Ending with a flange ends the line: the next tap draws nothing from it.
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
+let freeEnd = null;
+for (const h of await page.locator('#canvas circle.hit-dot[data-node]').all()) {
+  const bb = await h.boundingBox();
+  if (bb && (!freeEnd || bb.y < freeEnd.y)) freeEnd = bb;
+}
+await page.mouse.click(freeEnd.x + freeEnd.width / 2, freeEnd.y + freeEnd.height / 2);
+await page.waitForTimeout(200);
+await page.click('#tab-body [data-a="draw-from"]');
+await page.waitForTimeout(200);
+await page.click('.tool[data-kind="FLG_WN"]');
+await page.waitForTimeout(400);
+check('a flange on the end puts the pencil down', await page.locator('#hud-stop').count(), (v) => v === 0, '0');
+const runsAtFlange = await page.locator('#tab-body .run-list tbody tr').count();
+await page.mouse.click(freeEnd.x + freeEnd.width / 2 + 120, freeEnd.y + freeEnd.height / 2 - 70);
+await page.waitForTimeout(400);
+check('so the next tap draws nothing from it', await page.locator('#tab-body .run-list tbody tr').count(), (v) => v === runsAtFlange, `${runsAtFlange}`);
+check('and no mating flange is drawn', await page.locator('#canvas .node .sym-dashed').count(), (v) => v === 0, '0');
+
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 
 await browser.close();

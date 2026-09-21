@@ -85,9 +85,10 @@ function titleBlock(drawing: Drawing, x: number, y: number, w: number, h: number
       `width="${(markW - pad).toFixed(2)}" height="${(logoH - pad * 2).toFixed(2)}" ` +
       `preserveAspectRatio="xMidYMid meet"/>`;
   }
-  const nameX = m.logo ? x + markW + 2 : x + w / 2;
-  const nameAnchor = m.logo ? 'start' : 'middle';
-  out += text(nameX, y + logoH / 2 + 1.1, clip(m.project || 'PIPING ISOMETRIC', 26), 'tb-title', nameAnchor);
+  // The mark and the title each in a cell of their own.
+  if (m.logo) out += vline(x + markW, y, y + logoH, 'block');
+  const nameX = m.logo ? x + markW + (w - markW) / 2 : x + w / 2;
+  out += text(nameX, y + logoH / 2 + 1.1, clip(m.project || 'PIPING ISOMETRIC', 26), 'tb-title', 'middle');
 
   const cell = (col: number, row: number, cols: number, label: string, value: string) => {
     const cw = w / cols;

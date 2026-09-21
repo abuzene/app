@@ -173,9 +173,11 @@ function place(host: Host, kind: ComponentKind): void {
         const node = d.nodes.find((n) => n.id === nodeId);
         if (node) node.terminal = { kind: kind as TerminalKind, note: node.terminal?.note };
       });
-      // The line can carry on past a flange, by bolting another to it: the
-      // route stays ready here. A cap or a blind closes the line for good.
-      if (kind !== 'CAP' && kind !== 'FLG_BLIND') host.continueFrom(nodeId);
+      // Ending with a flange ends the line: the pencil is put down, so the
+      // next tap does not draw on from it. The line can still carry on later,
+      // by drawing from the point again — another flange bolts to this one.
+      host.stopDrawing();
+      host.select({ kind: 'node', id: nodeId });
       return;
     }
 

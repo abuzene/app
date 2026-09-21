@@ -62,6 +62,8 @@ export function route(
   dn: string,
   schedule: string,
   depth = 0,
+  /** How long to draw the run when the sheet is not to scale: where the pencil put it. */
+  visual?: number,
 ): RouteResult | null {
   const from = drawing.nodes.find((n) => n.id === fromId);
   if (!from || length <= 0) return null;
@@ -89,7 +91,7 @@ export function route(
         const midId = splitRun(drawing, run.id, distance);
         return midId ? { run: drawing.runs.find((r) => r.id === run.id) ?? run, nodeId: midId } : null;
       }
-      return route(drawing, farId, axis, length - farLength, dn, schedule, depth + 1);
+      return route(drawing, farId, axis, length - farLength, dn, schedule, depth + 1, visual === undefined ? undefined : Math.max(1, visual - farLength));
     }
   }
 
@@ -98,7 +100,11 @@ export function route(
     return { run: null, nodeId: fromId, refused: 'That would lie on top of a line already drawn.' };
   }
   const toId = ensureNode(drawing, target);
+  const fresh = !runBetween(drawing, fromId, toId);
   const run = addRun(drawing, fromId, toId, dn, schedule);
+  // Drawn not to scale, the run still ends where the pencil put it. Typed
+  // runs carry no drawn length and take the sheet's even spacing.
+  if (run && fresh && visual !== undefined) run.visual = visual;
   if (run) settleEnds(drawing, [fromId, toId]);
   return { run, nodeId: toId };
 }
@@ -330,6 +336,11 @@ export function splitRun(drawing: Drawing, runId: string, distance: number): str
   };
   run.inline = run.inline.filter((c) => c.offset <= distance);
   run.to = midId;
+  // The two halves share the drawn length the way they share the true one.
+  if (run.visual !== undefined) {
+    tail.visual = run.visual * (1 - t);
+    run.visual = run.visual * t;
+  }
   drawing.runs.splice(drawing.runs.indexOf(run) + 1, 0, tail);
   return midId;
 }
@@ -341,11 +352,22 @@ export function splitRun(drawing: Drawing, runId: string, distance: number): str
  * independently, so only the node itself is moved and the loop re-closes.
  */
 export function setRunLength(drawing: Drawing, runId: string, length: number): boolean {
+  return stretchRun(drawing, runId, length, 'to');
+}
+
+/**
+ * Sets a run's length by moving one of its ends along its own line — never
+ * turning it. `end` says which end moves; the other stays put.
+ */
+export function stretchRun(drawing: Drawing, runId: string, length: number, end: 'from' | 'to'): boolean {
   const run = drawing.runs.find((r) => r.id === runId);
   if (!run || length <= 0) return false;
-  const from = drawing.nodes.find((n) => n.id === run.from);
-  const to = drawing.nodes.find((n) => n.id === run.to);
-  if (!from || !to) return false;
+  const start = drawing.nodes.find((n) => n.id === run.from);
+  const finish = drawing.nodes.find((n) => n.id === run.to);
+  if (!start || !finish) return false;
+  // Seen from the end that stays: `from` is fixed, `to` moves.
+  const from = end === 'to' ? start : finish;
+  const to = end === 'to' ? finish : start;
 
   const current = length3(sub(to.pos, from.pos));
   if (current < 0.01) return false;
@@ -360,6 +382,13 @@ export function setRunLength(drawing: Drawing, runId: string, length: number): b
     u: unit.u * (length - current),
   };
   if (Math.abs(delta.e) < 1e-6 && Math.abs(delta.n) < 1e-6 && Math.abs(delta.u) < 1e-6) return false;
+  const startBefore = { ...start.pos };
+  // Whatever sits along the run keeps its place in space; once the start has
+  // moved, its distance from the start has changed by as much.
+  const settleInline = () => {
+    const shift = length3(sub(start.pos, startBefore)) > 1e-6 ? length - current : 0;
+    for (const comp of run.inline) comp.offset = Math.max(0, Math.min(length, comp.offset + shift));
+  };
 
   // A point the line runs straight through — a tee, a flange, a plain joint —
   // is placed by the lengths either side of it. Changing one side slides the
@@ -400,13 +429,12 @@ export function setRunLength(drawing: Drawing, runId: string, length: number): b
   };
   const onward = beyond(to.id, from.pos);
   if (onward && slideThrough(to, onward, delta)) {
-    for (const comp of run.inline) comp.offset = Math.max(0, Math.min(length, comp.offset));
+    settleInline();
     return true;
   }
   const backward = beyond(from.id, to.pos);
   if (backward && slideThrough(from, backward, scale3(delta, -1))) {
-    // The start moved, so what sits along this run keeps its distance from the end.
-    for (const comp of run.inline) comp.offset = Math.max(0, Math.min(length, comp.offset + (length - current)));
+    settleInline();
     return true;
   }
 
@@ -440,9 +468,7 @@ export function setRunLength(drawing: Drawing, runId: string, length: number): b
     const node = drawing.nodes.find((n) => n.id === id);
     if (node) node.pos = add(node.pos, delta);
   }
-
-  // Component offsets on this run are measured from its start, so clamp them.
-  for (const comp of run.inline) comp.offset = Math.max(0, Math.min(length, comp.offset));
+  settleInline();
   return true;
 }
 

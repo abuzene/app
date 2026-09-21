@@ -85,6 +85,7 @@ export function contentCss({ k, u, symbol = 4, dark = false }: ContentStyleOptio
 .tag, .note { fill: ${ink}; font-size: ${t(0.78)}px; }
 .node-label { fill: ${accent}; font-size: ${t(0.85)}px; font-weight: 600; }
 .node-mark { fill: none; stroke: ${accent}; stroke-width: ${w(2)}; }
+.run-handle { fill: ${dark ? '#0d1117' : '#ffffff'}; stroke: ${accent}; stroke-width: ${w(2)}; pointer-events: none; }
 .node.selected .node-label { fill: ${accent}; }
 `;
 }

@@ -44,4 +44,6 @@ export interface Host {
   continueFrom(nodeId: string): void;
   /** Opens a dimension on the drawing for typing: the run and which piece of it. */
   editDimension(runId: string, index: number): void;
+  /** Puts the pencil down: nothing is armed to draw from. */
+  stopDrawing(): void;
 }

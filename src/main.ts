@@ -5,9 +5,9 @@ import type { AppState, Host } from './ui/types';
 import { analyse, dimensionStops, emptyDrawing } from './model/drawing';
 import { add, length3, scale3, sub } from './model/iso';
 import { initialCommandState, runCommands } from './model/commands';
-import { applyDimension, deleteNode, deleteRun, ensureNode, removeComponent, route } from './model/edit';
+import { applyDimension, deleteNode, deleteRun, ensureNode, removeComponent, route, stretchRun } from './model/edit';
 import { DN_LIST, schedulesFor, sizeLabel } from './model/pipe-data';
-import { northArrow, toPaper } from './render/renderer';
+import { northArrow, paperOf, toPaper } from './render/renderer';
 import { renderSheet, type SheetSize } from './render/sheet';
 import { Canvas } from './ui/canvas';
 import { fileStem, renderPanel, renderTabs } from './ui/panels';
@@ -128,6 +128,9 @@ const host: Host = {
     render();
     setTimeout(render, 3400);
   },
+  stopDrawing() {
+    stopDrawing();
+  },
   editDimension(runId, index) {
     // The figure has to be on the sheet to be typed over: find its target.
     render();
@@ -151,32 +154,13 @@ let dimensionEditor: HTMLInputElement | null = null;
  * other side of whatever moved takes up the difference.
  */
 function openDimensionEditor(runId: string, index: number, clientX: number, clientY: number): void {
-  closeDimensionEditor();
   const run = state.drawing.runs.find((r) => r.id === runId);
   if (!run) return;
   const stops = dimensionStops(state.drawing, run);
   if (index + 1 >= stops.length) return;
   const current = Math.round(stops[index + 1] - stops[index]);
-
-  const wrap = svg.parentElement as HTMLElement;
-  const rect = wrap.getBoundingClientRect();
-  const input = document.createElement('input');
-  input.type = 'number';
-  input.inputMode = 'numeric';
-  input.className = 'dim-editor';
-  input.value = String(current);
-  input.setAttribute('aria-label', 'Dimension in millimetres');
-  input.style.left = `${Math.max(8, Math.min(rect.width - 96, clientX - rect.left - 44))}px`;
-  input.style.top = `${Math.max(8, Math.min(rect.height - 40, clientY - rect.top - 16))}px`;
-  wrap.appendChild(input);
-  dimensionEditor = input;
-
-  let done = false;
-  const commit = () => {
-    if (done) return;
-    done = true;
-    const value = Number(input.value);
-    closeDimensionEditor();
+  openInlineEditor(String(current), 'numeric', clientX, clientY, (text) => {
+    const value = Number(text);
     if (!Number.isFinite(value) || value <= 0 || Math.round(value) === current) return;
     let refused: string | null = null;
     host.edit('Set dimension', (d) => {
@@ -186,6 +170,56 @@ function openDimensionEditor(runId: string, index: number, clientX: number, clie
       undoStack.pop();
       host.notify(refused);
     }
+  });
+}
+
+/** A weld number, typed over right on the drawing. */
+function openWeldEditor(key: string, clientX: number, clientY: number): void {
+  const weld = state.analysis.joints.find((j) => j.key === key);
+  if (!weld) return;
+  openInlineEditor(weld.number, 'text', clientX, clientY, (text) => {
+    const number = text.trim();
+    if (number === weld.number) return;
+    host.edit('Renumber weld', (d) => {
+      if (number) d.weldOverrides[key] = { ...d.weldOverrides[key], number };
+      else if (d.weldOverrides[key]) delete d.weldOverrides[key].number;
+    });
+  });
+}
+
+/**
+ * A box over the drawing to type into, opened on the tap itself so the
+ * keyboard comes up with it. Enter or tapping away keeps the value, Esc drops it.
+ */
+function openInlineEditor(
+  value: string,
+  mode: 'numeric' | 'text',
+  clientX: number,
+  clientY: number,
+  onCommit: (text: string) => void,
+): void {
+  closeDimensionEditor();
+  const wrap = svg.parentElement as HTMLElement;
+  const rect = wrap.getBoundingClientRect();
+  const input = document.createElement('input');
+  input.type = mode === 'numeric' ? 'number' : 'text';
+  input.inputMode = mode;
+  input.autocapitalize = 'characters';
+  input.className = 'dim-editor';
+  input.value = value;
+  input.setAttribute('aria-label', mode === 'numeric' ? 'Dimension in millimetres' : 'Weld number');
+  input.style.left = `${Math.max(8, Math.min(rect.width - 96, clientX - rect.left - 44))}px`;
+  input.style.top = `${Math.max(8, Math.min(rect.height - 40, clientY - rect.top - 16))}px`;
+  wrap.appendChild(input);
+  dimensionEditor = input;
+
+  let done = false;
+  const commit = () => {
+    if (done) return;
+    done = true;
+    const text = input.value;
+    closeDimensionEditor();
+    onCommit(text);
   };
   input.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {
@@ -223,7 +257,7 @@ const canvas = new Canvas(svg, {
     let newNode: string | null = null;
     let refused: string | null = null;
     host.edit('Route', (d) => {
-      const result = route(d, fromId, axis, length, state.currentDn, state.currentSchedule);
+      const result = route(d, fromId, axis, length, state.currentDn, state.currentSchedule, 0, length);
       refused = result?.refused ?? null;
       newNode = refused ? null : (result?.nodeId ?? null);
     });
@@ -302,6 +336,65 @@ const canvas = new Canvas(svg, {
   onEditDimension(runId, index, clientX, clientY) {
     openDimensionEditor(runId, index, clientX, clientY);
   },
+  onEditWeld(key, clientX, clientY) {
+    openWeldEditor(key, clientX, clientY);
+  },
+
+  /**
+   * Drags an end of a run along the run's own line. To scale, that is the
+   * run's true length; not to scale, it is only how long the run is drawn,
+   * and the true length is what is typed on the dimension.
+   */
+  onStretchRun(runId, end, paper, commit) {
+    const run = state.drawing.runs.find((r) => r.id === runId);
+    if (!run) return;
+    const length = stretchLengthTo(run, end, paper);
+    if (length === null) return;
+    const schematic = !!state.drawing.options.schematic;
+
+    if (!stretchFrom || stretchFrom.id !== runId) {
+      stretchFrom = { id: runId, visual: run.visual, snapshot: snapshot() };
+    }
+    if (commit) {
+      const before = stretchFrom;
+      stretchFrom = null;
+      // Put the drawing back as it was before the drag, then record the move
+      // as one edit so undo returns there rather than to half way through.
+      Object.assign(state.drawing, JSON.parse(before.snapshot) as Drawing);
+      host.edit('Stretch run', (d) => {
+        const target = d.runs.find((r) => r.id === runId);
+        if (!target) return;
+        if (schematic) target.visual = length;
+        else stretchRun(d, runId, length, end);
+      });
+      return;
+    }
+    if (schematic) run.visual = length;
+    else stretchRun(state.drawing, runId, length, end);
+    recompute();
+    renderCanvasOnly();
+    hoverMessage = schematic ? 'drawn length — type the dimension for the real one' : `${Math.round(length)} mm`;
+    renderHud();
+  },
+
+  /** Moves a weld number tag; the leader stays on the weld. */
+  onSlideTag(key, offset, commit) {
+    const apply = (d: Drawing) => {
+      d.weldOverrides[key] = { ...d.weldOverrides[key], tag: { dx: offset.dx, dy: offset.dy } };
+    };
+    if (commit) {
+      if (tagFrom) {
+        Object.assign(state.drawing, JSON.parse(tagFrom) as Drawing);
+        tagFrom = null;
+      }
+      host.edit('Move weld tag', apply);
+      return;
+    }
+    if (!tagFrom) tagFrom = snapshot();
+    apply(state.drawing);
+    recompute();
+    renderCanvasOnly();
+  },
 
   /** Slides a branch point along the line that runs through it. */
   onSlideNode(nodeId, paper, commit) {
@@ -335,6 +428,37 @@ const canvas = new Canvas(svg, {
 /** What a slide started from, so undo returns there and not to mid-drag. */
 let slideFrom: { id: string; offset: number } | null = null;
 let slideNodeFrom: { id: string; pos: Vec3 } | null = null;
+let stretchFrom: { id: string; visual: number | undefined; snapshot: string } | null = null;
+let tagFrom: string | null = null;
+
+/**
+ * The length a run would have with one end dragged to a point: the point is
+ * measured along the run's own line from the end that stays, so the run only
+ * ever gets longer or shorter, never turns.
+ */
+function stretchLengthTo(run: Run, end: 'from' | 'to', paper: { x: number; y: number }): number | null {
+  const fixedId = end === 'to' ? run.from : run.to;
+  const movingId = end === 'to' ? run.to : run.from;
+  const fixed = state.analysis.nodeById.get(fixedId);
+  const moving = state.analysis.nodeById.get(movingId);
+  if (!fixed || !moving) return null;
+  const pf = paperOf(state.analysis, state.drawing, fixedId);
+  const pm = paperOf(state.analysis, state.drawing, movingId);
+  if (!pf || !pm) return null;
+  const vx = pm.x - pf.x;
+  const vy = pm.y - pf.y;
+  const drawn = Math.hypot(vx, vy);
+  if (drawn < 0.01) return null;
+  const along = ((paper.x - pf.x) * vx + (paper.y - pf.y) * vy) / drawn;
+  // Paper units per mm along this run, however it is currently drawn.
+  const shown = state.drawing.options.schematic
+    ? (run.visual ?? state.drawing.options.schematicLength)
+    : length3(sub(moving.pos, fixed.pos));
+  const perMm = shown > 0 ? drawn / shown : 0;
+  if (perMm <= 0) return null;
+  const snap = Math.max(1, state.drawing.options.snap);
+  return Math.max(snap, Math.round(along / perMm / snap) * snap);
+}
 
 /** Where along a run a paper point falls, snapped, or null if it cannot be read. */
 function offsetFromPaper(run: Run, paper: { x: number; y: number }): number | null {
@@ -360,30 +484,6 @@ function offsetFromPaper(run: Run, paper: { x: number; y: number }): number | nu
 function slideNodeTo(nodeId: string, paper: { x: number; y: number }): Vec3 | null {
   const info = state.analysis.nodeInfo.get(nodeId);
   if (!info) return null;
-
-  // A free end slides along the one run it ends: the far point stays put and
-  // the run gets longer or shorter. That is how an end is moved once drawn.
-  if (info.runs.length === 1 && info.legs.length === 1) {
-    const run = info.runs[0];
-    const farId = run.from === nodeId ? run.to : run.from;
-    const far = state.analysis.nodeById.get(farId);
-    const here = state.drawing.nodes.find((n) => n.id === nodeId);
-    if (!far || !here) return null;
-    const dir = sub(here.pos, far.pos);
-    const len = length3(dir);
-    if (len < 1) return null;
-    const unit = scale3(dir, 1 / len);
-    const pf = toPaper(far.pos, state.drawing);
-    const ph = toPaper(here.pos, state.drawing);
-    const vx = ph.x - pf.x;
-    const vy = ph.y - pf.y;
-    const lenSq = vx * vx + vy * vy;
-    if (lenSq < 1) return null;
-    const snap = Math.max(1, state.drawing.options.snap);
-    const raw = (((paper.x - pf.x) * vx + (paper.y - pf.y) * vy) / lenSq) * len;
-    const at = Math.max(snap, Math.round(raw / snap) * snap);
-    return add(far.pos, scale3(unit, at));
-  }
 
   // The line through the point is the pair of legs that face each other.
   let through: [Run, Run] | null = null;

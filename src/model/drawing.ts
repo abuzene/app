@@ -327,7 +327,7 @@ function layout(drawing: Drawing, nodeById: Map<string, IsoNode>, adjacency: Map
         const delta = sub(otherTrue, hereTrue);
         const trueLen = length3(delta);
         if (trueLen < 0.01) continue;
-        const visual = drawing.options.schematicLength;
+        const visual = run.visual ?? drawing.options.schematicLength;
         display.set(otherId, add(here, scale3(delta, visual / trueLen)));
         remaining.delete(otherId);
         queue.push(otherId);

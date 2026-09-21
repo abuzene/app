@@ -128,6 +128,12 @@ export interface Run {
   /** Suppresses the automatic length dimension for this run. */
   noDim?: boolean;
   note?: string;
+  /**
+   * How long the run is drawn when the sheet is not to scale, in the same
+   * units as its true length. Set from where the pencil put the end down, so
+   * a not-to-scale line still ends where it was drawn to.
+   */
+  visual?: number;
 }
 
 
@@ -162,6 +168,8 @@ export interface Weld {
 
 export interface WeldOverride {
   number?: string;
+  /** Where the number tag was dragged to, in paper units from the weld. */
+  tag?: { dx: number; dy: number };
 }
 
 /**

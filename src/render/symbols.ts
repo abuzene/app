@@ -488,8 +488,8 @@ export function terminalSymbol(kind: TerminalKind, f: Frame, joint: JointType = 
     return flangeSymbol(f, 'FLG_WN', 1, hub) + gasketLine(f, f.s * 0.25) + counterFlange(f, 'FLG_BLIND', 1, f.s * 0.5);
   }
   if (isFlange(kind)) {
-    // This line's flange, and dashed beyond it whatever it bolts to.
-    return flangeSymbol(f, kind, 1, hub) + gasketLine(f, f.s * 0.25) + counterFlange(f, kind, 1, f.s * 0.5);
+    // Just this line's flange: what bolts to it is somebody else's to draw.
+    return flangeSymbol(f, kind, 1, hub);
   }
   const s = f.s;
   switch (kind) {

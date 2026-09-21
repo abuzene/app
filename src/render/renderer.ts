@@ -252,6 +252,7 @@ export function renderDrawing(state: RenderState): string {
   let hits = '';
   let dims = '';
   let dimHits = '';
+  let handles = '';
   let comps = '';
 
   const BENDS = ['ELBOW_90', 'ELBOW_45', 'BEND'];
@@ -259,10 +260,14 @@ export function renderDrawing(state: RenderState): string {
    * How far, in paper units, the straight pipe stops short of a point: at an
    * elbow the run ends where the elbow starts, and the corner is drawn round.
    */
+  // Not to scale, an elbow is drawn a set size rather than its true one,
+  // which would grow and shrink as the true length was typed.
+  const bendRadius = (fitting: string, dn: string, paperPerMm: number): number =>
+    drawing.options.schematic ? size * 1.4 : fittingTakeout(fitting, dn) * paperPerMm;
   const trimAt = (nodeId: string, run: Run, paperPerMm: number): number => {
     const info = analysis.nodeInfo.get(nodeId);
     if (!info || info.degree !== 2 || !BENDS.includes(info.fitting)) return 0;
-    return fittingTakeout(info.fitting, run.dn) * paperPerMm;
+    return bendRadius(info.fitting, run.dn, paperPerMm);
   };
   const towards = (from: Pt, to: Pt, by: number): Pt => {
     const len = Math.hypot(to.x - from.x, to.y - from.y) || 1;
@@ -285,6 +290,15 @@ export function renderDrawing(state: RenderState): string {
     const pa = towards(a, b, trimAt(run.from, run, paperPerMm));
     const pb = towards(b, a, trimAt(run.to, run, paperPerMm));
     pipes += `<line class="pipe${selected ? ' selected' : ''}" x1="${pa.x.toFixed(2)}" y1="${pa.y.toFixed(2)}" x2="${pb.x.toFixed(2)}" y2="${pb.y.toFixed(2)}"/>`;
+    if (selected) {
+      // A picked run shows a handle at each end, dragged to make it longer or
+      // shorter along its own line.
+      for (const [p, which] of [[a, 'from'], [b, 'to']] as const) {
+        handles +=
+          `<circle class="run-handle" cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="${(hitR * 0.55).toFixed(2)}"/>` +
+          `<circle class="hit-dot" data-run-end="${run.id}:${which}" cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="${(hitR * 1.3).toFixed(2)}"/>`;
+      }
+    }
     hits += `<line class="hit" data-run="${run.id}" x1="${a.x.toFixed(2)}" y1="${a.y.toFixed(2)}" x2="${b.x.toFixed(2)}" y2="${b.y.toFixed(2)}"/>`;
     const along = (mm: number): Pt => {
       const t = total > 0 ? Math.max(0, Math.min(1, mm / total)) : 0.5;
@@ -351,7 +365,7 @@ export function renderDrawing(state: RenderState): string {
       if (!q || !other) continue;
       const trueLen = length3(sub(other.pos, info.node.pos));
       const perMm = trueLen > 0 ? Math.hypot(q.x - c.x, q.y - c.y) / trueLen : 0;
-      ends.push(towards(c, q, fittingTakeout(info.fitting, run.dn) * perMm));
+      ends.push(towards(c, q, bendRadius(info.fitting, run.dn, perMm)));
     }
     if (ends.length !== 2) continue;
     pipes += `<path class="pipe" d="M ${ends[0].x.toFixed(2)} ${ends[0].y.toFixed(2)} Q ${c.x.toFixed(2)} ${c.y.toFixed(2)} ${ends[1].x.toFixed(2)} ${ends[1].y.toFixed(2)}"/>`;
@@ -418,7 +432,7 @@ export function renderDrawing(state: RenderState): string {
   // Weld marks and tags sit on top of everything, so their touch targets do too.
   let weldHits = '';
   const jointPoints = new Map<string, Pt>();
-  const weldLabels: { x: number; y: number; text: string; fromX: number; fromY: number; key: string }[] = [];
+  const weldLabels: { x: number; y: number; text: string; fromX: number; fromY: number; key: string; placed: boolean }[] = [];
 
   analysis.joints.forEach((joint, index) => {
     const place = weldPlacement(drawing, analysis, joint.pos);
@@ -453,18 +467,23 @@ export function renderDrawing(state: RenderState): string {
       // Joints cluster around fittings, so stagger the tags either side of the
       // pipe rather than stacking them all on the same one.
       const side = index % 2 === 0 ? 1 : -1;
+      const placed = drawing.weldOverrides[joint.key]?.tag;
       weldLabels.push({
-        x: f.cx + f.nx * size * 3.4 * side,
-        y: f.cy + f.ny * size * 3.4 * side,
+        x: placed ? f.cx + placed.dx : f.cx + f.nx * size * 3.4 * side,
+        y: placed ? f.cy + placed.dy : f.cy + f.ny * size * 3.4 * side,
         text: joint.number,
         fromX: f.cx,
         fromY: f.cy,
         key: joint.key,
+        placed: !!placed,
       });
     }
   });
 
-  for (const label of spreadLabels(weldLabels, size * 2.1)) {
+  // A tag that was dragged somewhere stays there; the rest spread out around it.
+  const placedTags = weldLabels.filter((l) => l.placed);
+  const spreadTags = spreadLabels(weldLabels.filter((l) => !l.placed), size * 2.1);
+  for (const label of [...placedTags, ...spreadTags]) {
     const selectedWeld = sel?.kind === 'weld' && sel.key === label.key;
     // The number sits in a rounded box on a leader to its weld — the weld's
     // own kind of balloon, told from an item balloon by its shape.
@@ -482,7 +501,7 @@ export function renderDrawing(state: RenderState): string {
       `<text class="weld-no" x="${label.x.toFixed(2)}" y="${(label.y + size * 0.27).toFixed(2)}" text-anchor="middle">${escapeText(label.text)}</text></g>`;
 
     // The tag itself is a touch target too: it is what is read, so it is what gets tapped.
-    weldHits += `<circle class="hit-dot" data-weld="${label.key}" cx="${label.x.toFixed(2)}" cy="${label.y.toFixed(2)}" r="${hitR.toFixed(2)}"/>`;
+    weldHits += `<circle class="hit-dot" data-weld="${label.key}" data-weld-tag="1" data-ax="${label.fromX.toFixed(2)}" data-ay="${label.fromY.toFixed(2)}" cx="${label.x.toFixed(2)}" cy="${label.y.toFixed(2)}" r="${hitR.toFixed(2)}"/>`;
   }
 
   // Item balloons: every pipe run, fitting, flange and valve carries the number
@@ -579,7 +598,7 @@ export function renderDrawing(state: RenderState): string {
 
   // Hit targets for runs go under the node and component handles so that a
   // drag starting on a point is never swallowed by the run beneath it.
-  return grid + dims + pipes + `<g class="hits">${hits}</g>` + comps + nodes + welds + `<g class="hits">${weldHits}${dimHits}</g>` + preview;
+  return grid + dims + pipes + `<g class="hits">${hits}</g>` + comps + nodes + welds + handles + `<g class="hits">${weldHits}${dimHits}</g>` + preview;
 }
 
 /**
