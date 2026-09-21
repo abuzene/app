@@ -79,11 +79,25 @@ export class Canvas {
     svg.addEventListener('pointermove', this.onPointerMove);
     svg.addEventListener('pointerup', this.onPointerUp);
     svg.addEventListener('pointercancel', this.onPointerUp);
+    // A touch that ends somewhere else — over a box that opened under it, or
+    // off the page — must still be forgotten, or the next touch would read as
+    // a second finger and every tap after that as a pinch.
+    window.addEventListener('pointerup', this.onPointerGone, true);
+    window.addEventListener('pointercancel', this.onPointerGone, true);
     svg.addEventListener('dblclick', this.onDoubleClick);
     svg.addEventListener('wheel', this.onWheel, { passive: false });
     svg.addEventListener('contextmenu', (e) => e.preventDefault());
 
     new ResizeObserver(() => this.syncAspect()).observe(svg);
+  }
+
+  /** Keeps the rest of this touch coming to the drawing, wherever it goes. */
+  private capture(pointerId: number): void {
+    try {
+      this.svg.setPointerCapture(pointerId);
+    } catch {
+      // A pointer that is already gone cannot be held; nothing is lost.
+    }
   }
 
   /** Keeps the viewBox aspect ratio matched to the element so nothing distorts. */
@@ -213,7 +227,7 @@ export class Canvas {
     // A finger drag moves the sheet; a finger tap selects whatever is under it.
     if (fingers) {
       if (dimEl || weldEl) event.preventDefault();
-      this.svg.setPointerCapture(event.pointerId);
+      this.capture(event.pointerId);
       this.svg.classList.add('panning');
       this.drag = {
         kind: 'pan',
@@ -241,6 +255,8 @@ export class Canvas {
     // events that would follow and take focus back are not let through.
     if (!panRequested && dimEl) {
       event.preventDefault();
+      // The box opens under the pointer, so the lift is kept coming here.
+      this.capture(event.pointerId);
       this.drag = {
         kind: 'pan',
         pointerId: event.pointerId,
@@ -259,7 +275,7 @@ export class Canvas {
     // on the weld; tapped, it opens to be typed over.
     if (!panRequested && tagEl) {
       event.preventDefault();
-      this.svg.setPointerCapture(event.pointerId);
+      this.capture(event.pointerId);
       const key = tagEl.getAttribute('data-weld')!;
       this.cb.onSelect({ kind: 'weld', key });
       this.drag = {
@@ -279,7 +295,7 @@ export class Canvas {
     // on the item. It carries nothing to type, so a tap on it does nothing.
     if (!panRequested && balloonEl) {
       event.preventDefault();
-      this.svg.setPointerCapture(event.pointerId);
+      this.capture(event.pointerId);
       this.drag = {
         kind: 'slide-tag',
         pointerId: event.pointerId,
@@ -297,6 +313,7 @@ export class Canvas {
     // itself as a dimension is.
     if (!panRequested && weldEl) {
       event.preventDefault();
+      this.capture(event.pointerId);
       const key = weldEl.getAttribute('data-weld')!;
       this.cb.onSelect({ kind: 'weld', key });
       this.drag = {
@@ -317,7 +334,7 @@ export class Canvas {
     // make it longer or shorter, never to turn it.
     if (!panRequested && handleEl) {
       const [runId, end] = handleEl.getAttribute('data-run-end')!.split(':');
-      this.svg.setPointerCapture(event.pointerId);
+      this.capture(event.pointerId);
       this.drag = {
         kind: 'stretch',
         pointerId: event.pointerId,
@@ -336,7 +353,7 @@ export class Canvas {
       this.cb.onSelect({ kind: 'component', id });
       // Dragging slides it along the pipe: dropping something in the middle of
       // a run and leaving it there is never where it actually goes.
-      this.svg.setPointerCapture(event.pointerId);
+      this.capture(event.pointerId);
       this.drag = {
         kind: 'slide-component',
         pointerId: event.pointerId,
@@ -351,7 +368,7 @@ export class Canvas {
 
     if (!panRequested && nodeEl) {
       const id = nodeEl.getAttribute('data-node')!;
-      this.svg.setPointerCapture(event.pointerId);
+      this.capture(event.pointerId);
       // A branch or a joint sitting along a line slides along it, and so does
       // an end: dragging it makes the pipe longer or shorter, never turns it.
       // Drawing on is done by tapping. A corner has nothing to slide along, so
@@ -417,7 +434,7 @@ export class Canvas {
     // a preview built up beforehand: touch and lift places it, and dragging
     // before lifting adjusts it first.
     if (this.anchor && !panRequested) {
-      this.svg.setPointerCapture(event.pointerId);
+      this.capture(event.pointerId);
       this.drag = {
         kind: 'route',
         pointerId: event.pointerId,
@@ -431,7 +448,7 @@ export class Canvas {
       return;
     }
 
-    this.svg.setPointerCapture(event.pointerId);
+    this.capture(event.pointerId);
     this.svg.classList.add('panning');
     this.drag = {
       kind: 'pan',
@@ -554,6 +571,16 @@ export class Canvas {
     this.cb.onHover(`${axis} ${Math.round(length)} mm — click to place`);
     return true;
   }
+
+  private onPointerGone = (event: PointerEvent): void => {
+    if (!this.pointers.has(event.pointerId)) return;
+    this.pointers.delete(event.pointerId);
+    if (this.pointers.size < 2) this.pinch = null;
+    if (this.drag && this.drag.pointerId === event.pointerId && event.target !== this.svg && !this.svg.contains(event.target as Node)) {
+      this.drag = null;
+      this.svg.classList.remove('panning');
+    }
+  };
 
   private onPointerUp = (event: PointerEvent): void => {
     this.pointers.delete(event.pointerId);

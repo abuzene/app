@@ -208,8 +208,12 @@ function openInlineEditor(
   input.className = 'dim-editor';
   input.value = value;
   input.setAttribute('aria-label', mode === 'numeric' ? 'Dimension in millimetres' : 'Weld number');
-  const left = Math.max(8, Math.min(rect.width - 240, clientX - rect.left - 60));
-  const top = Math.max(8, Math.min(rect.height - 200, clientY - rect.top - 20));
+  // Above the touch, not under it: the pencil hand covers what is below the
+  // tip, and a box that opened under the tip would take the lift itself.
+  const keypadH = 168;
+  const left = Math.max(8, Math.min(rect.width - 260, clientX - rect.left - 60));
+  const roomAbove = clientY - rect.top - 60 - keypadH - 8 >= 8;
+  const top = roomAbove ? clientY - rect.top - 60 : Math.max(8, Math.min(rect.height - 40 - keypadH, clientY - rect.top + 24));
   input.style.left = `${left}px`;
   input.style.top = `${top}px`;
   wrap.appendChild(input);
@@ -234,7 +238,7 @@ function openInlineEditor(
   const keys = mode === 'numeric' ? ['7', '8', '9', '4', '5', '6', '1', '2', '3', '⌫', '0', 'OK'] : ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', 'W', 'F', 'S', 'T', 'A', 'B', '-', '/', '⌫', 'OK'];
   keypad.innerHTML = keys.map((k) => `<button type="button" data-key="${k}"${k === 'OK' ? ' class="ok"' : ''}>${k}</button>`).join('');
   keypad.style.left = `${left}px`;
-  keypad.style.top = `${top + 40}px`;
+  keypad.style.top = `${roomAbove ? top - keypadH - 8 : top + 44}px`;
   keypad.addEventListener('pointerdown', (event) => {
     event.preventDefault();
     const key = (event.target as HTMLElement).closest<HTMLElement>('[data-key]')?.dataset.key;

@@ -273,13 +273,18 @@ export function flangePair(f: Frame, kind: FlangeKind, hub?: number): string {
 /** A cap, closing the end of the pipe in the `facing` direction. */
 export function capSymbol(f: Frame, facing: Facing = 1): string {
   const s = f.s;
-  const r = s * 0.85;
+  // The dome stands as tall as a flange plate and reaches out past the weld
+  // on the pipe end, so it reads as a cap and not as the weld dot alone.
+  const r = s * 1.15;
+  const reach = s * 1.2;
   const [x1, y1] = pt(f, 0, 0, -r);
   const [x2, y2] = pt(f, 0, 0, r);
-  const sweep = facing > 0 ? 1 : 0;
+  // A cubic with both handles out at 4/3 of the reach peaks at the reach itself.
+  const [c1x, c1y] = pt(f, (facing * reach * 4) / 3, 0, -r);
+  const [c2x, c2y] = pt(f, (facing * reach * 4) / 3, 0, r);
   return (
     line(f, [0, 0, -r], [0, 0, r], 'sym-line') +
-    `<path class="sym-hollow" d="M ${x1.toFixed(2)} ${y1.toFixed(2)} A ${r.toFixed(2)} ${r.toFixed(2)} 0 0 ${sweep} ${x2.toFixed(2)} ${y2.toFixed(2)}"/>`
+    `<path class="sym-fill" d="M ${x1.toFixed(2)} ${y1.toFixed(2)} C ${c1x.toFixed(2)} ${c1y.toFixed(2)} ${c2x.toFixed(2)} ${c2y.toFixed(2)} ${x2.toFixed(2)} ${y2.toFixed(2)} Z"/>`
   );
 }
 

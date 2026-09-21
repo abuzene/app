@@ -364,6 +364,15 @@ tr.selected { background: var(--accent-soft); }
   /* Drop the chrome that only labels things: each select already reads as its
      own label, so the buttons that do the work stay on screen. */
   .toolbar { gap: 10px; padding: env(safe-area-inset-top, 0px) 8px 0; }
+  /* A tablet screen is too short for the palette in one column, and what
+     scrolled off the bottom was never found: two columns keep it all in view. */
+  .tools {
+    flex-basis: 150px;
+    display: grid; grid-template-columns: 64px 64px; column-gap: 6px;
+    justify-content: center; align-content: start;
+  }
+  .tools .tool-group-label { grid-column: 1 / -1; margin: 8px 0 3px; }
+  .tool { margin: 2px 0; }
   .brand-text { display: none; }
   .field span { display: none; }
   .group { gap: 6px; }

@@ -131,7 +131,8 @@ check('a length can be typed', await page.locator('#tab-body .run-list input[dat
 // Palette.
 await page.locator('#tab-body .run-list tbody tr').first().click();
 await page.waitForTimeout(200);
-check('the palette carries the fittings, ball valves, tee, olets and marks', await page.locator('.tool').count(), (v) => v === 18, '18');
+check('the palette carries the fittings, ball valves, tee, olets and marks', await page.locator('.tool').count(), (v) => v === 16, '16');
+check('and no slip-on or lap joint flange, which are not used here', await page.locator('.tool[data-kind="FLG_SO"], .tool[data-kind="FLG_LAP"]').count(), (v) => v === 0, '0');
 check('a tee can be placed on a header', await page.locator('.tool[data-branch="TEE"]').count(), (v) => v === 1, '1');
 check('the actuated ball valve is there', await page.locator('.tool[data-kind="BALL_ACT"]').count(), (v) => v === 1, '1');
 await page.locator('.tool[data-kind="BALL"]').click();
