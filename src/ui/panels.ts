@@ -4,6 +4,7 @@ import { COMPONENT_LABEL, DEFAULT_LOGO, TERMINAL_LABEL, fittingLabel, isMark, is
 import { COMMAND_HELP } from '../model/commands';
 import { DN_LIST, SIZE_LABELS, defaultValveEnds, schedulesFor, sizeLabel } from '../model/pipe-data';
 import { axisBetween } from '../model/iso';
+import { projectsOf } from '../model/library';
 import { deleteNode, deleteRun, removeComponent, runLength, setRunLength, splitRun } from '../model/edit';
 
 const TABS: { id: TabId; label: string }[] = [
@@ -12,6 +13,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'items', label: 'Items' },
   { id: 'welds', label: 'Welds' },
   { id: 'title', label: 'Title' },
+  { id: 'projects', label: 'Projects' },
 ];
 
 const TERMINALS: TerminalKind[] = ['OPEN', 'FLG_WN', 'FLG_SO', 'FLG_SW', 'FLG_THD', 'FLG_LAP', 'FLG_BLIND', 'CAP', 'TRANSITION', 'CONTINUATION', 'EQUIPMENT'];
@@ -459,13 +461,99 @@ export function renderPanel(body: HTMLElement, host: Host): void {
           ? itemsTab(host)
           : tab === 'welds'
             ? weldsTab(host)
-            : titleTab(host);
+            : tab === 'projects'
+              ? projectsTab(host)
+              : titleTab(host);
 
   wire(body, host);
 }
 
+/* -------------------------------------------------------------- projects */
+
+const RECENT_PROJECTS = 5;
+
+/**
+ * The drawings kept on this device, by project. A job with more than one
+ * isometric is picked up sheet by sheet from here, and its next sheet is
+ * started from here with the title block carried over.
+ */
+function projectsTab(host: Host): string {
+  const { drawing, selection, showAllProjects } = host.state;
+  const projects = projectsOf(host.library());
+  const shown = showAllProjects ? projects : projects.slice(0, RECENT_PROJECTS);
+  const name = drawing.meta.project || '';
+  const pickedEnd =
+    selection?.kind === 'node' && host.state.analysis.nodeInfo.get(selection.id)?.degree === 1 ? selection.id : null;
+  const when = (t: number) => {
+    const d = new Date(t);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  };
+  const sheetRow = (entry: (typeof projects)[number]['sheets'][number]) => {
+    const m = entry.drawing.meta;
+    const current = entry.id === drawing.id;
+    const what = [m.lineNumber, m.drawingNo].filter(Boolean).join(' · ');
+    return `<div class="sheet-row${current ? ' current' : ''}" data-open-sheet="${esc(entry.id)}">
+      <div class="sheet-main"><strong>Sheet ${esc(m.sheet || '1 of 1')}</strong>${what ? ` · ${esc(what)}` : ''}${current ? ' <span class="sheet-here">on screen</span>' : ''}</div>
+      <div class="sheet-sub">${entry.drawing.runs.length} run${entry.drawing.runs.length === 1 ? '' : 's'} · ${when(entry.savedAt)}</div>
+      <button class="sheet-remove" data-remove-sheet="${esc(entry.id)}" type="button" title="Remove from this device">×</button>
+    </div>`;
+  };
+  return `
+<div class="section">
+  <h3>This project</h3>
+  <p class="empty-note"><strong>${esc(name || 'No project name yet')}</strong>${
+    name ? ` — sheet ${esc(drawing.meta.sheet || '1 of 1')} is on screen.` : ' — name it in the Title tab and its sheets are kept together here.'
+  }</p>
+  <div class="btn-row">
+    <button class="btn-line solid" data-a="new-sheet">New sheet in this project</button>
+  </div>
+  <p class="empty-note">${
+    pickedEnd
+      ? 'The picked end will be marked as continuing on the new sheet, and the new sheet starts from it.'
+      : 'Pick the open end the line continues from first, and the new sheet carries on from there — or just start a fresh sheet.'
+  } The title block, logo and pipe settings carry over; every sheet is kept on this device as you draw.</p>
+</div>
+<div class="section">
+  <h3>${showAllProjects ? 'All projects' : 'Recent projects'}</h3>
+  ${
+    shown.length === 0
+      ? '<p class="empty-note">Nothing kept yet. Drawings are kept here as you draw them, by project name.</p>'
+      : shown
+          .map(
+            (p) => `<div class="project">
+      <div class="project-name">${esc(p.name || '(no project name)')} <span class="project-count">${p.sheets.length} sheet${p.sheets.length === 1 ? '' : 's'}</span></div>
+      ${p.sheets.map(sheetRow).join('')}
+    </div>`,
+          )
+          .join('')
+  }
+  ${
+    projects.length > RECENT_PROJECTS
+      ? `<div class="btn-row"><button class="btn-line" data-a="toggle-projects">${showAllProjects ? `Show the ${RECENT_PROJECTS} most recent` : `Show all ${projects.length} projects`}</button></div>`
+      : ''
+  }
+</div>`;
+}
+
 function wire(body: HTMLElement, host: Host): void {
   const { drawing } = host.state;
+
+  // Projects.
+  body.querySelector('[data-a="new-sheet"]')?.addEventListener('click', () => host.newSheetInProject());
+  body.querySelector('[data-a="toggle-projects"]')?.addEventListener('click', () => {
+    host.state.showAllProjects = !host.state.showAllProjects;
+    host.touch();
+  });
+  body.querySelectorAll<HTMLElement>('[data-open-sheet]').forEach((row) => {
+    row.addEventListener('click', (event) => {
+      if ((event.target as HTMLElement).closest('[data-remove-sheet]')) return;
+      const id = row.dataset.openSheet!;
+      if (id !== drawing.id) host.openFromLibrary(id);
+    });
+  });
+  body.querySelectorAll<HTMLElement>('[data-remove-sheet]').forEach((button) => {
+    button.addEventListener('click', () => host.removeFromLibrary(button.dataset.removeSheet!));
+  });
 
   // Selecting a run from the list.
   body.querySelectorAll<HTMLElement>('[data-run-row]').forEach((row) => {

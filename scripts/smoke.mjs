@@ -1711,6 +1711,67 @@ check('and prints on one page of upright A4 with the printer\'s own margins', pd
   await tablet.close();
 }
 
+/* ---------------------------------------------- projects and their sheets */
+
+// Every drawing is kept on the device by project; a job with more than one
+// isometric goes on sheet by sheet, the title block carried over and the
+// line marked where it continues.
+await page.evaluate(() => localStorage.removeItem('iso-draw.library.v1'));
+await startNewDrawing();
+await page.click('#tabs button:has-text("Title")');
+await page.fill('[data-meta="project"]', 'Alpha Job');
+await page.locator('[data-meta="project"]').blur();
+await page.waitForTimeout(300);
+await page.click('#tabs button:has-text("Command")');
+await page.fill('#command-text', '3"\nSTD\nORIGIN 0 0 0\nE 2000\nN 1500');
+await page.click('[data-a="run-commands"]');
+await page.waitForTimeout(1200);
+await page.keyboard.press('Escape');
+const libraryNow = () => page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.library.v1') || '[]').map((e) => `${e.drawing.meta.project}|${e.drawing.meta.sheet}|${e.drawing.runs.length}`));
+check('a drawing is kept on the device as it is drawn', await libraryNow(), (v) => v.includes('Alpha Job|1 of 1|2'), 'Alpha Job|1 of 1|2 among them');
+await page.click('#tabs button:has-text("Route")');
+const libraryEnds = await page.locator('#canvas circle.hit-dot[data-node]').all();
+await libraryEnds[libraryEnds.length - 1].click({ force: true });
+await page.waitForTimeout(200);
+await page.click('#tabs button:has-text("Projects")');
+await page.waitForTimeout(200);
+check('the Projects tab names the project on screen', await page.locator('#tab-body').innerText(), (v) => /Alpha Job — sheet 1 of 1 is on screen/.test(v), 'Alpha Job — sheet 1 of 1 is on screen');
+await page.click('[data-a="new-sheet"]');
+await page.waitForTimeout(1200);
+check('a new sheet in the project is numbered on', await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).meta.sheet), (v) => v === '2 of 2', '2 of 2');
+check('and the first sheet is renumbered with it', await libraryNow(), (v) => v.includes('Alpha Job|1 of 2|2'), 'Alpha Job|1 of 2|2 kept');
+check('the new sheet starts where the line comes in', await page.evaluate(() => JSON.stringify(JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).nodes[0]?.terminal)), (v) => v === '{"kind":"CONTINUATION","note":"CONT. FROM SH.1"}', 'CONT. FROM SH.1');
+const contOrigin = await page.evaluate(() => { const r = document.querySelector('#canvas circle.hit-dot[data-node]').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+await penTap(contOrigin.x + 200, contOrigin.y + 115);
+check('and the pencil draws on from it', await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).runs.length), (v) => v === 1, '1');
+check('with the continuation written at the start', await page.locator('#canvas text.note', { hasText: 'CONT. FROM SH.1' }).count(), (v) => v === 1, '1');
+await page.click('#tabs button:has-text("Projects")');
+await page.waitForTimeout(200);
+await page.locator('[data-open-sheet]').first().click();
+await page.waitForTimeout(500);
+check('the first sheet opens again from the list', await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).meta.sheet), (v) => v === '1 of 2', '1 of 2');
+check('with its end marked as going on to sheet 2', await page.evaluate(() => JSON.stringify(JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).nodes.map((n) => n.terminal?.note).filter(Boolean))), (v) => v === '["CONT. ON SH.2"]', 'CONT. ON SH.2');
+// Five projects are listed; the rest on request.
+for (const name of ['Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot']) {
+  await startNewDrawing();
+  await page.click('#tabs button:has-text("Title")');
+  await page.fill('[data-meta="project"]', name);
+  await page.locator('[data-meta="project"]').blur();
+  await page.waitForTimeout(200);
+  await page.click('#tabs button:has-text("Command")');
+  await page.fill('#command-text', '2"\nSTD\nORIGIN 0 0 0\nE 1000');
+  await page.click('[data-a="run-commands"]');
+  await page.waitForTimeout(1000);
+  await page.keyboard.press('Escape');
+}
+await page.click('#tabs button:has-text("Projects")');
+await page.waitForTimeout(200);
+check('the five most recent projects are listed', await page.locator('#tab-body .project').count(), (v) => v === 5, '5');
+await page.click('[data-a="toggle-projects"]');
+await page.waitForTimeout(200);
+check('and all of them on request', await page.locator('#tab-body .project').count(), (v) => v >= 6, 'at least 6');
+await page.evaluate(() => localStorage.removeItem('iso-draw.library.v1'));
+
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 
 await browser.close();

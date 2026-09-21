@@ -249,6 +249,8 @@ export interface DrawingOptions {
 
 export interface Drawing {
   version: 1;
+  /** This drawing's own name in the library; given when it is first kept. */
+  id?: string;
   meta: Meta;
   options: DrawingOptions;
   nodes: IsoNode[];

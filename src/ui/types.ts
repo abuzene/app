@@ -2,8 +2,9 @@ import type { Analysis } from '../model/drawing';
 import type { CommandState } from '../model/commands';
 import type { Drawing } from '../model/types';
 import type { Preview, Selection, ViewBox } from '../render/renderer';
+import type { LibraryEntry } from '../model/library';
 
-export type TabId = 'route' | 'command' | 'items' | 'welds' | 'title';
+export type TabId = 'route' | 'command' | 'items' | 'welds' | 'title' | 'projects';
 
 export interface AppState {
   drawing: Drawing;
@@ -17,6 +18,8 @@ export interface AppState {
   currentDn: string;
   currentSchedule: string;
   view: ViewBox;
+  /** The Projects tab shows the five most recent unless asked for all. */
+  showAllProjects?: boolean;
 }
 
 /** The surface the tool rail and side panels use to talk back to the app. */
@@ -46,4 +49,15 @@ export interface Host {
   editDimension(runId: string, index: number): void;
   /** Puts the pencil down: nothing is armed to draw from. */
   stopDrawing(): void;
+  /** Every drawing kept on this device, newest first. */
+  library(): LibraryEntry[];
+  /** Brings a kept drawing back on screen. */
+  openFromLibrary(id: string): void;
+  removeFromLibrary(id: string): void;
+  /**
+   * Starts the next sheet of the project on screen: same title block, same
+   * pipe, the sheet count moved on. Picked on an open end, that end is marked
+   * as continuing on the new sheet, and the new sheet starts from it.
+   */
+  newSheetInProject(): void;
 }

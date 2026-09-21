@@ -34,6 +34,14 @@ ships, and the decisions already taken, so they are not re-litigated.
 - Drawings are stored in the browser's localStorage under
   `iso-draw.drawing.v1` (autosave of the current drawing) and exported with
   Save as `<name>.iso.json`; Open reads them back. Nothing is on a server.
+  Every drawing worth keeping (a route or a name) also goes into the
+  **library** (`iso-draw.library.v1`, `src/model/library.ts`, up to 80
+  entries, keyed by `drawing.id`), grouped by `meta.project` in the
+  **Projects** tab: five most recent projects, "show all", open/remove a
+  sheet, and **New sheet in this project** (`newSheetInProject` in main.ts:
+  title block carried over, sheets renumbered "k of n", the picked open end
+  marked `CONT. ON SH.n`, the new sheet starting from a point marked
+  `CONT. FROM SH.k`).
 
 ## Before every push
 

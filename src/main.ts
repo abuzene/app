@@ -2,7 +2,8 @@ import './styles.css';
 import type { Drawing, Run, Vec3 } from './model/types';
 import type { Preview, Selection } from './render/renderer';
 import type { AppState, Host } from './ui/types';
-import { analyse, dimensionStops, emptyDrawing } from './model/drawing';
+import { analyse, dimensionStops, emptyDrawing, uid } from './model/drawing';
+import { loadLibrary, removeDrawing, renumberProject, sheetNumber, upsertDrawing, worthKeeping } from './model/library';
 import { add, length3, scale3, sub } from './model/iso';
 import { initialCommandState, runCommands } from './model/commands';
 import { applyDimension, deleteNode, deleteRun, ensureNode, removeComponent, route, stretchRun } from './model/edit';
@@ -30,6 +31,7 @@ const fileInput = $<HTMLInputElement>('file-input');
 /* ------------------------------------------------------------------ state */
 
 const drawing = loadStored() ?? emptyDrawing();
+if (!drawing.id) drawing.id = uid('d');
 
 const state: AppState = {
   drawing,
@@ -130,6 +132,38 @@ const host: Host = {
   },
   stopDrawing() {
     stopDrawing();
+  },
+  library() {
+    return loadLibrary();
+  },
+  openFromLibrary(id) {
+    const entry = loadLibrary().find((e) => e.id === id);
+    if (!entry) {
+      host.notify('That sheet is no longer on this device.');
+      return;
+    }
+    keepNow();
+    undoStack.push(snapshot());
+    redoStack.length = 0;
+    takeUp(entry.drawing);
+    host.notify(`Opened ${entry.drawing.meta.project || 'the drawing'}, sheet ${entry.drawing.meta.sheet || '1 of 1'}.`);
+  },
+  removeFromLibrary(id) {
+    const entry = loadLibrary().find((e) => e.id === id);
+    if (!entry) return;
+    void confirmDialog(
+      'Remove this sheet',
+      `Sheet ${entry.drawing.meta.sheet || '1 of 1'} of ${entry.drawing.meta.project || 'the unnamed project'} will be forgotten on this device. A file you saved of it is untouched.`,
+      'Remove',
+    ).then((ok) => {
+      if (!ok) return;
+      removeDrawing(id);
+      if (id === state.drawing.id) state.drawing.id = uid('d');
+      render();
+    });
+  },
+  newSheetInProject() {
+    newSheetInProject();
   },
   editDimension(runId, index) {
     // The figure has to be on the sheet to be typed over: find its target.
@@ -994,7 +1028,9 @@ $('new').addEventListener('click', async () => {
   // A new sheet on the same job: the route goes, but the company mark, the
   // project and the way the pipe is specified carry over, because retyping
   // them for every isometric is the opposite of useful.
+  keepNow();
   const fresh = emptyDrawing();
+  fresh.id = uid('d');
   const kept = state.drawing;
   Object.assign(state.drawing, {
     ...fresh,
@@ -1031,14 +1067,9 @@ fileInput.addEventListener('change', async () => {
     if (!parsed || !Array.isArray(parsed.nodes) || !Array.isArray(parsed.runs)) {
       throw new Error('Not an isometric file.');
     }
+    keepNow();
     undoStack.push(snapshot());
-    Object.assign(state.drawing, { ...emptyDrawing(), ...parsed });
-    state.selection = null;
-    state.commandState = initialCommandState();
-    recompute();
-    persist();
-    render();
-    fitView();
+    takeUp(parsed);
     host.notify(`Opened ${file.name}`);
   } catch (error) {
     host.notify(error instanceof Error ? error.message : 'Could not open that file.');
@@ -1541,6 +1572,88 @@ function persist(): void {
   } catch {
     // Storage can be unavailable or full; the drawing is still exportable.
   }
+  // The library follows a moment later, so a run of quick edits writes it once.
+  if (keepTimer) clearTimeout(keepTimer);
+  keepTimer = setTimeout(keepNow, 800);
+}
+
+let keepTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Puts the drawing on screen in the library now, if it is worth keeping. */
+function keepNow(): void {
+  if (keepTimer) clearTimeout(keepTimer);
+  keepTimer = null;
+  if (!state.drawing.id) state.drawing.id = uid('d');
+  if (worthKeeping(state.drawing)) upsertDrawing(state.drawing);
+}
+
+/** Puts a drawing on screen in place of the one there. */
+function takeUp(drawing: Drawing): void {
+  Object.assign(state.drawing, { ...emptyDrawing(), ...drawing });
+  if (!state.drawing.id) state.drawing.id = uid('d');
+  state.selection = null;
+  state.preview = null;
+  hoverMessage = null;
+  canvas.setAnchor(null);
+  state.commandState = initialCommandState(state.currentDn, state.currentSchedule);
+  recompute();
+  persist();
+  render();
+  fitView();
+}
+
+/**
+ * The next sheet of the project on screen. The title block, logo and pipe
+ * settings carry over and the sheet count moves on across every sheet of
+ * the project. Picked on an open end, that end is marked "CONT. ON SH.n"
+ * and the new sheet starts from a point marked "CONT. FROM SH.k", the way
+ * the sheets say where a line goes on.
+ */
+function newSheetInProject(): void {
+  const prev = state.drawing;
+  const project = prev.meta.project || '';
+  const prevNo = sheetNumber(prev.meta.sheet);
+  const picked = state.selection?.kind === 'node' ? state.selection.id : null;
+  const pickedEnd = picked && state.analysis.nodeInfo.get(picked)?.degree === 1 ? picked : null;
+
+  // This sheet first: kept, with the continuation marked on it.
+  keepNow();
+  const siblings = loadLibrary().filter((e) => (e.drawing.meta.project || '') === project);
+  const total = Math.max(siblings.length, prevNo) + 1;
+  const nextNo = total;
+  if (pickedEnd) {
+    host.edit('Mark continuation', (d) => {
+      const node = d.nodes.find((n) => n.id === pickedEnd);
+      if (node) node.terminal = { kind: 'CONTINUATION', note: `CONT. ON SH.${nextNo}` };
+    });
+  }
+  keepNow();
+  renumberProject(project, total);
+
+  undoStack.push(snapshot());
+  redoStack.length = 0;
+  const fresh = emptyDrawing();
+  fresh.id = uid('d');
+  fresh.options = { ...prev.options };
+  fresh.meta = {
+    ...fresh.meta,
+    logo: prev.meta.logo,
+    project: prev.meta.project,
+    lineNumber: prev.meta.lineNumber,
+    drawingNo: prev.meta.drawingNo,
+    drawnBy: prev.meta.drawnBy,
+    revision: prev.meta.revision,
+    sheet: `${nextNo} of ${total}`,
+  };
+  // The point the line comes in at, marked as continuing from the sheet before.
+  const startId = uid('n');
+  fresh.nodes.push({ id: startId, pos: { e: 0, n: 0, u: 0 }, terminal: { kind: 'CONTINUATION', note: `CONT. FROM SH.${prevNo}` } });
+  takeUp(fresh);
+  canvas.setAnchor(startId);
+  state.selection = { kind: 'node', id: startId };
+  state.commandState.currentNode = startId;
+  render();
+  host.notify(`Sheet ${nextNo} of ${total} — tap where the line goes on.`);
 }
 
 function loadStored(): Drawing | null {
