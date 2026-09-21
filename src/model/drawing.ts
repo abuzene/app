@@ -3,7 +3,6 @@ import type {
   EndType,
   DrawingOptions,
   FittingKind,
-  FlangeKind,
   InlineComponent,
   IsoNode,
   JointType,
@@ -11,6 +10,7 @@ import type {
   Run,
   Vec3,
   Weld,
+  WeldReach,
 } from './types';
 import { add, angleBetween, direction, length3, scale3, sub } from './iso';
 import { componentTakeout, defaultValveEnds, fittingTakeout, oletTakeout, sizeLabel } from './pipe-data';
@@ -60,6 +60,7 @@ export function defaultOptions(): DrawingOptions {
     joint: 'BW',
     pipeSchedule: 'SCH40',
     fittingThickness: 'STD',
+    sheetScale: 15,
   };
 }
 
@@ -423,7 +424,7 @@ export function analyse(drawing: Drawing): Analysis {
     facing: 1 | -1,
     sortRun: number,
     sortDist: number,
-    onFlange?: { face: Vec3; flange: FlangeKind },
+    on?: { anchor: Vec3; reach: WeldReach },
   ) => {
     if (jointMap.has(key)) return;
     jointMap.set(key, {
@@ -437,8 +438,8 @@ export function analyse(drawing: Drawing): Analysis {
       facing,
       sortRun,
       sortDist,
-      face: onFlange?.face,
-      flange: onFlange?.flange,
+      anchor: on?.anchor,
+      reach: on?.reach,
     });
   };
 
@@ -488,7 +489,9 @@ export function analyse(drawing: Drawing): Analysis {
             facing,
             idx,
             at,
-            isFlange(terminal) ? { face: node.pos, flange: terminal === 'FLG_BLIND' ? 'FLG_WN' : terminal } : undefined,
+            isFlange(terminal)
+              ? { anchor: node.pos, reach: { kind: 'flange', flange: terminal === 'FLG_BLIND' ? 'FLG_WN' : terminal, paired: false } }
+              : undefined,
           );
         }
       } else if (info.fitting === 'OLET') {
@@ -511,6 +514,7 @@ export function analyse(drawing: Drawing): Analysis {
               facing,
               idx,
               distance2,
+              { anchor: node.pos, reach: { kind: 'olet' } },
             );
           } else {
             // The olet is welded to the header wall whatever its branch is.
@@ -544,7 +548,7 @@ export function analyse(drawing: Drawing): Analysis {
             facing,
             idx,
             at,
-            { face: node.pos, flange: node.flange },
+            { anchor: node.pos, reach: { kind: 'flange', flange: node.flange, paired: true } },
           );
         }
       } else if (info.fitting === 'NONE') {
@@ -570,6 +574,7 @@ export function analyse(drawing: Drawing): Analysis {
           facing,
           idx,
           distance,
+          { anchor: node.pos, reach: { kind: 'fitting' } },
         );
       }
     }
@@ -581,9 +586,13 @@ export function analyse(drawing: Drawing): Analysis {
       const ends = resolveEnds(comp.kind, dn, comp.ends, defaultJoint);
       const takeout = componentTakeout(comp.kind, dn, ends === 'FLG');
       const faceHalf = componentTakeout(comp.kind, dn, false);
+      const centre = add(a.pos, scale3(dir, comp.offset));
+      const isReducer = comp.kind === 'RED_CONC' || comp.kind === 'RED_ECC';
+      const reach: WeldReach = isReducer
+        ? { kind: 'reducer' }
+        : { kind: 'valve', trueHalf: faceHalf, flange: ends === 'FLG' && !isFlange(comp.kind) ? 'FLG_WN' : undefined };
       for (const side of [0, 1] as const) {
         const distance = side === 0 ? comp.offset - takeout : comp.offset + takeout;
-        const faceAt = side === 0 ? comp.offset - faceHalf : comp.offset + faceHalf;
         pushJoint(
           `c:${comp.id}:${side}`,
           joint,
@@ -594,7 +603,7 @@ export function analyse(drawing: Drawing): Analysis {
           side === 0 ? 1 : -1,
           idx,
           distance,
-          ends === 'FLG' && !isFlange(comp.kind) ? { face: add(a.pos, scale3(dir, faceAt)), flange: 'FLG_WN' } : undefined,
+          { anchor: centre, reach },
         );
       }
     }
@@ -621,6 +630,8 @@ export function analyse(drawing: Drawing): Analysis {
       joins: j.joins,
       pos: j.pos,
       facing: j.facing,
+      anchor: j.anchor,
+      reach: j.reach,
     };
   });
   const welds = joints.filter((j) => j.joint !== 'THD');

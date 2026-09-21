@@ -1324,18 +1324,81 @@ const drawnTotal = crossingPieces.reduce((a, b) => a + b, 0);
 const longest = Math.max(...crossingPieces);
 check('and the gap is small', drawnTotal > longest * 1.4, (v) => v === true, 'most of the broken run still drawn');
 
-// Symbols keep a set size on the printed sheet, so a small drawing is not
-// blown up with them: they are smaller against a small drawing's fit than a
-// big one's. Here the whole drawing spans two metres.
-const smallSymbol = await page.evaluate(() => Number(document.querySelector('#canvas .weld-box')?.getAttribute('height') ?? 0));
+// Symbols are a set size on the printed sheet at the drawing's scale, so
+// they do not change as the drawing grows — only when the scale is changed.
+const tagBox = () => page.evaluate(() => Number(document.querySelector('#canvas .weld-box')?.getAttribute('height') ?? 0));
 await startNewDrawing();
 await page.click('#tabs button:has-text("Command")');
 await page.waitForTimeout(200);
-await page.fill('#command-text', '3"\nSCH40\nORIGIN 0 0 0\nE 12000\nN 9000');
+await page.fill('#command-text', '3"\nSCH40\nORIGIN 0 0 0\nE 2000\nN 1000');
 await page.click('[data-a="run-commands"]');
 await page.waitForTimeout(500);
-const bigSymbol = await page.evaluate(() => Number(document.querySelector('#canvas .weld-box')?.getAttribute('height') ?? 0));
-check('symbols are judged against the sheet, not the drawing', bigSymbol > smallSymbol * 2, (v) => v === true, `bigger on a 12 m drawing (${bigSymbol} vs ${smallSymbol})`);
+const smallSymbol = await tagBox();
+check('a drawing has weld tags to measure', smallSymbol, (v) => v > 0, 'more than 0');
+await page.click('#print');
+await page.waitForTimeout(300);
+check('the print dialog offers the drawing scale', await page.locator('#sheet-scale').count(), (v) => v === 1, '1');
+check('at 1:15 to begin with', await page.locator('#sheet-scale').inputValue(), (v) => v === '15', '15');
+await page.selectOption('#sheet-scale', '50');
+await page.waitForTimeout(400);
+const coarser = await tagBox();
+check('a coarser scale makes the symbols bigger against the pipe', coarser / smallSymbol, (v) => Math.abs(v - 50 / 15) < 0.05, `${(50 / 15).toFixed(2)}x`);
+await page.click('[data-x="preview"]');
+await page.waitForTimeout(600);
+check('and the sheet says which scale it is at', await page.locator('.sheet-preview').innerText(), (v) => /SCALE 1:50/.test(v), 'SCALE 1:50');
+await page.click('.dialog [data-close]');
+await page.waitForTimeout(200);
+await page.click('#print');
+await page.waitForTimeout(300);
+await page.selectOption('#sheet-scale', '15');
+await page.waitForTimeout(300);
+await page.click('[data-x="close"]');
+await page.waitForTimeout(200);
+await page.click('#tabs button:has-text("Command")');
+await page.waitForTimeout(200);
+await page.fill('#command-text', 'N 9000\nE 12000');
+await page.click('[data-a="run-commands"]');
+await page.waitForTimeout(500);
+check('symbols keep their size as the drawing grows', await tagBox(), (v) => Math.abs(v - smallSymbol) < 0.01, `${smallSymbol}`);
+
+// Weld marks are part of the fitting symbol: an elbow's welds sit a set
+// distance from its corner whatever the pipe size, on the ends of its sweep.
+const elbowReach = async () =>
+  page.evaluate(() => {
+    const corners = [...document.querySelectorAll('#canvas .node circle.hit-dot')].map((c) => ({ x: Number(c.getAttribute('cx')), y: Number(c.getAttribute('cy')) }));
+    const dots = [...document.querySelectorAll('#canvas .weld .joint-bw')].map((c) => ({ x: Number(c.getAttribute('cx')), y: Number(c.getAttribute('cy')) }));
+    const path = document.querySelector('#canvas path.pipe');
+    const nearest = corners.map((c) => Math.min(...dots.map((d) => Math.hypot(d.x - c.x, d.y - c.y)))).filter((d) => d > 0.01);
+    return { reach: Math.min(...nearest), arcStart: path ? path.getAttribute('d').split(' ').slice(1, 3).map(Number) : null, dots };
+  });
+await startNewDrawing();
+await page.click('#tabs button:has-text("Command")');
+await page.waitForTimeout(200);
+await page.fill('#command-text', '3"\nSCH40\nORIGIN 0 0 0\nE 1500\nN 1500');
+await page.click('[data-a="run-commands"]');
+await page.waitForTimeout(500);
+const small3 = await elbowReach();
+check('the elbow sweep starts on a weld mark', small3.dots.some((d) => Math.hypot(d.x - small3.arcStart[0], d.y - small3.arcStart[1]) < 0.05), (v) => v === true, 'true');
+await startNewDrawing();
+await page.click('#tabs button:has-text("Command")');
+await page.waitForTimeout(200);
+await page.fill('#command-text', '8"\nSCH40\nORIGIN 0 0 0\nE 1500\nN 1500');
+await page.click('[data-a="run-commands"]');
+await page.waitForTimeout(500);
+const big8 = await elbowReach();
+check('and sits the same distance from the corner on an 8" line as on a 3" one', Math.abs(big8.reach - small3.reach), (v) => v < 0.01, 'the same');
+
+// With the panel folded away, drawing on from a point is a button on the sheet.
+await page.keyboard.press('Escape');
+await page.waitForTimeout(200);
+await page.locator('#canvas circle.hit-dot[data-node]').last().click({ force: true });
+await page.waitForTimeout(250);
+check('a picked point offers Draw from here on the sheet', await page.locator('#hud-draw-from').count(), (v) => v === 1, '1');
+await page.click('#hud-draw-from');
+await page.waitForTimeout(250);
+check('and pressing it arms the pencil', await page.locator('#hud-stop').count(), (v) => v === 1, '1');
+await page.keyboard.press('Escape');
+await page.waitForTimeout(200);
 await page.keyboard.press('Escape');
 await page.waitForTimeout(200);
 

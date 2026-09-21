@@ -1,6 +1,6 @@
 import type { Analysis, BomLine } from '../model/drawing';
 import type { Drawing } from '../model/types';
-import { contentBounds, escapeText, renderDrawing, sheetScale, symbolSizeFor } from './renderer';
+import { contentBounds, drawingScale, escapeText, renderDrawing, sheetScale, symbolSizeFor } from './renderer';
 import { sizeLabel } from '../model/pipe-data';
 import { axisScreenDir } from '../model/iso';
 import { contentCss } from './style';
@@ -228,9 +228,14 @@ export function renderSheet(drawing: Drawing, analysis: Analysis, size: SheetSiz
   const pad = 14;
   const contentW = Math.max(bounds.maxX - bounds.minX, 1);
   const contentH = Math.max(bounds.maxY - bounds.minY, 1);
-  // Fitted to the area, but never blown up past a sensible scale: a small
-  // drawing sits in the middle of the sheet at its own size.
-  const k = sheetScale(contentW, contentH, areaW, areaH, pad);
+  // At the drawing's chosen scale, unless that does not fit the sheet, in
+  // which case it is brought down to fit and the note says so.
+  const fitK = sheetScale(contentW, contentH, areaW, areaH, pad);
+  const wantK = drawingScale(drawing, analysis);
+  const k = Math.min(wantK, (areaW - pad * 2) / contentW, (areaH - pad * 2) / contentH);
+  const reduced = k < wantK - 1e-9;
+  const scaleR = Math.round(1 / drawing.options.scale / k);
+  void fitK;
   const tx = areaX + areaW / 2 - ((bounds.minX + bounds.maxX) / 2) * k;
   const ty = areaY + areaH / 2 - ((bounds.minY + bounds.maxY) / 2) * k;
 
@@ -258,7 +263,7 @@ export function renderSheet(drawing: Drawing, analysis: Analysis, size: SheetSiz
 
   const notes = [
     'ALL DIMENSIONS IN MILLIMETRES.',
-    drawing.options.schematic ? 'DRAWING NOT TO SCALE.' : 'DRAWING PROPORTIONAL, DIMENSIONS GOVERN.',
+    drawing.options.schematic ? 'DRAWING NOT TO SCALE.' : `SCALE 1:${scaleR}${reduced ? ' (REDUCED TO FIT)' : ''}, DIMENSIONS GOVERN.`,
     'DIMENSIONS ARE CENTRE TO CENTRE UNLESS NOTED.',
   ];
 

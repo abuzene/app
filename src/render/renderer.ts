@@ -1,8 +1,8 @@
 import type { Analysis } from '../model/drawing';
 import type { Axis, Drawing, Run, Vec3 } from '../model/types';
 import { COMPONENT_LABEL, TERMINAL_LABEL, dimensionStops, fittingLabel, isValve, oletLegs, resolveEnds } from '../model/drawing';
-import { componentTakeout, fittingTakeout, sizeLabel } from '../model/pipe-data';
-import { AXIS_VECTOR, axisBetween, axisScreenDir, length3, project, scale3, add, sub } from '../model/iso';
+import { componentTakeout, sizeLabel } from '../model/pipe-data';
+import { AXIS_VECTOR, axisBetween, axisScreenDir, project, scale3, add } from '../model/iso';
 import { componentSymbol, flangeHub, flangeSymbol, frameFor, gasketLine, isFlange, jointMark, oletSymbol, terminalSymbol, type Frame } from './symbols';
 
 export interface ViewBox {
@@ -39,11 +39,20 @@ export function sheetScale(contentW: number, contentH: number, areaW: number, ar
   return Math.min(fit, SHEET_SCALE_MAX);
 }
 
+/**
+ * Sheet millimetres per paper unit at the drawing's chosen scale (1:R), or
+ * fitted to an A3 sheet when the drawing is set to fit.
+ */
+export function drawingScale(drawing: Drawing, analysis: Analysis): number {
+  const R = drawing.options.sheetScale ?? 15;
+  if (R > 0) return 1 / drawing.options.scale / R;
+  const b = contentBounds(drawing, analysis);
+  return sheetScale(b.maxX - b.minX, b.maxY - b.minY, SHEET_AREA.w, SHEET_AREA.h);
+}
+
 /** Symbol half-size in paper units for this drawing. */
 export function symbolSizeFor(drawing: Drawing, analysis: Analysis): number {
-  const b = contentBounds(drawing, analysis);
-  const k = sheetScale(b.maxX - b.minX, b.maxY - b.minY, SHEET_AREA.w, SHEET_AREA.h);
-  return SYMBOL_MM / k;
+  return SYMBOL_MM / drawingScale(drawing, analysis);
 }
 
 /** Half the gap between two bolted flange faces, as a share of the symbol size. */
@@ -309,15 +318,21 @@ export function renderDrawing(state: RenderState): string {
    * How far, in paper units, the straight pipe stops short of a point: at an
    * elbow the run ends where the elbow starts, and the corner is drawn round.
    */
-  // Not to scale, an elbow is drawn a set size rather than its true one,
-  // which would grow and shrink as the true length was typed.
-  const bendRadius = (fitting: string, dn: string, paperPerMm: number): number =>
-    drawing.options.schematic ? size * 1.4 : fittingTakeout(fitting, dn) * paperPerMm;
-  const trimAt = (nodeId: string, run: Run, paperPerMm: number): number => {
+  // Fittings are drawn a set size, the same on every sheet, whatever their
+  // true take-out: an elbow's sweep, and where its welds sit, is a symbol.
+  const FITTING_REACH = size * 1.4;
+  const trimAt = (nodeId: string): number => {
     const info = analysis.nodeInfo.get(nodeId);
     if (!info || info.degree !== 2 || !BENDS.includes(info.fitting)) return 0;
-    return bendRadius(info.fitting, run.dn, paperPerMm);
+    return FITTING_REACH;
   };
+  /**
+   * How far an in-line item reaches from its centre to its face, in paper
+   * units: its true half length to scale, a set size not to scale, and never
+   * so short that the symbol collapses.
+   */
+  const faceReach = (trueHalf: number, paperPerMm: number): number =>
+    drawing.options.schematic ? size * 1.2 : Math.max(trueHalf * paperPerMm, size * 0.8);
   const towards = (from: Pt, to: Pt, by: number): Pt => {
     const len = Math.hypot(to.x - from.x, to.y - from.y) || 1;
     return { x: from.x + ((to.x - from.x) / len) * Math.min(by, len / 2), y: from.y + ((to.y - from.y) / len) * Math.min(by, len / 2) };
@@ -336,8 +351,8 @@ export function renderDrawing(state: RenderState): string {
     const paperPerMm = total > 0 ? Math.hypot(b.x - a.x, b.y - a.y) / total : 0;
 
     // The straight pipe, stopping where an elbow takes over at either end.
-    const pa = towards(a, b, trimAt(run.from, run, paperPerMm));
-    const pb = towards(b, a, trimAt(run.to, run, paperPerMm));
+    const pa = towards(a, b, trimAt(run.from));
+    const pb = towards(b, a, trimAt(run.to));
     straights.push({ run, pa, pb, selected, gaps: [] });
     if (selected) {
       // A picked run shows a handle at each end, dragged to make it longer or
@@ -359,10 +374,24 @@ export function renderDrawing(state: RenderState): string {
     // the valve's face-to-face stands on its own between them.
     if (drawing.options.showDimensions && lengths && !run.noDim) {
       const stops = dimensionStops(drawing, run);
+      // A dimension to a valve face ends where the face is drawn, which is
+      // the symbol's face rather than the true one when the two differ.
+      const facePaper = new Map<number, Pt>();
+      for (const comp of run.inline) {
+        if (!isValve(comp.kind)) continue;
+        const half = componentTakeout(comp.kind, comp.dn ?? run.dn, false);
+        const centre = along(comp.offset);
+        const reach = faceReach(half, paperPerMm);
+        const ux = total > 0 ? (b.x - a.x) / Math.hypot(b.x - a.x, b.y - a.y) : 0;
+        const uy = total > 0 ? (b.y - a.y) / Math.hypot(b.x - a.x, b.y - a.y) : 0;
+        facePaper.set(Math.round(comp.offset - half), { x: centre.x - ux * reach, y: centre.y - uy * reach });
+        facePaper.set(Math.round(comp.offset + half), { x: centre.x + ux * reach, y: centre.y + uy * reach });
+      }
+      const at = (mm: number): Pt => facePaper.get(Math.round(mm)) ?? along(mm);
       for (let i = 0; i + 1 < stops.length; i += 1) {
         const span = stops[i + 1] - stops[i];
         if (span < 0.5) continue;
-        const dim = renderDimension(along(stops[i]), along(stops[i + 1]), centroid, formatMm(span), size, `${run.id}:${i}`, hitR);
+        const dim = renderDimension(at(stops[i]), at(stops[i + 1]), centroid, formatMm(span), size, `${run.id}:${i}`, hitR);
         dims += dim.svg;
         dimHits += dim.hit;
         figures.push(dim.at);
@@ -379,18 +408,16 @@ export function renderDrawing(state: RenderState): string {
       comps += `<g class="component${selectedComp ? ' selected' : ''}" data-component="${comp.id}">`;
       // The body reaches its real faces, so what bolts or welds to it sits
       // against it rather than floating off along the pipe.
-      const toFaces = isValve(comp.kind) || comp.kind === 'RED_CONC' || comp.kind === 'RED_ECC';
-      const faceHalf = toFaces ? componentTakeout(comp.kind, dn, false) * paperPerMm : undefined;
+      const faceHalf = isValve(comp.kind) ? faceReach(componentTakeout(comp.kind, dn, false), paperPerMm) : undefined;
       comps += componentSymbol(comp.kind, f, faceHalf);
 
       // A flanged component is drawn with the flanges it bolts between, each
       // facing in towards it, which is how it is actually built.
       const ends = resolveEnds(comp.kind, dn, comp.ends, drawing.options.joint ?? 'BW');
       if (ends === 'FLG' && !isFlange(comp.kind) && faceHalf !== undefined) {
-        const face = Math.max(faceHalf, size);
         const shifted = (by: number): Frame => ({ ...f, cx: f.cx + f.dx * by, cy: f.cy + f.dy * by });
-        comps += gasketLine(f, -face) + flangeSymbol(shifted(-face), 'FLG_WN', 1);
-        comps += gasketLine(f, face) + flangeSymbol(shifted(face), 'FLG_WN', -1);
+        comps += gasketLine(f, -faceHalf) + flangeSymbol(shifted(-faceHalf), 'FLG_WN', 1);
+        comps += gasketLine(f, faceHalf) + flangeSymbol(shifted(faceHalf), 'FLG_WN', -1);
       }
       const label = comp.tag ?? '';
       if (label) {
@@ -449,9 +476,7 @@ export function renderDrawing(state: RenderState): string {
       const q = paper(otherId);
       const other = analysis.nodeById.get(otherId);
       if (!q || !other) continue;
-      const trueLen = length3(sub(other.pos, info.node.pos));
-      const perMm = trueLen > 0 ? Math.hypot(q.x - c.x, q.y - c.y) / trueLen : 0;
-      ends.push(towards(c, q, bendRadius(info.fitting, run.dn, perMm)));
+      ends.push(towards(c, q, FITTING_REACH));
     }
     if (ends.length !== 2) continue;
     pipes += `<path class="pipe" d="M ${ends[0].x.toFixed(2)} ${ends[0].y.toFixed(2)} Q ${c.x.toFixed(2)} ${c.y.toFixed(2)} ${ends[1].x.toFixed(2)} ${ends[1].y.toFixed(2)}"/>`;
@@ -524,17 +549,28 @@ export function renderDrawing(state: RenderState): string {
     const place = weldPlacement(drawing, analysis, joint.pos);
     if (!place) return;
     let f = frameFor(place.a.x, place.a.y, place.b.x, place.b.y, place.t, size, place.plane?.across, place.plane?.up);
-    // On a flange the mark goes on the end of the flange symbol, which is the
-    // same length for every flange, rather than at the true weld distance.
-    if (joint.face && joint.flange) {
-      const at = weldPlacement(drawing, analysis, joint.face);
+    // The mark is part of the symbol it belongs to: it sits on the symbol's
+    // end, a set distance out from the point or the item, whatever the true
+    // take-out — so it never drifts off the fitting as lengths change.
+    if (joint.anchor && joint.reach) {
+      const at = weldPlacement(drawing, analysis, joint.anchor);
       if (at) {
-        const face = frameFor(at.a.x, at.a.y, at.b.x, at.b.y, at.t, size, at.plane?.across, at.plane?.up);
-        const dx = f.cx - face.cx;
-        const dy = f.cy - face.cy;
+        const from = frameFor(at.a.x, at.a.y, at.b.x, at.b.y, at.t, size, at.plane?.across, at.plane?.up);
+        const dx = f.cx - from.cx;
+        const dy = f.cy - from.cy;
         const len = Math.hypot(dx, dy) || 1;
-        const back = flangeHub(joint.flange, size) + (joint.key.includes(':flg:') ? size * FLANGE_GAP : 0);
-        f = { ...f, cx: face.cx + (dx / len) * back, cy: face.cy + (dy / len) * back };
+        const r = joint.reach;
+        const out =
+          r.kind === 'fitting'
+            ? FITTING_REACH
+            : r.kind === 'olet'
+              ? size * 0.9
+              : r.kind === 'reducer'
+                ? size * 0.9
+                : r.kind === 'flange'
+                  ? flangeHub(r.flange, size) + (r.paired ? size * FLANGE_GAP : 0)
+                  : faceReach(r.trueHalf, at.perMm) + (r.flange ? flangeHub(r.flange, size) : 0);
+        f = { ...f, cx: from.cx + (dx / len) * out, cy: from.cy + (dy / len) * out };
       }
     }
     jointPoints.set(joint.key, { x: f.cx, y: f.cy });
@@ -746,8 +782,8 @@ function weldPlacement(
   drawing: Drawing,
   analysis: Analysis,
   pos: Vec3,
-): { a: Pt; b: Pt; t: number; plane: { across: Pt; up: Pt } | null } | null {
-  let best: { a: Pt; b: Pt; t: number; d: number; plane: { across: Pt; up: Pt } | null } | null = null;
+): { a: Pt; b: Pt; t: number; perMm: number; plane: { across: Pt; up: Pt } | null } | null {
+  let best: { a: Pt; b: Pt; t: number; d: number; perMm: number; plane: { across: Pt; up: Pt } | null } | null = null;
   for (const run of drawing.runs) {
     const fa = analysis.nodeById.get(run.from);
     const fb = analysis.nodeById.get(run.to);
@@ -768,10 +804,10 @@ function weldPlacement(
     if (!best || d < best.d) {
       const a = paperOf(analysis, drawing, run.from);
       const b = paperOf(analysis, drawing, run.to);
-      if (a && b) best = { a, b, t, d, plane: symbolPlane(drawing, fa.pos, fb.pos) };
+      if (a && b) best = { a, b, t, d, perMm: Math.hypot(b.x - a.x, b.y - a.y) / Math.sqrt(lenSq), plane: symbolPlane(drawing, fa.pos, fb.pos) };
     }
   }
-  return best ? { a: best.a, b: best.b, t: best.t, plane: best.plane } : null;
+  return best ? { a: best.a, b: best.b, t: best.t, perMm: best.perMm, plane: best.plane } : null;
 }
 
 /** Small compass drawn as a screen-fixed overlay rather than part of the sheet. */

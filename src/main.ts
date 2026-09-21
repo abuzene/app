@@ -624,6 +624,11 @@ function renderHud(): void {
   // and so is deleting what is selected.
   if (canvas.drawingFrom) parts.push('<button class="hud-stop" id="hud-stop" type="button">Stop drawing</button>');
   const sel = state.selection;
+  // Drawing on from a picked point is a button here as well as in the panel,
+  // which may be folded away on a tablet.
+  if (sel?.kind === 'node' && canvas.drawingFrom !== sel.id) {
+    parts.push('<button class="hud-stop" id="hud-draw-from" type="button">Draw from here</button>');
+  }
   if (sel && sel.kind !== 'weld') {
     const what = sel.kind === 'run' ? 'run' : sel.kind === 'node' ? 'point' : 'item';
     parts.push(`<button class="hud-stop hud-delete" id="hud-delete" type="button">Delete ${what}</button>`);
@@ -637,6 +642,9 @@ function renderHud(): void {
   hudEl.innerHTML = parts.join('');
   hudEl.querySelector('#hud-stop')?.addEventListener('click', stopDrawing);
   hudEl.querySelector('#hud-delete')?.addEventListener('click', deleteSelection);
+  hudEl.querySelector('#hud-draw-from')?.addEventListener('click', () => {
+    if (state.selection?.kind === 'node') host.continueFrom(state.selection.id);
+  });
 }
 
 /** Puts the pencil down: the route stays as drawn, nothing more is armed. */
@@ -972,6 +980,12 @@ function openPrintDialog(): void {
     <option value="A3" selected>A3 landscape</option>
     <option value="A2">A2 landscape</option>
   </select></div>
+  <div class="row"><label>Drawing scale</label><select id="sheet-scale">
+    ${[0, 5, 10, 15, 20, 25, 33, 40, 50, 75, 100]
+      .map((r) => `<option value="${r}"${(state.drawing.options.sheetScale ?? 15) === r ? ' selected' : ''}>${r === 0 ? 'Fit to the sheet' : `1:${r}`}</option>`)
+      .join('')}
+  </select></div>
+  <p class="empty-note">Symbols, tags and lettering are a set size on the sheet, so the scale decides how big the drawing is against them. A scale the drawing does not fit at is brought down to fit, and the sheet says so.</p>
   <div class="btn-row">
     <button class="btn-line solid" data-x="print">Print / Save as PDF</button>
     <button class="btn-line" data-x="preview">View sheet first</button>
@@ -991,6 +1005,13 @@ function openPrintDialog(): void {
   });
 
   const sheetSize = () => (backdrop.querySelector<HTMLSelectElement>('#sheet-size')?.value ?? 'A3') as SheetSize;
+  // The scale is the drawing's own, kept with it, and sizes the symbols on screen too.
+  backdrop.querySelector<HTMLSelectElement>('#sheet-scale')?.addEventListener('change', (event) => {
+    const value = Number((event.target as HTMLSelectElement).value);
+    host.edit('Set drawing scale', (d) => {
+      d.options.sheetScale = value;
+    });
+  });
 
   backdrop.querySelectorAll<HTMLButtonElement>('[data-x]').forEach((button) => {
     button.addEventListener('click', () => {

@@ -435,10 +435,10 @@ export function componentSymbol(kind: ComponentKind, f: Frame, reach?: number): 
         line(f, [-s * 0.42, 0, 0], [s * 0.42, 0, 0], 'sym-line')
       );
     case 'RED_CONC':
-      // Drawn to its real length, so the weld on each end lands on its end.
-      return concentricReducer(f, Math.max(s * 0.6, reach ?? s * 0.9));
+      // A set size, with the weld on each end sitting on its end.
+      return concentricReducer(f, s * 0.9);
     case 'RED_ECC':
-      return eccentricReducer(f, Math.max(s * 0.6, reach ?? s * 0.9));
+      return eccentricReducer(f, s * 0.9);
     case 'CAP':
       return capSymbol(f, 1);
     case 'UNION':

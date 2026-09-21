@@ -158,13 +158,25 @@ export interface Weld {
   /** Which way a one-sided symbol at this joint should face. */
   facing: 1 | -1;
   /**
-   * For a weld on a flange: the flange face the joint belongs to, and the
-   * flange itself. The drawing puts the mark on the end of the flange symbol
-   * rather than at the true distance, so every flange reads the same.
+   * What the weld belongs to, and how far out from it the mark is drawn. A
+   * weld mark is part of the fitting's symbol: it sits on the symbol's end,
+   * a set distance from the point or the item, whatever the true take-out.
    */
-  face?: Vec3;
-  flange?: FlangeKind;
+  anchor?: Vec3;
+  reach?: WeldReach;
 }
+
+export type WeldReach =
+  /** An elbow, bend or tee: a symbol length out from the point. */
+  | { kind: 'fitting' }
+  /** The branch weld of an olet. */
+  | { kind: 'olet' }
+  /** A flange on a point: the end of its hub, plus half the gasket gap when paired. */
+  | { kind: 'flange'; flange: FlangeKind; paired: boolean }
+  /** An in-line item: its face, plus a flange when it is flanged. */
+  | { kind: 'valve'; trueHalf: number; flange?: FlangeKind }
+  /** A reducer: a symbol length out from its centre. */
+  | { kind: 'reducer' };
 
 export interface WeldOverride {
   number?: string;
@@ -198,6 +210,12 @@ export interface DrawingOptions {
   schematic: boolean;
   /** Visual length used for every run in schematic mode. */
   schematicLength: number;
+  /**
+   * The scale the sheet prints at, as the R in 1:R; 0 fits the drawing to
+   * the sheet. Symbols are a set size on the sheet, so this is also what
+   * sizes them against the pipe on the screen.
+   */
+  sheetScale?: number;
   showDimensions: boolean;
   /** Weld numbers. Off by default: the balloons carry what a fitter reads. */
   showWelds: boolean;
