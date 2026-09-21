@@ -1145,10 +1145,12 @@ function openPrintDialog(): void {
   </select></div>
   <p class="empty-note">Symbols, tags and lettering are a set size on the sheet, so the scale decides how big the drawing is against them. A scale the drawing does not fit at is brought down to fit, and the sheet says so.</p>
   <div class="btn-row">
-    <button class="btn-line solid" data-x="print">Print / Save as PDF</button>
+    <button class="btn-line${tabletPrinter ? ' solid' : ''}" data-x="pdf">PDF sheet</button>
+    <button class="btn-line${tabletPrinter ? '' : ' solid'}" data-x="print">Print / Save as PDF</button>
     <button class="btn-line" data-x="preview">View sheet first</button>
     <button class="btn-line" data-x="close">Cancel</button>
   </div>
+  <p class="empty-note">PDF sheet makes the sheet itself as a PDF, at its own size with its own 5 mm margins and nothing added, and hands it to the share sheet — print it from there, or save it. Print goes through the browser's printer dialog, which on a tablet adds margins and a footer of its own.</p>
   <p class="empty-note" style="margin-top:12px">App version ${APP_VERSION} · <button class="btn-line" data-x="update" type="button">Check for a new version</button></p>
   ${
     embedded
@@ -1183,6 +1185,11 @@ function openPrintDialog(): void {
         return;
       }
       const sheet = renderSheet(state.drawing, state.analysis, sheetSize());
+      if (what === 'pdf') {
+        close();
+        void makePdfSheet(sheet, sheetSize());
+        return;
+      }
       if (what === 'preview') {
         openOverlay(
           'Sheet preview',
@@ -1210,6 +1217,133 @@ const SHEET_MM: Record<SheetSize, { w: number; h: number }> = {
  * It used to be printed from a hidden frame, which an iPad prints as a blank
  * page — the frame has no size on screen, and that is the size it prints at.
  */
+/* ------------------------------------------------------------ pdf sheet */
+
+/**
+ * The sheet as a PDF made here, not by the browser's printer: the page is
+ * the sheet's own size, its frame 5 mm from the paper edge, and nothing is
+ * added — a tablet's printer dialog puts margins and a footer of its own
+ * round anything it prints and cannot be told not to. The sheet is drawn
+ * onto a canvas at print resolution and put in the PDF as one image, which
+ * the share sheet then prints, saves or sends.
+ */
+async function makePdfSheet(sheet: string, size: SheetSize): Promise<void> {
+  const name = `${fileStem(host)}.pdf`;
+  host.notify('Making the PDF sheet…');
+  let blob: Blob;
+  try {
+    blob = await sheetToPdf(sheet, size);
+  } catch (error) {
+    host.notify(`The PDF could not be made here (${(error as Error)?.message ?? 'unknown'}) — use Print instead.`);
+    return;
+  }
+  const file = new File([blob], name, { type: 'application/pdf' });
+  const share = navigator as Navigator & { canShare?: (data: ShareData) => boolean };
+  if (typeof share.share === 'function' && typeof share.canShare === 'function' && share.canShare({ files: [file] })) {
+    try {
+      await share.share({ files: [file], title: fileStem(host) });
+      return;
+    } catch (error) {
+      // Closing the share sheet is not an error worth a word.
+      if ((error as Error)?.name === 'AbortError') return;
+    }
+  }
+  await saveFile(blob, name);
+}
+
+async function sheetToPdf(sheet: string, size: SheetSize): Promise<Blob> {
+  const { w, h } = SHEET_MM[size];
+  // Print resolution, within what a tablet lets one canvas hold.
+  const budget = 11e6;
+  const dpi = Math.min(240, Math.floor(Math.sqrt(budget / ((w / 25.4) * (h / 25.4)))));
+  const pxW = Math.round((w / 25.4) * dpi);
+  const pxH = Math.round((h / 25.4) * dpi);
+
+  const image = new Image();
+  const url = URL.createObjectURL(new Blob([sheet], { type: 'image/svg+xml;charset=utf-8' }));
+  try {
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error('the sheet could not be drawn'));
+      image.src = url;
+    });
+    const canvas = document.createElement('canvas');
+    canvas.width = pxW;
+    canvas.height = pxH;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('no canvas');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, pxW, pxH);
+    ctx.drawImage(image, 0, 0, pxW, pxH);
+
+    // Lossless where the browser can deflate; otherwise a fine JPEG.
+    let data: Uint8Array;
+    let filter: string;
+    if (typeof CompressionStream === 'function') {
+      const rgba = ctx.getImageData(0, 0, pxW, pxH).data;
+      const rgb = new Uint8Array(pxW * pxH * 3);
+      for (let i = 0, j = 0; i < rgba.length; i += 4, j += 3) {
+        rgb[j] = rgba[i];
+        rgb[j + 1] = rgba[i + 1];
+        rgb[j + 2] = rgba[i + 2];
+      }
+      const packed = await new Response(new Blob([rgb]).stream().pipeThrough(new CompressionStream('deflate'))).arrayBuffer();
+      data = new Uint8Array(packed);
+      filter = '/FlateDecode';
+    } else {
+      const jpeg = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.92));
+      if (!jpeg) throw new Error('no image');
+      data = new Uint8Array(await jpeg.arrayBuffer());
+      filter = '/DCTDecode';
+    }
+    return assemblePdf(data, filter, pxW, pxH, (w / 25.4) * 72, (h / 25.4) * 72);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+/** One page, one image filling it: the smallest PDF there is. */
+function assemblePdf(image: Uint8Array, filter: string, pxW: number, pxH: number, wPt: number, hPt: number): Blob {
+  const enc = new TextEncoder();
+  const chunks: Uint8Array[] = [];
+  const offsets: number[] = [];
+  let length = 0;
+  const put = (part: string | Uint8Array) => {
+    const bytes = typeof part === 'string' ? enc.encode(part) : part;
+    chunks.push(bytes);
+    length += bytes.length;
+  };
+  const object = (n: number, body: string, stream?: Uint8Array) => {
+    offsets[n] = length;
+    put(`${n} 0 obj\n${body}\n`);
+    if (stream) {
+      put('stream\n');
+      put(stream);
+      put('\nendstream\n');
+    }
+    put('endobj\n');
+  };
+  const content = enc.encode(`q ${wPt.toFixed(3)} 0 0 ${hPt.toFixed(3)} 0 0 cm /Im0 Do Q`);
+  put('%PDF-1.4\n%\u00e2\u00e3\u00cf\u00d3\n');
+  object(1, '<< /Type /Catalog /Pages 2 0 R >>');
+  object(2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
+  object(
+    3,
+    `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${wPt.toFixed(3)} ${hPt.toFixed(3)}] /Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>`,
+  );
+  object(4, `<< /Length ${content.length} >>`, content);
+  object(
+    5,
+    `<< /Type /XObject /Subtype /Image /Width ${pxW} /Height ${pxH} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter ${filter} /Length ${image.length} >>`,
+    image,
+  );
+  const xref = length;
+  put(`xref\n0 6\n0000000000 65535 f \n`);
+  for (let n = 1; n <= 5; n += 1) put(`${String(offsets[n]).padStart(10, '0')} 00000 n \n`);
+  put(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+  return new Blob(chunks as BlobPart[], { type: 'application/pdf' });
+}
+
 /** A tablet's printer gives upright paper unless told otherwise. */
 const tabletPrinter = /iPad|iPhone|Android/.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
 

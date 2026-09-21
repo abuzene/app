@@ -99,6 +99,13 @@ ships, and the decisions already taken, so they are not re-litigated.
   to `.tablet`) overrides it with the paper's real orientation, since iOS
   ignores `@page size` and its own dialog decides the paper. Never use that
   query for desktop: Chromium evaluates it before applying `@page size`.
+- **PDF sheet** (`makePdfSheet`/`sheetToPdf`/`assemblePdf` in main.ts): the
+  sheet drawn onto a canvas at up to 240 dpi and written by hand into a
+  one-page, one-image PDF (Flate, JPEG fallback) at the sheet's own size,
+  handed to the share sheet (`navigator.share` with files) or downloaded.
+  This is the way to a printout with the sheet's own 5 mm margins on iPad:
+  its printer dialog always adds ~13 mm margins and a URL footer. It is the
+  primary button on tablets; browser Print stays for desktop.
 - The toolbar pads for the iPad status bar (`env(safe-area-inset-top)`).
 
 ## Where things live

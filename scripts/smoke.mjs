@@ -1341,6 +1341,22 @@ await page.waitForTimeout(300);
 check('the print dialog offers the drawing scale', await page.locator('#sheet-scale').count(), (v) => v === 1, '1');
 check('the print dialog says which build this is', await page.locator('.dialog-backdrop').innerText(), (v) => /App version [0-9a-f]{12} · 20\d\d-/.test(v), 'App version <hash> · <date>');
 check('and offers to look for a new one', await page.locator('.dialog-backdrop [data-x="update"]').count(), (v) => v === 1, '1');
+// The sheet as a PDF made in the app: the page is the sheet's own size, one
+// page, nothing added — what a tablet's printer dialog cannot give.
+{
+  const [madePdf] = await Promise.all([page.waitForEvent('download', { timeout: 30000 }), page.click('.dialog-backdrop [data-x="pdf"]')]);
+  const pdfPath = await madePdf.path();
+  const bytes = await readFile(pdfPath);
+  const head = bytes.subarray(0, 2000).toString('latin1');
+  const pagesIn = (buf) => (buf.toString('latin1').match(/\/Type\s*\/Page[^s]/g) || []).length;
+  check('the PDF sheet is a PDF of one page', pagesIn(bytes), (v) => v === 1, '1');
+  check('at the sheet\'s own size', /MediaBox \[0 0 1190\.55\d* 841\.89\d*\]/.test(head), (v) => v === true, 'MediaBox 1190.55 x 841.89 pt (A3 landscape)');
+  check('drawn losslessly', /\/FlateDecode/.test(head), (v) => v === true, 'FlateDecode');
+  check('and it is named after the drawing', madePdf.suggestedFilename(), (v) => /\.pdf$/.test(v), '*.pdf');
+  // Making the PDF closed the dialog; the checks that follow read it.
+  await page.click('#print');
+  await page.waitForTimeout(250);
+}
 check('at 1:15 to begin with', await page.locator('#sheet-scale').inputValue(), (v) => v === '15', '15');
 await page.selectOption('#sheet-scale', '50');
 await page.waitForTimeout(400);
