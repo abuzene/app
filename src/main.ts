@@ -1241,7 +1241,9 @@ async function makePdfSheet(sheet: string, size: SheetSize): Promise<void> {
   const share = navigator as Navigator & { canShare?: (data: ShareData) => boolean };
   if (typeof share.share === 'function' && typeof share.canShare === 'function' && share.canShare({ files: [file] })) {
     try {
-      await share.share({ files: [file], title: fileStem(host) });
+      // The file alone: a title given as well comes out of a tablet's share
+      // sheet as a second, text file beside the PDF.
+      await share.share({ files: [file] });
       return;
     } catch (error) {
       // Closing the share sheet is not an error worth a word.
