@@ -443,7 +443,10 @@ export function renderDrawing(state: RenderState): string {
         const placed = drawing.itemOverrides?.[`sup:${comp.id}`];
         const lx = placed ? anchor[0] + placed.dx : label[0];
         const ly = placed ? anchor[1] + placed.dy : label[1];
-        const name = `SUPPORT ${comp.tag || supportNo.get(comp.id) || ''}`.trim() + (comp.kind === 'SUPPORT_L' ? ' L50' : '');
+        // "SUPPORT 2 L50": the number (or a name), then what the support is,
+        // which is typed over on the drawing — the angle size, or anything.
+        const detail = comp.note ?? (comp.kind === 'SUPPORT_L' ? 'L50' : '');
+        const name = `SUPPORT ${comp.tag || supportNo.get(comp.id) || ''} ${detail}`.replace(/\s+/g, ' ').trim();
         const textAnchor = lx < anchor[0] ? 'end' : 'start';
         const gap = size * 0.3 * (lx < anchor[0] ? 1 : -1);
         callouts +=

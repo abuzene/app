@@ -1624,11 +1624,11 @@ await page.waitForTimeout(300);
 // Tapping a support's name opens it to be typed over, with the letter keypad.
 const supHit = await page.locator('#canvas [data-balloon^="sup:"]').first().boundingBox();
 await penTap(supHit.x + supHit.width / 2, supHit.y + supHit.height / 2);
-check('a support name opens for typing when tapped', await page.locator('.dim-editor').count(), (v) => v === 1, '1');
+check('a support callout opens for typing when tapped', await page.locator('.dim-editor').count(), (v) => v === 1, '1');
 await page.locator('.dim-keypad [data-key="B"]').dispatchEvent('pointerdown', { bubbles: true });
 await page.locator('.dim-keypad [data-key="OK"]').dispatchEvent('pointerdown', { bubbles: true });
 await page.waitForTimeout(300);
-check('and the name typed is drawn', await page.evaluate(() => document.querySelector('#canvas .callout-text').textContent), (v) => v === 'SUPPORT B', 'SUPPORT B');
+check('and what is typed follows the number', await page.evaluate(() => document.querySelector('#canvas .callout-text').textContent), (v) => v === 'SUPPORT 1 B', 'SUPPORT 1 B');
 
 // The printed sheet is one page whatever paper the printer has: an iPad
 // ignores the @page size, and a 420 mm sheet once ran on to a second page.
@@ -1643,6 +1643,13 @@ const pdfPages = (buf) => (buf.toString('latin1').match(/\/Type\s*\/Page[^s]/g) 
 check('the sheet prints on one page at its own size', pdfPages(await page.pdf({ preferCSSPageSize: true })), (v) => v === 1, '1');
 check('and on one page of A4 portrait', pdfPages(await page.pdf({ format: 'A4' })), (v) => v === 1, '1');
 check('and on one page of Letter', pdfPages(await page.pdf({ format: 'Letter', landscape: true })), (v) => v === 1, '1');
+// On upright paper the sheet is turned to lie along the page, filling it.
+await page.evaluate(() => {
+  document.getElementById('print-page').textContent = '@page { margin: 0 }';
+});
+const upright = await page.pdf({ format: 'A4' });
+check('and on one page of upright A4, turned to fit', pdfPages(upright), (v) => v === 1, '1');
+check('where it fills the page', upright.length, (v) => v > 20000, 'a page with the sheet drawn on it');
 
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 

@@ -408,3 +408,11 @@ tr.selected { background: var(--accent-soft); }
   #print-root { display: block !important; width: 100vw; height: 100vh; overflow: hidden; break-inside: avoid; }
   #print-root svg { display: block; width: 100vw !important; height: 100vh !important; }
 }
+/* On upright paper — a tablet's default — the landscape sheet is turned to
+   lie along the page, rather than shrunk into its middle third. */
+@media print and (orientation: portrait) {
+  #print-root svg {
+    width: 100vh !important; height: 100vw !important;
+    transform-origin: top left; transform: translateX(100vw) rotate(90deg);
+  }
+}

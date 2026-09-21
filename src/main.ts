@@ -385,16 +385,20 @@ const canvas = new Canvas(svg, {
   onEditDimension(runId, index, clientX, clientY) {
     openDimensionEditor(runId, index, clientX, clientY);
   },
-  /** A support's name, typed over right on the drawing. */
+  /**
+   * What a support is — "L50" — typed over right on the drawing. The number
+   * stays; it is the detail after it that is typed.
+   */
   onEditSupport(componentId, clientX, clientY) {
     const comp = state.drawing.runs.flatMap((r) => r.inline).find((c) => c.id === componentId);
     if (!comp) return;
-    openInlineEditor(comp.tag ?? '', 'text', clientX, clientY, (text) => {
-      const name = text.trim();
-      if (name === (comp.tag ?? '')) return;
-      host.edit('Name support', (d) => {
+    const current = comp.note ?? (comp.kind === 'SUPPORT_L' ? 'L50' : '');
+    openInlineEditor(current, 'text', clientX, clientY, (text) => {
+      const detail = text.trim();
+      if (detail === current) return;
+      host.edit('Describe support', (d) => {
         const target = d.runs.flatMap((r) => r.inline).find((c) => c.id === componentId);
-        if (target) target.tag = name || undefined;
+        if (target) target.note = detail || (target.kind === 'SUPPORT_L' ? '' : undefined);
       });
     });
   },

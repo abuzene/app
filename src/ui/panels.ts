@@ -213,7 +213,10 @@ function componentProperties(host: Host, compId: string): string {
   ${
     comp.kind === 'GROUND'
       ? ''
-      : `<div class="row"><label>${isSupport(comp.kind) ? 'Name' : 'Tag'}</label><input type="text" data-f="tag" value="${esc(comp.tag ?? '')}" placeholder="${isSupport(comp.kind) ? 'numbered along the line; or e.g. A' : 'e.g. HV-101'}" /></div>`
+      : `<div class="row"><label>${isSupport(comp.kind) ? 'Number' : 'Tag'}</label><input type="text" data-f="tag" value="${esc(comp.tag ?? '')}" placeholder="${isSupport(comp.kind) ? 'numbered along the line; or e.g. A' : 'e.g. HV-101'}" /></div>` +
+        (isSupport(comp.kind)
+          ? `<div class="row"><label>Detail</label><input type="text" data-f="note" value="${esc(comp.note ?? (comp.kind === 'SUPPORT_L' ? 'L50' : ''))}" placeholder="e.g. L50 — typed on the drawing too" /></div>`
+          : '')
   }
   <p class="empty-note">Measured ${mm(comp.offset)} mm from the start of a ${mm(total)} mm run.${
     isValve(comp.kind)
@@ -673,6 +676,12 @@ function wire(body: HTMLElement, host: Host): void {
     field('tag')?.addEventListener('change', (e) =>
       withComponent('Tag component', (c) => {
         c.tag = (e.target as HTMLInputElement).value || undefined;
+      }, { keepPanel: true }),
+    );
+    field('note')?.addEventListener('change', (e) =>
+      withComponent('Describe support', (c) => {
+        const detail = (e.target as HTMLInputElement).value.trim();
+        c.note = detail || (c.kind === 'SUPPORT_L' ? '' : undefined);
       }, { keepPanel: true }),
     );
     compEditor.querySelector('[data-a="delete-component"]')?.addEventListener('click', () => {
