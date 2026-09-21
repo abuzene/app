@@ -90,7 +90,10 @@ const host: Host = {
     if (result.applied === 0) undoStack.pop();
     recompute();
     persist();
-    if (result.applied > 0) fitView();
+    if (result.applied > 0) {
+      canvas.setAnchor(state.commandState.currentNode);
+      fitView();
+    }
     host.notify(
       result.errors.length > 0
         ? `${result.applied} applied, ${result.errors.length} could not be read`
@@ -129,16 +132,23 @@ const canvas = new Canvas(svg, {
     if (newNode) {
       state.selection = { kind: 'node', id: newNode };
       state.commandState.currentNode = newNode;
+      // Carry on from the end of what was just drawn.
+      canvas.setAnchor(newNode);
+      state.preview = null;
       render();
     }
   },
   onStart() {
+    let started: string | null = null;
     host.edit('Start route', (d) => {
       const id = ensureNode(d, { e: 0, n: 0, u: 0 } as Vec3);
+      started = id;
       state.selection = { kind: 'node', id };
       state.commandState.currentNode = id;
     });
+    if (started) canvas.setAnchor(started);
     fitView();
+    host.notify('Point placed — now click where the pipe goes.');
   },
   onPreview(preview: Preview | null) {
     state.preview = preview;
@@ -185,6 +195,7 @@ function render(): void {
 function renderHud(): void {
   const parts: string[] = [];
   if (hoverMessage) parts.push(`<span>${hoverMessage}</span>`);
+  else if (canvas.drawingFrom) parts.push('<span>drawing — click to place, Esc to stop</span>');
   parts.push(`<span>snap ${state.drawing.options.snap} mm</span>`);
   if (state.drawing.options.schematic) parts.push('<span>not to scale</span>');
   for (const warning of state.analysis.warnings.slice(0, 2)) {
@@ -329,6 +340,7 @@ $('rotate').addEventListener('click', () => {
 
 for (const [id, key] of [
   ['opt-dims', 'showDimensions'],
+  ['opt-items', 'showItems'],
   ['opt-welds', 'showWelds'],
   ['opt-grid', 'showGrid'],
   ['opt-schematic', 'schematic'],
@@ -349,6 +361,8 @@ $('new').addEventListener('click', () => {
   redoStack.length = 0;
   Object.assign(state.drawing, emptyDrawing());
   state.selection = null;
+  state.preview = null;
+  canvas.setAnchor(null);
   state.commandState = initialCommandState();
   recompute();
   persist();
@@ -678,6 +692,9 @@ window.addEventListener('keydown', (event) => {
   if (typing) return;
 
   if (event.key === 'Escape') {
+    canvas.setAnchor(null);
+    state.preview = null;
+    hoverMessage = null;
     host.select(null);
   } else if (event.key === 'f' || event.key === 'F') {
     fitView();
@@ -692,6 +709,8 @@ window.addEventListener('keydown', (event) => {
       else if (sel.kind === 'node') deleteNode(d, sel.id);
       else removeComponent(d, sel.id);
     });
+    if (sel.kind === 'node') canvas.setAnchor(null);
+    state.preview = null;
     host.select(null);
   }
 });

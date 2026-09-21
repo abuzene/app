@@ -82,6 +82,14 @@ ORIGIN 0 0 0    set the starting coordinates in mm
 Lines that cannot be read are reported individually, so one typo does not throw
 away the rest of the block.
 
+## Reading the drawing
+
+Everything on the sheet is ballooned to the material list: every pipe run,
+fitting, flange and valve carries the number of its line, on a leader out to a
+circle. That is what a fitter reads, so it is on by default and weld numbers are
+not — welds are drawn as the solid dots they are, and their numbers can be turned
+on when the weld list is what matters.
+
 ## Symbols
 
 Every sheet carries the Platinum mark, held as a file in `src/assets/` and
@@ -122,8 +130,10 @@ so they stay out of the weld schedule and its numbering.
   to a bend or a mitre.
 - **Dimensions**, centre to centre, placed clear of the pipe.
 - **Welds**, one per fitting leg, one either side of every welded component and
-  one at each welded end, numbered along the route. Threaded joints are marked
-  but are not welds, so they take no number.
+  one at each welded end, drawn as solid dots and numbered along the route.
+  Threaded joints are marked but are not welds, so they take no number.
+- **Item numbers**, assigned from the material list and ballooned onto every
+  thing the list covers.
 - **Cut lengths**, being the centre-to-centre dimension less the take-out of
   whatever sits at each end — what the fabricator actually cuts.
 - **A material list**, with pipe at its own schedule and fittings at their own

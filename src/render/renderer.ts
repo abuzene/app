@@ -81,9 +81,9 @@ export function contentBounds(drawing: Drawing, analysis: Analysis): Bounds {
   return { minX, minY, maxX, maxY };
 }
 
+/** Dimensions are written plainly: 1750, not 1,750. */
 function formatMm(value: number): string {
-  const rounded = Math.round(value);
-  return rounded.toLocaleString('en-GB');
+  return String(Math.round(value));
 }
 
 /** Background isometric grid, generated across the visible area only. */
@@ -323,6 +323,47 @@ export function renderDrawing(state: RenderState): string {
     welds += `<g class="weld">${leader}<text class="weld-no" x="${label.x.toFixed(2)}" y="${(label.y + size * 0.3).toFixed(2)}" text-anchor="middle">${escapeText(label.text)}</text></g>`;
   }
 
+  // Item balloons: every pipe run, fitting, flange and valve carries the number
+  // of its line in the material list, on a leader out to a circle clear of the
+  // drawing. This is how a fabrication isometric says what things are.
+  let balloons = '';
+  if (drawing.options.showItems !== false) {
+    const marks = analysis.items
+      .map((item) => {
+        const place = weldPlacement(drawing, analysis, item.pos);
+        if (!place) return null;
+        const f = frameFor(place.a.x, place.a.y, place.b.x, place.b.y, place.t, size);
+        // Dimensions are placed away from the middle of the drawing, so the
+        // balloons go the other way and the two never fight for the same space.
+        const inward = (centroid.x - f.cx) * f.nx + (centroid.y - f.cy) * f.ny >= 0 ? 1 : -1;
+        const reach = size * 3.4;
+        return {
+          number: item.number,
+          fromX: f.cx,
+          fromY: f.cy,
+          x: f.cx + f.nx * reach * inward,
+          y: f.cy + f.ny * reach * inward,
+        };
+      })
+      .filter((m): m is NonNullable<typeof m> => m !== null);
+
+    const r = size * 1.3;
+    for (const mark of spreadLabels(marks, r * 2.4)) {
+      // The leader stops at the balloon's edge rather than running into it.
+      const dx = mark.x - mark.fromX;
+      const dy = mark.y - mark.fromY;
+      const len = Math.hypot(dx, dy) || 1;
+      const ex = mark.x - (dx / len) * r;
+      const ey = mark.y - (dy / len) * r;
+      balloons +=
+        `<g class="balloon">` +
+        `<line class="balloon-leader" x1="${mark.fromX.toFixed(2)}" y1="${mark.fromY.toFixed(2)}" x2="${ex.toFixed(2)}" y2="${ey.toFixed(2)}"/>` +
+        `<circle class="balloon-ring" cx="${mark.x.toFixed(2)}" cy="${mark.y.toFixed(2)}" r="${r.toFixed(2)}"/>` +
+        `<text class="balloon-no" x="${mark.x.toFixed(2)}" y="${(mark.y + size * 0.42).toFixed(2)}" text-anchor="middle">${mark.number}</text>` +
+        `</g>`;
+    }
+  }
+
   // An olet is drawn as the saddle on the header where the branch leaves it.
   let olets = '';
   for (const [nodeId, info] of analysis.nodeInfo) {
@@ -347,7 +388,7 @@ export function renderDrawing(state: RenderState): string {
     if (corners.length < 3) continue;
     tees += `<polygon class="fitting-body" points="${corners.map((c) => `${c.x.toFixed(2)},${c.y.toFixed(2)}`).join(' ')}"/>`;
   }
-  welds = olets + tees + welds;
+  welds = olets + tees + welds + balloons;
 
   // Drag preview.
   let preview = '';

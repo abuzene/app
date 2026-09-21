@@ -206,6 +206,7 @@ await page.waitForTimeout(200);
 await page.fill('#command-text', 'DN80\nSTD\nORIGIN 0 0 0\nE 2000\nN 1500\nEND CAP');
 await page.click('[data-a="run-commands"]');
 await page.waitForTimeout(500);
+await page.keyboard.press('Escape');
 
 const dots = () => page.locator('#canvas .joint-bw').count();
 const buttWeldDots = await dots();
@@ -238,6 +239,7 @@ await page.waitForTimeout(200);
 await page.fill('#command-text', 'DN80\nSTD\nORIGIN 0 0 0\nE 2000\nMARK t\nE 2000\nGOTO t\nDN50\nN 1500');
 await page.click('[data-a="run-commands"]');
 await page.waitForTimeout(500);
+await page.keyboard.press('Escape');
 check('a reducing tee is drawn as its triangle', await page.locator('#canvas .fitting-body').count(), (v) => v === 1, '1');
 await page.click('#tabs button:has-text("Items")');
 await page.waitForTimeout(300);
@@ -253,6 +255,7 @@ await page.waitForTimeout(200);
 await page.fill('#command-text', '3"\nSTD\nORIGIN 0 0 0\nE 2000');
 await page.click('[data-a="run-commands"]');
 await page.waitForTimeout(500);
+await page.keyboard.press('Escape');
 
 // Select the far end of the line, then pick a weld neck flange.
 const ends = await page.locator('#canvas circle.hit-dot[data-node]').all();
@@ -297,6 +300,7 @@ await page.waitForTimeout(200);
 await page.fill('#command-text', '6"\nSTD\nORIGIN 0 0 0\nE 4000');
 await page.click('[data-a="run-commands"]');
 await page.waitForTimeout(500);
+await page.keyboard.press('Escape');
 await page.click('#tabs button:has-text("Route")');
 await page.waitForTimeout(300);
 
@@ -352,6 +356,8 @@ await page.waitForTimeout(250);
 
 // Find the olet by asking each point what it is, rather than by position.
 // Selecting redraws the canvas, so each handle is looked up afresh.
+await page.keyboard.press('Escape');
+await page.waitForTimeout(200);
 let oletFound = false;
 const pointCount = await page.locator('#canvas circle.hit-dot[data-node]').count();
 for (let i = 0; i < pointCount; i += 1) {
@@ -390,6 +396,7 @@ await page.waitForTimeout(200);
 await page.fill('#command-text', '6"\nSCH40\nORIGIN 0 0 0\nE 4000');
 await page.click('[data-a="run-commands"]');
 await page.waitForTimeout(500);
+await page.keyboard.press('Escape');
 await page.click('#tabs button:has-text("Route")');
 await page.waitForTimeout(300);
 await page.locator('#tab-body .run-list tbody tr').first().click();
@@ -433,6 +440,7 @@ await page.waitForTimeout(200);
 await page.fill('#command-text', '3"\nSCH40\nORIGIN 0 0 0\nE 3000\n+BALL');
 await page.click('[data-a="run-commands"]');
 await page.waitForTimeout(500);
+await page.keyboard.press('Escape');
 await page.click('#tabs button:has-text("Items")');
 await page.waitForTimeout(300);
 const bigValve = (await page.locator('#tab-body').innerText()).replace(/\t/g, ' ');
@@ -450,6 +458,7 @@ await page.waitForTimeout(200);
 await page.fill('#command-text', '1"\nSCH40\nORIGIN 0 0 0\nE 3000\n+BALL');
 await page.click('[data-a="run-commands"]');
 await page.waitForTimeout(500);
+await page.keyboard.press('Escape');
 await page.click('#tabs button:has-text("Items")');
 await page.waitForTimeout(300);
 const smallValve = await page.locator('#tab-body').innerText();
@@ -457,6 +466,64 @@ check('a 1-inch valve is threaded', smallValve, (v) => /BALL VALVE/.test(v) && !
 await page.click('#tabs button:has-text("Welds")');
 await page.waitForTimeout(300);
 check('a threaded valve takes no welds', await page.locator('#tab-body tbody tr').count(), (v) => v === 0, '0');
+
+// Drawing is a continuous tool: touch once to put a point down, then keep
+// clicking where the pipe goes.
+page.once('dialog', (d) => d.accept());
+await page.click('#new');
+await page.waitForTimeout(400);
+const canvasArea = await page.locator('#canvas').boundingBox();
+await page.mouse.click(canvasArea.x + canvasArea.width * 0.35, canvasArea.y + canvasArea.height * 0.5);
+await page.waitForTimeout(500);
+check('the first touch puts a point down', await page.locator('#canvas circle.hit-dot[data-node]').count(), (v) => v === 1, '1');
+check('and the app says it is drawing', await page.locator('#hud').innerText(), (v) => /click where the pipe goes|drawing/.test(v), 'a drawing prompt');
+
+for (const [dx, dy] of [[210, 120], [0, -150], [190, 110]]) {
+  const anchor = await page.locator('#canvas .node.selected circle.hit-dot').boundingBox();
+  const tx = anchor.x + anchor.width / 2 + dx;
+  const ty = anchor.y + anchor.height / 2 + dy;
+  await page.mouse.move(tx, ty, { steps: 6 });
+  await page.waitForTimeout(160);
+  await page.mouse.click(tx, ty);
+  await page.waitForTimeout(400);
+}
+await page.click('#tabs button:has-text("Route")');
+await page.waitForTimeout(250);
+check('each click after that adds a run', await page.locator('#tab-body .run-list tbody tr').count(), (v) => v === 3, '3');
+
+await page.keyboard.press('Escape');
+await page.waitForTimeout(300);
+check('Escape stops drawing', await page.locator('#hud').innerText(), (v) => !/click to place|drawing/.test(v), 'no drawing prompt');
+
+// With drawing stopped, clicking a point only selects it.
+const runsBeforeLook = await page.locator('#tab-body .run-list tbody tr').count();
+await page.locator('#canvas circle.hit-dot[data-node]').first().click({ force: true });
+await page.waitForTimeout(300);
+await page.mouse.click(canvasArea.x + canvasArea.width * 0.8, canvasArea.y + canvasArea.height * 0.25);
+await page.waitForTimeout(350);
+check(
+  'looking at a point does not start laying pipe',
+  await page.locator('#tab-body .run-list tbody tr').count(),
+  (v) => v === runsBeforeLook,
+  `${runsBeforeLook}`,
+);
+
+// Items are ballooned to the material list; welds are dots, not numbers.
+check('items are ballooned', await page.locator('#canvas .balloon').count(), (v) => v > 0, 'at least one');
+check('weld numbers are off by default', await page.locator('#canvas .weld-no').count(), (v) => v === 0, '0');
+// SVG text has no innerText, so read it as text content.
+const balloonNumbers = await page
+  .locator('#canvas .balloon-no')
+  .evaluateAll((els) => els.map((e) => Number(e.textContent)));
+await page.click('#tabs button:has-text("Items")');
+await page.waitForTimeout(300);
+const listRows = await page.locator('#tab-body tbody tr').count();
+check(
+  'every balloon points at a line in the material list',
+  balloonNumbers.length > 0 && balloonNumbers.every((n) => n >= 1 && n <= listRows),
+  (v) => v === true,
+  'all within the list',
+);
 
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 

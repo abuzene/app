@@ -53,7 +53,8 @@
 
         <div class="group toggles">
           <label class="check"><input type="checkbox" id="opt-dims" checked /><span>Dims</span></label>
-          <label class="check"><input type="checkbox" id="opt-welds" checked /><span>Welds</span></label>
+          <label class="check"><input type="checkbox" id="opt-items" checked /><span>Items</span></label>
+          <label class="check"><input type="checkbox" id="opt-welds" /><span>Weld nos</span></label>
           <label class="check"><input type="checkbox" id="opt-grid" checked /><span>Grid</span></label>
           <label class="check"><input type="checkbox" id="opt-schematic" /><span>Not to scale</span></label>
         </div>
@@ -76,8 +77,8 @@
           <div class="overlay hud" id="hud"></div>
           <div class="overlay empty-hint" id="empty-hint">
             <h2>Start the route</h2>
-            <p>Click anywhere to place the first point, then drag from it along one of the six isometric directions.</p>
-            <p class="muted">Or switch to the <strong>Command</strong> tab and type <code>N 1500</code>.</p>
+            <p>Touch anywhere to put the first point down, then keep clicking where the pipe goes — it snaps to the six isometric directions and carries on from each point.</p>
+            <p class="muted">Press <strong>Esc</strong> to stop, double-click a point to carry on from it. Or use the <strong>Command</strong> tab and type <code>N 1500</code>.</p>
             <p><button class="btn-line" data-a="load-sample">Load an example line</button></p>
           </div>
         </section>

@@ -56,6 +56,10 @@ export function contentCss({ k, u, dark = false }: ContentStyleOptions): string 
 }
 .weld-no { fill: ${dim}; font-size: ${w(9)}px; font-family: inherit; }
 .weld-leader { stroke: ${dim}; stroke-width: ${w(0.7)}; fill: none; }
+.balloon { pointer-events: none; }
+.balloon-leader { stroke: ${ink}; stroke-width: ${w(0.9)}; fill: none; }
+.balloon-ring { fill: ${dark ? '#0d1117' : '#ffffff'}; stroke: ${ink}; stroke-width: ${w(1.2)}; }
+.balloon-no { fill: ${ink}; font-size: ${w(11)}px; font-weight: 600; }
 .dim-line, .dim-ext, .dim-tick { stroke: ${dim}; stroke-width: ${w(0.9)}; fill: none; }
 .dim-ext { stroke-dasharray: ${w(3)} ${w(3)}; }
 .dim-text { fill: ${ink}; font-size: ${w(11)}px; text-anchor: middle; }

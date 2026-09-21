@@ -174,7 +174,10 @@ export interface DrawingOptions {
   /** Visual length used for every run in schematic mode. */
   schematicLength: number;
   showDimensions: boolean;
+  /** Weld numbers. Off by default: the balloons carry what a fitter reads. */
   showWelds: boolean;
+  /** Item balloons keyed to the material list. */
+  showItems: boolean;
   showNodeLabels: boolean;
   showGrid: boolean;
   /** Rotates which screen direction North points to, in 90-degree steps. */

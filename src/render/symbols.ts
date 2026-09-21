@@ -75,7 +75,7 @@ export function jointMark(f: Frame, joint: JointType, facing: Facing = 1): strin
       out = line(f, [0, -s * 0.62], [0, s * 0.62], 'sym-line');
       break;
     default:
-      out = circle(f, 0, 0, s * 0.3, 'joint-bw');
+      out = circle(f, 0, 0, s * 0.42, 'joint-bw');
       break;
   }
   return out;
@@ -112,66 +112,48 @@ export function flangeJoint(kind: FlangeKind): JointType | null {
  * One flange, drawn from the pipe outwards. `facing` is the direction the
  * flange face lies in, so a pair on either side of a joint mirror each other.
  */
+/**
+ * One flange, drawn from the pipe outwards.
+ *
+ * On a fabrication isometric a flange is a single heavy bar across the pipe —
+ * that is all. The hub, the bore and the bolt holes are the material list's
+ * business, not the drawing's, and drawing them turns a flange into an
+ * unreadable smudge at the scale these sheets are printed at. `facing` says
+ * which side the flange face looks towards, so a pair reads as a bolted joint.
+ */
 export function flangeSymbol(f: Frame, kind: FlangeKind, facing: Facing = 1): string {
   const s = f.s;
   const d = facing;
-  const face = (at: number, half = 1) =>
-    line(f, [d * at, -s * half], [d * at, s * half], 'sym-face');
+  const bar = line(f, [0, -s * 1.05], [0, s * 1.05], 'sym-heavy');
 
   switch (kind) {
-    case 'FLG_WN':
-      // Butt weld, then the hub opening out to the face.
+    case 'FLG_BLIND':
+      // Blinded off: the bar plus the plate that closes the line.
       return (
+        bar +
         poly(
           [
-            pt(f, 0, -s * 0.28),
-            pt(f, 0, s * 0.28),
-            pt(f, d * s * 0.55, s * 0.72),
-            pt(f, d * s * 0.55, -s * 0.72),
-          ],
-          'sym-fill',
-        ) + face(0.55, 1.15)
-      );
-    case 'FLG_SO':
-      return face(0, 1.15);
-    case 'FLG_SW':
-      return (
-        line(f, [0, -s * 0.62], [0, s * 0.62], 'sym-line') +
-        line(f, [0, -s * 0.62], [d * s * 0.5, -s * 0.62], 'sym-line') +
-        line(f, [0, s * 0.62], [d * s * 0.5, s * 0.62], 'sym-line') +
-        face(0.55, 1.15)
-      );
-    case 'FLG_THD':
-      return (
-        poly(
-          [
-            pt(f, 0, -s * 0.34),
-            pt(f, 0, s * 0.34),
-            pt(f, d * s * 0.55, s * 0.62),
-            pt(f, d * s * 0.55, -s * 0.62),
+            pt(f, 0, -s * 1.05),
+            pt(f, d * s * 0.45, -s * 1.05),
+            pt(f, d * s * 0.45, s * 1.05),
+            pt(f, 0, s * 1.05),
           ],
           'sym-solid',
-        ) + face(0.55, 1.15)
+        )
       );
     case 'FLG_LAP':
-      // Butt weld to a stub end, with the loose backing flange behind it.
-      return (
-        line(f, [d * s * 0.3, -s * 0.72], [d * s * 0.3, s * 0.72], 'sym-line') +
-        line(f, [d * s * 0.3, -s * 0.72], [d * s * 0.55, -s * 0.72], 'sym-line') +
-        line(f, [d * s * 0.3, s * 0.72], [d * s * 0.55, s * 0.72], 'sym-line') +
-        face(0.55, 1.15)
-      );
-    case 'FLG_BLIND':
-      return face(0, 1.15) + poly([pt(f, 0, -s * 1.15), pt(f, d * s * 0.4, -s * 1.15), pt(f, d * s * 0.4, s * 1.15), pt(f, 0, s * 1.15)], 'sym-solid');
+      // The stub end the loose flange sits behind.
+      return bar + line(f, [-d * s * 0.4, -s * 0.75], [-d * s * 0.4, s * 0.75], 'sym-line');
     default:
-      return face(0, 1.15);
+      return bar;
   }
 }
 
 /** A flanged joint: two flanges bolted face to face. */
 export function flangePair(f: Frame, kind: FlangeKind): string {
-  const back: Frame = { ...f, cx: f.cx - f.dx * f.s * 0.12, cy: f.cy - f.dy * f.s * 0.12 };
-  const front: Frame = { ...f, cx: f.cx + f.dx * f.s * 0.12, cy: f.cy + f.dy * f.s * 0.12 };
+  const gap = f.s * 0.22;
+  const back: Frame = { ...f, cx: f.cx - f.dx * gap, cy: f.cy - f.dy * gap };
+  const front: Frame = { ...f, cx: f.cx + f.dx * gap, cy: f.cy + f.dy * gap };
   return flangeSymbol(back, kind, -1) + flangeSymbol(front, kind, 1);
 }
 

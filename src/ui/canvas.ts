@@ -21,6 +21,8 @@ interface DragState {
   startView: ViewBox;
   fromId?: string;
   moved: boolean;
+  /** A pan that places a run instead, if the pointer never really moved. */
+  placing?: boolean;
 }
 
 const MIN_VIEW = 8;
@@ -34,6 +36,14 @@ export class Canvas {
   private selection: Selection = null;
   private preview: Preview | null = null;
   private drag: DragState | null = null;
+  /**
+   * The point the next run will leave from. Routing is a continuous tool: the
+   * first touch puts a point down, and every touch after that adds a run and
+   * carries on from its end, the way a polyline is drawn in any CAD program.
+   * Dragging from a point still works and is sometimes quicker; both leave the
+   * anchor on the new end so the route keeps going either way.
+   */
+  private anchor: string | null = null;
   private pinch: { d: number; view: ViewBox } | null = null;
   private pointers = new Map<number, { x: number; y: number }>();
 
@@ -47,6 +57,7 @@ export class Canvas {
     svg.addEventListener('pointermove', this.onPointerMove);
     svg.addEventListener('pointerup', this.onPointerUp);
     svg.addEventListener('pointercancel', this.onPointerUp);
+    svg.addEventListener('dblclick', this.onDoubleClick);
     svg.addEventListener('wheel', this.onWheel, { passive: false });
     svg.addEventListener('contextmenu', (e) => e.preventDefault());
 
@@ -62,6 +73,15 @@ export class Canvas {
     this.view.h = this.view.w * target;
     this.view.y = centreY - this.view.h / 2;
     this.render();
+  }
+
+  /** Sets, moves or clears the point the next run leaves from. */
+  setAnchor(nodeId: string | null): void {
+    this.anchor = nodeId;
+  }
+
+  get drawingFrom(): string | null {
+    return this.anchor;
   }
 
   setState(drawing: Drawing, analysis: Analysis, selection: Selection, preview: Preview | null): void {
@@ -176,6 +196,10 @@ export class Canvas {
         fromId: id,
         moved: false,
       };
+      // Touching a point while drawing moves the route there. Touching one
+      // when not drawing only selects it — looking at a point should never
+      // start laying pipe from it. Double click to pick the route back up.
+      if (this.anchor) this.anchor = id;
       this.cb.onSelect({ kind: 'node', id });
       return;
     }
@@ -187,6 +211,23 @@ export class Canvas {
 
     if (this.drawing.nodes.length === 0 && !panRequested) {
       this.cb.onStart();
+      return;
+    }
+
+    // With a point armed, a touch on open canvas places the run. It still has
+    // to start as a possible pan: whether it was a tap or a drag is only known
+    // when the pointer comes up.
+    if (this.anchor && !panRequested) {
+      this.svg.setPointerCapture(event.pointerId);
+      this.drag = {
+        kind: 'pan',
+        pointerId: event.pointerId,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        startView,
+        moved: false,
+        placing: true,
+      };
       return;
     }
 
@@ -228,7 +269,12 @@ export class Canvas {
     }
 
     const drag = this.drag;
-    if (!drag || drag.pointerId !== event.pointerId || !this.drawing || !this.analysis) return;
+    if (!drag) {
+      // Not dragging: if a point is armed, show what the next touch would draw.
+      if (this.anchor) this.previewFrom(this.anchor, event.clientX, event.clientY);
+      return;
+    }
+    if (drag.pointerId !== event.pointerId || !this.drawing || !this.analysis) return;
 
     const dxScreen = event.clientX - drag.startClientX;
     const dyScreen = event.clientY - drag.startClientY;
@@ -244,9 +290,15 @@ export class Canvas {
 
     // Routing: work out which isometric direction the drag follows, then how
     // far along it the pointer has reached.
-    const from = paperOf(this.analysis, this.drawing, drag.fromId!);
-    if (!from) return;
-    const here = this.toPaper(event.clientX, event.clientY);
+    this.previewFrom(drag.fromId!, event.clientX, event.clientY);
+  };
+
+  /** Offers the run that would be drawn from `fromId` to the pointer. */
+  private previewFrom(fromId: string, clientX: number, clientY: number): boolean {
+    if (!this.drawing || !this.analysis) return false;
+    const from = paperOf(this.analysis, this.drawing, fromId);
+    if (!from) return false;
+    const here = this.toPaper(clientX, clientY);
     const dx = here.x - from.x;
     const dy = here.y - from.y;
     const rotation = this.drawing.options.northRotation;
@@ -254,14 +306,15 @@ export class Canvas {
     if (!axis) {
       this.cb.onPreview(null);
       this.cb.onHover(null);
-      return;
+      return false;
     }
     const raw = lengthAlongAxis(dx, dy, axis, this.drawing.options.scale, rotation);
     const snap = Math.max(1, this.drawing.options.snap);
     const length = Math.max(snap, Math.round(raw / snap) * snap);
-    this.cb.onPreview({ fromId: drag.fromId!, axis, length });
-    this.cb.onHover(`${axis} ${Math.round(length).toLocaleString('en-GB')} mm`);
-  };
+    this.cb.onPreview({ fromId, axis, length });
+    this.cb.onHover(`${axis} ${Math.round(length)} mm — click to place`);
+    return true;
+  }
 
   private onPointerUp = (event: PointerEvent): void => {
     this.pointers.delete(event.pointerId);
@@ -275,9 +328,29 @@ export class Canvas {
 
     if (drag.kind === 'route' && this.preview && drag.moved) {
       this.cb.onRoute(this.preview.fromId, this.preview.axis, this.preview.length);
+      return;
     }
-    this.cb.onPreview(null);
-    this.cb.onHover(null);
+    // A tap on open canvas with a point armed places the previewed run; the
+    // same gesture with movement was a pan, and places nothing.
+    if (drag.kind === 'pan' && drag.placing && !drag.moved && this.preview) {
+      this.cb.onRoute(this.preview.fromId, this.preview.axis, this.preview.length);
+      return;
+    }
+    if (drag.kind === 'route' || !this.anchor) {
+      this.cb.onPreview(null);
+      this.cb.onHover(null);
+    }
+  };
+
+  /** Double clicking a point picks the route back up from there. */
+  private onDoubleClick = (event: MouseEvent): void => {
+    const nodeEl = (event.target as Element | null)?.closest('[data-node]');
+    if (!nodeEl) return;
+    event.preventDefault();
+    const id = nodeEl.getAttribute('data-node')!;
+    this.anchor = id;
+    this.cb.onSelect({ kind: 'node', id });
+    this.cb.onHover('drawing again from here');
   };
 
   private onWheel = (event: WheelEvent): void => {

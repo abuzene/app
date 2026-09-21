@@ -49,7 +49,8 @@ export function defaultOptions(): DrawingOptions {
     schematic: false,
     schematicLength: 1500,
     showDimensions: true,
-    showWelds: true,
+    showWelds: false,
+    showItems: true,
     showNodeLabels: true,
     showGrid: true,
     northRotation: 0,
@@ -80,7 +81,16 @@ export interface NodeInfo {
   degree: number;
 }
 
+/** One thing on the drawing, carrying the material list number it balloons to. */
+export interface ItemInstance {
+  key: string;
+  number: number;
+  pos: Vec3;
+}
+
 export interface BomLine {
+  /** Identifies the line so the things on the drawing can point at it. */
+  key?: string;
   category: 'PIPE' | 'FITTING' | 'VALVE' | 'FLANGE' | 'ITEM';
   description: string;
   dn: string;
@@ -107,6 +117,8 @@ export interface Analysis {
   welds: Weld[];
   runLengths: Map<string, RunLengths>;
   bom: BomLine[];
+  /** Every ballooned thing on the drawing, with its material list number. */
+  items: ItemInstance[];
   /** Node positions used for drawing, which differ from true positions in schematic mode. */
   display: Map<string, Vec3>;
   warnings: string[];
@@ -576,17 +588,40 @@ export function analyse(drawing: Drawing): Analysis {
   });
   const welds = joints.filter((j) => j.joint !== 'THD');
 
-  // Bill of materials.
+  // Material list, and the item number each thing on the drawing carries.
+  //
+  // A fabrication isometric identifies what it is made of by ballooning every
+  // pipe run, fitting, flange and valve with the number of its line in the
+  // list. That is what the fitter reads, so the numbering is built here
+  // alongside the list rather than bolted on in the renderer.
   const bom: BomLine[] = [];
+  const instances: { key: string; bomKey: string; pos: Vec3 }[] = [];
+  const fittingThickness = drawing.options.fittingThickness ?? 'STD';
+
+  const pipeKey = (dn: string, schedule: string) => `PIPE|${dn}|${schedule}`;
   const pipeTotals = new Map<string, number>();
   for (const { run, cut } of runLengths.values()) {
     const key = `${run.dn}|${run.schedule}`;
     pipeTotals.set(key, (pipeTotals.get(key) ?? 0) + cut);
+    const a = nodeById.get(run.from);
+    const b = nodeById.get(run.to);
+    if (a && b) {
+      instances.push({
+        key: `run:${run.id}`,
+        bomKey: pipeKey(run.dn, run.schedule),
+        pos: {
+          e: (a.pos.e + b.pos.e) / 2,
+          n: (a.pos.n + b.pos.n) / 2,
+          u: (a.pos.u + b.pos.u) / 2,
+        },
+      });
+    }
   }
   for (const [key, mm] of pipeTotals) {
     const [dn, schedule] = key.split('|');
     const metres = mm / 1000;
     bom.push({
+      key: pipeKey(dn, schedule),
       category: 'PIPE',
       description: `PIPE, SMLS, ${sizeLabel(dn)} x ${schedule}`,
       dn,
@@ -597,81 +632,123 @@ export function analyse(drawing: Drawing): Analysis {
   }
 
   const counts = new Map<string, { line: Omit<BomLine, 'quantity'>; quantity: number }>();
-  const tally = (line: Omit<BomLine, 'quantity'>) => {
+  /** Adds one to a material list line and returns the key it was counted under. */
+  const tally = (line: Omit<BomLine, 'quantity' | 'key'>): string => {
     const key = `${line.category}|${line.description}|${line.dn}|${line.schedule}`;
     const existing = counts.get(key);
     if (existing) existing.quantity += 1;
-    else counts.set(key, { line, quantity: 1 });
+    else counts.set(key, { line: { ...line, key }, quantity: 1 });
+    return key;
   };
-
-  const fittingThickness = drawing.options.fittingThickness ?? 'STD';
 
   for (const info of nodeInfo.values()) {
     if (info.fitting === 'OLET') {
       const legs = oletLegs(info);
       const joint = info.node.joint ?? drawing.options.joint ?? 'BW';
       if (legs) {
-        tally({
-          category: 'FITTING',
-          description: `${oletLabel(joint)} ${sizeLabel(legs.header[0].dn)} x ${sizeLabel(legs.branch.dn)}`,
-          dn: legs.header[0].dn,
-          schedule: fittingThickness,
-          unit: 'off',
+        instances.push({
+          key: `node:${info.node.id}`,
+          bomKey: tally({
+            category: 'FITTING',
+            description: `${oletLabel(joint)} ${sizeLabel(legs.header[0].dn)} x ${sizeLabel(legs.branch.dn)}`,
+            dn: legs.header[0].dn,
+            schedule: fittingThickness,
+            unit: 'off',
+          }),
+          pos: info.node.pos,
         });
       }
       continue;
     }
     if (info.fitting !== 'NONE' && info.degree > 1) {
       const dn = info.runs[0]?.dn ?? 'DN80';
-      const schedule = fittingThickness;
       const branch = info.runs.find((r) => r.dn !== dn);
-      tally({
-        category: 'FITTING',
-        description:
-          info.fitting === 'TEE_REDUCING' && branch
-            ? `${fittingLabel(info.fitting)} ${sizeLabel(dn)} x ${sizeLabel(branch.dn)}`
-            : fittingLabel(info.fitting),
-        dn,
-        schedule,
-        unit: 'off',
+      instances.push({
+        key: `node:${info.node.id}`,
+        bomKey: tally({
+          category: 'FITTING',
+          description:
+            info.fitting === 'TEE_REDUCING' && branch
+              ? `${fittingLabel(info.fitting)} ${sizeLabel(dn)} x ${sizeLabel(branch.dn)}`
+              : fittingLabel(info.fitting),
+          dn,
+          schedule: fittingThickness,
+          unit: 'off',
+        }),
+        pos: info.node.pos,
       });
     }
     if (info.degree === 1 && info.node.terminal && info.node.terminal.kind !== 'OPEN') {
       const kind = info.node.terminal.kind;
       if (kind !== 'CONTINUATION' && kind !== 'EQUIPMENT') {
-        tally({
-          category: kind === 'CAP' ? 'FITTING' : 'FLANGE',
-          description: TERMINAL_LABEL[kind],
-          dn: info.runs[0]?.dn ?? 'DN80',
-          schedule: info.runs[0]?.schedule ?? 'STD',
-        unit: 'off',
+        instances.push({
+          key: `term:${info.node.id}`,
+          bomKey: tally({
+            category: kind === 'CAP' ? 'FITTING' : 'FLANGE',
+            description: TERMINAL_LABEL[kind],
+            dn: info.runs[0]?.dn ?? 'DN80',
+            schedule: fittingThickness,
+            unit: 'off',
+          }),
+          pos: info.node.pos,
         });
       }
     }
   }
 
   for (const run of drawing.runs) {
+    const a = nodeById.get(run.from);
+    const b = nodeById.get(run.to);
+    const dir = a && b ? direction(a.pos, b.pos) : null;
     for (const comp of run.inline) {
       const dn = comp.dn ?? run.dn;
       const isReducer = comp.kind === 'RED_CONC' || comp.kind === 'RED_ECC';
       const description = isReducer
         ? `${COMPONENT_LABEL[comp.kind]} ${sizeLabel(dn)} x ${sizeLabel(comp.dn2 ?? dn)}`
         : COMPONENT_LABEL[comp.kind] ?? comp.kind;
-      tally({ category: categoryOf(comp.kind), description, dn, schedule: fittingThickness, unit: 'off' });
+      const at = a && dir ? add(a.pos, scale3(dir, comp.offset)) : (a?.pos ?? { e: 0, n: 0, u: 0 });
+      instances.push({
+        key: `comp:${comp.id}`,
+        bomKey: tally({ category: categoryOf(comp.kind), description, dn, schedule: fittingThickness, unit: 'off' }),
+        pos: at,
+      });
+
       // A flanged component is bolted between a pair of flanges, which have to
-      // be ordered and welded on just the same.
+      // be ordered, welded on and ballooned just the same.
       const ends = resolveEnds(comp.kind, dn, comp.ends, drawing.options.joint ?? 'BW');
       if (ends === 'FLG' && !isFlange(comp.kind)) {
-        tally({ category: 'FLANGE', description: 'WELD NECK FLANGE', dn, schedule: run.schedule, unit: 'off' });
-        tally({ category: 'FLANGE', description: 'WELD NECK FLANGE', dn, schedule: run.schedule, unit: 'off' });
+        const takeout = componentTakeout(comp.kind, dn, true);
+        for (const side of [-1, 1] as const) {
+          const bomKey = tally({
+            category: 'FLANGE',
+            description: 'WELD NECK FLANGE',
+            dn,
+            schedule: fittingThickness,
+            unit: 'off',
+          });
+          instances.push({
+            key: `comp:${comp.id}:flg${side}`,
+            bomKey,
+            pos: a && dir ? add(a.pos, scale3(dir, comp.offset + side * takeout * 0.75)) : at,
+          });
+        }
       }
     }
   }
 
-  for (const { line, quantity } of counts.values()) bom.push({ ...line, quantity });
+  for (const { line, quantity } of counts.values()) bom.push({ ...line, quantity } as BomLine);
 
   const order: Record<BomLine['category'], number> = { PIPE: 0, FITTING: 1, FLANGE: 2, VALVE: 3, ITEM: 4 };
   bom.sort((x, y) => order[x.category] - order[y.category] || x.description.localeCompare(y.description));
+
+  // The list is now in its final order, so the item numbers follow from it.
+  const numberOf = new Map<string, number>();
+  bom.forEach((line, i) => {
+    if (line.key) numberOf.set(line.key, i + 1);
+  });
+  const items: ItemInstance[] = instances
+    .map((inst) => ({ key: inst.key, number: numberOf.get(inst.bomKey) ?? 0, pos: inst.pos }))
+    .filter((inst) => inst.number > 0);
 
   return {
     nodeInfo,
@@ -680,6 +757,7 @@ export function analyse(drawing: Drawing): Analysis {
     welds,
     runLengths,
     bom,
+    items,
     display: layout(drawing, nodeById, adjacency),
     warnings,
   };
