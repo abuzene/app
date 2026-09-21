@@ -522,3 +522,107 @@ export function applyDimension(drawing: Drawing, runId: string, index: number, v
   }
   return 'That dimension cannot be set directly.';
 }
+
+/** Whether pipe already leads from one point to the other, however far round. */
+export function samePiece(drawing: Drawing, a: string, b: string): boolean {
+  const seen = new Set<string>([a]);
+  const queue = [a];
+  while (queue.length > 0) {
+    const id = queue.shift()!;
+    if (id === b) return true;
+    for (const run of drawing.runs) {
+      const next = run.from === id ? run.to : run.to === id ? run.from : null;
+      if (next && !seen.has(next)) {
+        seen.add(next);
+        queue.push(next);
+      }
+    }
+  }
+  return false;
+}
+
+export interface ConnectResult {
+  /** The points the new pipe passes through, from the first to the second. */
+  path: string[];
+  /** Set when nothing was drawn, saying why. */
+  refused?: string;
+}
+
+/**
+ * Joins two points with pipe: one run when they lie on a line, otherwise
+ * a run along each axis they differ in, turning at a corner between. This is
+ * how a gap is closed again after a length or a fitting has been taken out:
+ * the open end is drawn to the other open end, and the corner gets its elbow
+ * from the turn, like any other. Of the ways round, the one with the fewest
+ * turns is taken — straight on out of the first point where that helps, and
+ * straight into the second — as long as it lies along no line already drawn.
+ */
+export function connectNodes(drawing: Drawing, fromId: string, toId: string, dn: string, schedule: string): ConnectResult {
+  const from = drawing.nodes.find((n) => n.id === fromId);
+  const to = drawing.nodes.find((n) => n.id === toId);
+  if (!from || !to || fromId === toId) return { path: [], refused: 'Pick another point to join this one to.' };
+  if (runBetween(drawing, fromId, toId)) return { path: [], refused: 'Those two points are joined already.' };
+
+  const d = sub(to.pos, from.pos);
+  const legs: { axis: Axis; length: number }[] = [];
+  if (Math.abs(d.e) > 0.5) legs.push({ axis: d.e > 0 ? 'E' : 'W', length: Math.abs(d.e) });
+  if (Math.abs(d.n) > 0.5) legs.push({ axis: d.n > 0 ? 'N' : 'S', length: Math.abs(d.n) });
+  if (Math.abs(d.u) > 0.5) legs.push({ axis: d.u > 0 ? 'U' : 'D', length: Math.abs(d.u) });
+  if (legs.length === 0) return { path: [], refused: 'Those two points are in the same place.' };
+
+  // The way the line would carry straight on out of each point.
+  const straightOut = (node: IsoNode): Axis | null => {
+    const only = drawing.runs.filter((r) => r.from === node.id || r.to === node.id);
+    if (only.length !== 1) return null;
+    const other = drawing.nodes.find((n) => n.id === (only[0].from === node.id ? only[0].to : only[0].from));
+    return other ? axisBetween(other.pos, node.pos) : null;
+  };
+  const outOfFrom = straightOut(from);
+  const outOfTo = straightOut(to);
+  const opposite: Record<Axis, Axis> = { N: 'S', S: 'N', E: 'W', W: 'E', U: 'D', D: 'U' };
+
+  const orders: { axis: Axis; length: number }[][] = [];
+  const permute = (rest: typeof legs, chosen: typeof legs) => {
+    if (rest.length === 0) {
+      orders.push(chosen);
+      return;
+    }
+    rest.forEach((leg, i) => permute(rest.filter((_, k) => k !== i), [...chosen, leg]));
+  };
+  permute(legs, []);
+  const turns = (order: typeof legs) =>
+    (outOfFrom && order[0].axis !== outOfFrom ? 1 : 0) + (order.length - 1) + (outOfTo && opposite[order[order.length - 1].axis] !== outOfTo ? 1 : 0);
+  orders.sort((a, b) => turns(a) - turns(b));
+
+  for (const order of orders) {
+    // Every leg has to lie clear of what is drawn already.
+    let at = from.pos;
+    let clear = true;
+    for (const leg of order) {
+      const next = step(at, leg.axis, leg.length);
+      if (overlapsExisting(drawing, at, next)) {
+        clear = false;
+        break;
+      }
+      at = next;
+    }
+    if (!clear) continue;
+    const trial = JSON.parse(JSON.stringify(drawing)) as Drawing;
+    const path = [fromId];
+    let here = fromId;
+    let ok = true;
+    for (const leg of order) {
+      const result = route(trial, here, leg.axis, leg.length, dn, schedule);
+      if (!result || !result.run || result.refused) {
+        ok = false;
+        break;
+      }
+      here = result.nodeId;
+      path.push(here);
+    }
+    if (!ok || here !== toId) continue;
+    Object.assign(drawing, trial);
+    return { path };
+  }
+  return { path: [], refused: 'No way round from here to there clear of the lines already drawn.' };
+}

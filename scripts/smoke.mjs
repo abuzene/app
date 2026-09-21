@@ -1888,6 +1888,78 @@ check('the weld list has it as pipe to pipe', await page.locator('#tab-body').in
 await page.click('#tabs button:has-text("Route")');
 await page.waitForTimeout(150);
 
+/* ------------------------------------------------ a gap closed again */
+
+// A length taken out of a line, or a corner deleted with its runs, leaves
+// two open ends. Drawing from one and touching the other joins them: one
+// run when they lie on a line, else round a corner, with the elbows the
+// turns make — and the fewest turns of the ways round.
+const nodesAt = () => page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).nodes.map((n) => [n.id, n.pos.e, n.pos.n]));
+const runCount = () => page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).runs.length);
+const tapNode = async (id) => {
+  const el = page.locator(`#canvas circle.hit-dot[data-node="${id}"]`);
+  const b = await el.boundingBox();
+  const at = { bubbles: true, pointerId: 7, pointerType: 'mouse', button: 0, clientX: b.x + b.width / 2, clientY: b.y + b.height / 2, isPrimary: true };
+  await el.dispatchEvent('pointerdown', at);
+  await page.waitForTimeout(80);
+  await el.dispatchEvent('pointerup', at);
+  await page.waitForTimeout(300);
+};
+const penTapNode = async (id) => {
+  const b = await page.locator(`#canvas circle.hit-dot[data-node="${id}"]`).boundingBox();
+  await penTap(b.x + b.width / 2, b.y + b.height / 2);
+};
+const routeLine = async (commands) => {
+  await startNewDrawing();
+  await page.click('#tabs button:has-text("Command")');
+  await page.fill('#command-text', commands);
+  await page.click('[data-a="run-commands"]');
+  await page.waitForTimeout(500);
+  await page.keyboard.press('Escape');
+  await page.click('#tabs button:has-text("Route")');
+  await page.waitForTimeout(150);
+};
+
+await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 3000\nN 2000\nE 3000');
+await page.locator('#canvas [data-run]').nth(1).click({ force: true });
+await page.waitForTimeout(250);
+await page.click('#hud-delete');
+await page.waitForTimeout(300);
+check('taking the middle run out leaves two pieces', await runCount(), (v) => v === 2, '2');
+let gapNodes = await nodesAt();
+const gapB = gapNodes.find((p) => p[1] === 3000 && p[2] === 0)[0];
+const gapC = gapNodes.find((p) => p[1] === 3000 && p[2] === 2000)[0];
+await tapNode(gapB);
+await page.click('#tab-body [data-a="draw-from"]');
+await page.waitForTimeout(250);
+await penTapNode(gapC);
+check('touching the other open end while drawing joins them', await runCount(), (v) => v === 3, '3');
+check('with no point added: the two lay on a line', (await nodesAt()).length, (v) => v === 4, '4');
+check('and the elbows back at both ends', await page.locator('#tab-body').innerText(), (v) => /POINT — 90 ELBOW LR/.test(v), 'POINT — 90 ELBOW LR');
+check('saying so', await page.locator('#hud').innerText(), (v) => /Joined, with 2 elbows/.test(v), 'Joined, with 2 elbows.');
+await penTapNode(gapC);
+check('touching it again draws nothing more', await runCount(), (v) => v === 3, '3');
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
+
+await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 3000\nN 2000\nE 3000\nN 1500');
+gapNodes = await nodesAt();
+await tapNode(gapNodes.find((p) => p[1] === 3000 && p[2] === 2000)[0]);
+await page.click('#hud-delete');
+await page.waitForTimeout(300);
+check('deleting a corner takes its two runs', await runCount(), (v) => v === 2, '2');
+gapNodes = await nodesAt();
+await tapNode(gapNodes.find((p) => p[1] === 3000 && p[2] === 0)[0]);
+await page.click('#tab-body [data-a="draw-from"]');
+await page.waitForTimeout(250);
+await penTapNode(gapNodes.find((p) => p[1] === 6000 && p[2] === 2000)[0]);
+check('ends not on a line are joined round a corner', await runCount(), (v) => v === 4, '4');
+check('the corner where the fewest turns put it', (await nodesAt()).some((p) => p[1] === 6000 && p[2] === 0), (v) => v === true, 'a point at 6000, 0');
+check('with the one elbow there', await page.locator('#hud').innerText(), (v) => /Joined, with an elbow at the turn/.test(v), 'Joined, with an elbow at the turn.');
+check('the joined end welded straight through', await page.locator('#tab-body').innerText(), (v) => /POINT — JOINT/.test(v), 'POINT — JOINT');
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
+
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 
 await browser.close();

@@ -101,6 +101,12 @@ ships, and the decisions already taken, so they are not re-litigated.
   (Support, L50 support, AG/UG), Joints (a BW weld: `placeWeld` splits the
   run at a plain point, welded pipe to pipe, dimension opened). Two columns
   on tablets so all fit.
+- **Closing a gap**: drawing from an open end and tapping an open end of
+  **another piece** (`samePiece`) joins them (`connectNodes` in edit.ts, `onConnect`): one run when they lie
+  on a line, else legs round a corner, the way with the fewest turns
+  (straight out of / into the ends where possible), refused if it would lie
+  along a line already drawn. Elbows come from the turns as usual. Tapping
+  any other point while drawing still just moves the pencil there.
 - Supports and the AG/UG mark are **notes, not material**: no BOM line, no
   welds. Supports are numbered along the line unless named.
 - Printing happens from the page itself (`#print-root`, `@page` size); a

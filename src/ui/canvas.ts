@@ -3,11 +3,14 @@ import type { Axis, Drawing } from '../model/types';
 import type { Preview, Selection, ViewBox } from '../render/renderer';
 import { contentBounds, paperOf, renderDrawing, symbolSizeFor } from '../render/renderer';
 import { axisFromScreenDelta, lengthAlongAxis } from '../model/iso';
+import { samePiece } from '../model/edit';
 import { contentCss } from '../render/style';
 
 export interface CanvasCallbacks {
   onSelect(selection: Selection): void;
   onRoute(fromId: string, axis: Axis, length: number): void;
+  /** While drawing, an open end was touched: join the pencil's point to it. */
+  onConnect(fromId: string, toId: string): void;
   onStart(): void;
   onPreview(preview: Preview | null): void;
   onHover(message: string | null): void;
@@ -403,6 +406,13 @@ export class Canvas {
       // Drawing on is done by tapping. A corner has nothing to slide along, so
       // dragging routes from it.
       const endOf = this.freeEndOf(id);
+      // Drawing, and an open end of another piece touched: the pencil's
+      // point is joined to it — the way a gap is closed after a length or a
+      // fitting came out. An end of the same line only moves the pencil.
+      if (endOf && this.anchor && this.anchor !== id && !samePiece(this.drawing, this.anchor, id)) {
+        this.cb.onConnect(this.anchor, id);
+        return;
+      }
       if (this.slidesAlongLine(id) || endOf) {
         this.drag = endOf
           ? {

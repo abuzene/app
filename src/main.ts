@@ -6,7 +6,7 @@ import { analyse, dimensionStops, emptyDrawing, uid } from './model/drawing';
 import { loadLibrary, removeDrawing, renumberProject, sheetNumber, upsertDrawing, worthKeeping } from './model/library';
 import { add, length3, scale3, sub } from './model/iso';
 import { initialCommandState, runCommands } from './model/commands';
-import { applyDimension, deleteNode, deleteRun, ensureNode, removeComponent, route, setRunDirect, stretchRun } from './model/edit';
+import { applyDimension, connectNodes, deleteNode, deleteRun, ensureNode, removeComponent, route, setRunDirect, stretchRun } from './model/edit';
 import { DN_LIST, schedulesFor, sizeLabel } from './model/pipe-data';
 import { northArrow, paperOf, toPaper } from './render/renderer';
 import { renderSheet, type SheetSize } from './render/sheet';
@@ -418,6 +418,29 @@ const canvas = new Canvas(svg, {
       state.preview = null;
       render();
     }
+  },
+  onConnect(fromId, toId) {
+    let path: string[] = [];
+    let refused: string | null = null;
+    host.edit('Join points', (d) => {
+      const result = connectNodes(d, fromId, toId, state.currentDn, state.currentSchedule);
+      refused = result.refused ?? null;
+      path = result.path;
+    });
+    if (refused) {
+      undoStack.pop();
+      state.preview = null;
+      host.notify(refused);
+      render();
+      return;
+    }
+    state.selection = { kind: 'node', id: toId };
+    state.commandState.currentNode = toId;
+    canvas.setAnchor(toId);
+    state.preview = null;
+    const elbows = path.filter((id) => state.analysis.nodeInfo.get(id)?.fitting === 'ELBOW_90').length;
+    host.notify(elbows === 0 ? 'Joined, pipe to pipe.' : elbows === 1 ? 'Joined, with an elbow at the turn.' : `Joined, with ${elbows} elbows.`);
+    render();
   },
   onStart() {
     let started: string | null = null;
