@@ -37,9 +37,12 @@ ships, and the decisions already taken, so they are not re-litigated.
 
 ## Before every push
 
-- `npm run app`, then `npm run smoke` (Playwright, ~5 min, ~230 checks). Run
-  it in the background and wait for a DONE marker; never `pkill -f` (it kills
-  the shell). It needs `dist/artifact.html`, so build with `npm run app`, not
+- `npm run app`, then `npm run smoke` (Playwright, ~5 min, ~236 checks). Run
+  it in the background with a **fresh log name per run** and wait for its
+  final line ("all checks passed" or "check(s) failed"); a shared log name
+  once mixed two runs. Never `pkill -f` (it kills the shell), and do not
+  wait with `pgrep -f smoke.mjs` (it matches the waiting shell itself). It
+  needs `dist/artifact.html`, so build with `npm run app`, not
   `npm run build`, before it.
 - Reproduce every complaint with a Playwright screenshot (a script in
   `scripts/_shot.mjs`, deleted before commit; `deviceScaleFactor` + `clip`

@@ -19,6 +19,8 @@ export interface CanvasCallbacks {
   onEditDimension(runId: string, index: number, clientX: number, clientY: number): void;
   /** A weld number was tapped, to be typed over. */
   onEditWeld(key: string, clientX: number, clientY: number): void;
+  /** A support's name was tapped, to be typed over. */
+  onEditSupport(componentId: string, clientX: number, clientY: number): void;
   /** Drags one end of a run along the run's own line. */
   onStretchRun(runId: string, end: 'from' | 'to', paper: { x: number; y: number }, commit: boolean): void;
   /** Moves a weld number tag; the offset is from the weld, in paper units. */
@@ -291,8 +293,9 @@ export class Canvas {
       return;
     }
 
-    // An item balloon is dragged to where it reads best, its leader staying
-    // on the item. It carries nothing to type, so a tap on it does nothing.
+    // An item balloon or a support's name is dragged to where it reads best,
+    // its leader staying put. A support's name is opened to be typed over on
+    // the touch itself, as a weld number is; a balloon has nothing to type.
     if (!panRequested && balloonEl) {
       event.preventDefault();
       this.capture(event.pointerId);
@@ -306,6 +309,12 @@ export class Canvas {
         anchor: { x: Number(balloonEl.getAttribute('data-ax')), y: Number(balloonEl.getAttribute('data-ay')) },
         moved: false,
       };
+      const key = balloonEl.getAttribute('data-balloon')!;
+      if (key.startsWith('sup:')) {
+        this.capture(event.pointerId);
+        this.drag.opened = true;
+        this.cb.onEditSupport(key.slice(4), event.clientX, event.clientY);
+      }
       return;
     }
 

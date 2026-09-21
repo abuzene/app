@@ -1619,6 +1619,31 @@ check('and they are socket welded to the pipe', (await page.locator('#tab-body')
 await page.selectOption('#joint', 'BW');
 await page.waitForTimeout(300);
 
+/* ------------------------------ a support name typed on the drawing; one page */
+
+// Tapping a support's name opens it to be typed over, with the letter keypad.
+const supHit = await page.locator('#canvas [data-balloon^="sup:"]').first().boundingBox();
+await penTap(supHit.x + supHit.width / 2, supHit.y + supHit.height / 2);
+check('a support name opens for typing when tapped', await page.locator('.dim-editor').count(), (v) => v === 1, '1');
+await page.locator('.dim-keypad [data-key="B"]').dispatchEvent('pointerdown', { bubbles: true });
+await page.locator('.dim-keypad [data-key="OK"]').dispatchEvent('pointerdown', { bubbles: true });
+await page.waitForTimeout(300);
+check('and the name typed is drawn', await page.evaluate(() => document.querySelector('#canvas .callout-text').textContent), (v) => v === 'SUPPORT B', 'SUPPORT B');
+
+// The printed sheet is one page whatever paper the printer has: an iPad
+// ignores the @page size, and a 420 mm sheet once ran on to a second page.
+await page.evaluate(() => {
+  window.print = () => {};
+});
+await page.click('#print');
+await page.waitForTimeout(200);
+await page.click('[data-x="print"]');
+await page.waitForTimeout(300);
+const pdfPages = (buf) => (buf.toString('latin1').match(/\/Type\s*\/Page[^s]/g) || []).length;
+check('the sheet prints on one page at its own size', pdfPages(await page.pdf({ preferCSSPageSize: true })), (v) => v === 1, '1');
+check('and on one page of A4 portrait', pdfPages(await page.pdf({ format: 'A4' })), (v) => v === 1, '1');
+check('and on one page of Letter', pdfPages(await page.pdf({ format: 'Letter', landscape: true })), (v) => v === 1, '1');
+
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 
 await browser.close();

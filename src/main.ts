@@ -277,10 +277,18 @@ function openInlineEditor(
 let keypadEl: HTMLElement | null = null;
 
 function closeDimensionEditor(): void {
-  dimensionEditor?.remove();
+  // Taking the box out blurs it, and the blur commits and closes again: the
+  // references go first so that second close finds nothing left to do.
+  const input = dimensionEditor;
+  const keypad = keypadEl;
   dimensionEditor = null;
-  keypadEl?.remove();
   keypadEl = null;
+  keypad?.remove();
+  try {
+    input?.remove();
+  } catch {
+    // Already on its way out.
+  }
 }
 
 /* ----------------------------------------------------------------- canvas */
@@ -377,6 +385,19 @@ const canvas = new Canvas(svg, {
   onEditDimension(runId, index, clientX, clientY) {
     openDimensionEditor(runId, index, clientX, clientY);
   },
+  /** A support's name, typed over right on the drawing. */
+  onEditSupport(componentId, clientX, clientY) {
+    const comp = state.drawing.runs.flatMap((r) => r.inline).find((c) => c.id === componentId);
+    if (!comp) return;
+    openInlineEditor(comp.tag ?? '', 'text', clientX, clientY, (text) => {
+      const name = text.trim();
+      if (name === (comp.tag ?? '')) return;
+      host.edit('Name support', (d) => {
+        const target = d.runs.flatMap((r) => r.inline).find((c) => c.id === componentId);
+        if (target) target.tag = name || undefined;
+      });
+    });
+  },
   onEditWeld(key, clientX, clientY) {
     openWeldEditor(key, clientX, clientY);
   },
@@ -421,6 +442,9 @@ const canvas = new Canvas(svg, {
   /** Moves a weld number tag or an item balloon; the leader stays on what it points at. */
   onSlideTag(key, offset, commit) {
     const balloon = key.startsWith('item:') ? key.slice(5) : null;
+    // A support's name opened for typing on the touch; a drag means it was
+    // being moved, not typed, so the box goes away.
+    if (balloon?.startsWith('sup:')) closeDimensionEditor();
     const apply = (d: Drawing) => {
       if (balloon) {
         d.itemOverrides = { ...d.itemOverrides, [balloon]: { dx: offset.dx, dy: offset.dy } };
@@ -1153,7 +1177,9 @@ function printSheet(sheet: string, size: SheetSize): void {
     page.id = 'print-page';
     document.head.appendChild(page);
   }
-  page.textContent = `@page { size: ${w}mm ${h}mm; margin: 0; }\n@media print { #print-root svg { width: ${w}mm; height: ${h}mm; } }`;
+  // Where the browser honours it, the paper is the sheet itself; elsewhere
+  // the sheet is fitted to the paper by the print stylesheet.
+  page.textContent = `@page { size: ${w}mm ${h}mm; margin: 0; }`;
   root.innerHTML = sheet;
 
   // The page title is what "Save as PDF" names the file.

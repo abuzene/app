@@ -399,9 +399,12 @@ tr.selected { background: var(--accent-soft); }
 
 /* The sheet is printed from this page: it is the only thing on the paper. */
 #print-root { display: none; }
+/* The sheet fills whatever paper the printer was given, on one page: an
+   iPad takes no notice of the @page size, and a 420 mm sheet on its default
+   paper ran on to a second page. The sheet keeps its shape inside the page. */
 @media print {
-  html, body { height: auto; background: #fff; }
+  html, body { height: 100vh; overflow: hidden; background: #fff; margin: 0; }
   body > * { display: none !important; }
-  #print-root { display: block !important; }
-  #print-root svg { display: block; }
+  #print-root { display: block !important; width: 100vw; height: 100vh; overflow: hidden; break-inside: avoid; }
+  #print-root svg { display: block; width: 100vw !important; height: 98vh !important; }
 }
