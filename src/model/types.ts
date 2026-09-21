@@ -49,6 +49,9 @@ export type ComponentKind =
   | 'ANCHOR'
   | 'GUIDE';
 
+/** The flanges a line can be joined or terminated with. */
+export type FlangeKind = 'FLG_WN' | 'FLG_SO' | 'FLG_SW' | 'FLG_THD' | 'FLG_LAP' | 'FLG_BLIND';
+
 /** What terminates a free end of the pipe. */
 export type TerminalKind =
   | 'OPEN'
@@ -91,6 +94,13 @@ export interface IsoNode {
   label?: string;
   /** Present only on free ends (nodes with a single connected run). */
   terminal?: Terminal;
+  /**
+   * A flanged joint: the two runs meeting here are bolted together flange to
+   * flange, one flange of this kind on each. A flange is a break in the line —
+   * the pipe stops at its face, so this always sits on a point of its own,
+   * never part way along a run.
+   */
+  flange?: FlangeKind;
   /** Overrides the fitting inferred from connectivity. */
   fittingOverride?: FittingKind;
   /** Overrides the drawing's default joint type at this point. */

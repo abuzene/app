@@ -54,14 +54,15 @@ await page.click('[data-a="load-sample"]');
 await page.waitForTimeout(500);
 
 const drawn = await page.evaluate(() => ({
-  pipes: document.querySelectorAll('#canvas .pipe').length,
+  pipes: document.querySelectorAll('#canvas line.pipe').length,
   joints: document.querySelectorAll('#canvas .joint-bw').length,
   dims: document.querySelectorAll('#canvas .dim').length,
   components: document.querySelectorAll('#canvas .component').length,
 }));
 check('example line draws pipe runs', drawn.pipes, (v) => v === 5, '5');
 check('joint marks are drawn', drawn.joints, (v) => v > 10, 'more than 10');
-check('dimensions are drawn', drawn.dims, (v) => v === 5, '5');
+// Five runs, and the flanged valve breaks its run into three: pipe, valve, pipe.
+check('dimensions are drawn', drawn.dims, (v) => v === 7, '7');
 check('inline components are drawn', drawn.components, (v) => v === 2, '2');
 await page.screenshot({ path: join(out, '01-sample.png') });
 
@@ -142,7 +143,7 @@ check('redo restores it', await page.locator('#canvas .component').count(), (v) 
 await page.click('#rotate');
 await page.check('#opt-schematic');
 await page.waitForTimeout(350);
-check('not-to-scale mode still draws', await page.locator('#canvas .pipe').count(), (v) => v === 6, '6');
+check('not-to-scale mode still draws', await page.locator('#canvas line.pipe').count(), (v) => v === 6, '6');
 await page.screenshot({ path: join(out, '03-rotated-schematic.png') });
 await page.uncheck('#opt-schematic');
 for (let i = 0; i < 3; i += 1) await page.click('#rotate');
@@ -185,7 +186,7 @@ await page.waitForTimeout(250);
 // Reload to prove the drawing persists.
 await page.reload();
 await page.waitForTimeout(500);
-check('drawing survives a reload', await page.locator('#canvas .pipe').count(), (v) => v === 6, '6');
+check('drawing survives a reload', await page.locator('#canvas line.pipe').count(), (v) => v === 6, '6');
 
 // Routing back along an axis that already carries a run must reuse it rather
 // than laying a second pipe on top of the first.
@@ -541,7 +542,7 @@ await page.fill('[data-meta="lineNumber"]', '6"-P-9999');
 await page.locator('[data-meta="lineNumber"]').blur();
 await page.waitForTimeout(300);
 await startNewDrawing();
-check('New clears the route', await page.locator('#canvas .pipe').count(), (v) => v === 0, '0');
+check('New clears the route', await page.locator('#canvas line.pipe').count(), (v) => v === 0, '0');
 await page.click('#tabs button:has-text("Title")');
 await page.waitForTimeout(250);
 check('New keeps the project', await page.inputValue('[data-meta="project"]'), (v) => v === 'Carried Over', 'Carried Over');
@@ -584,7 +585,8 @@ await page.locator('#canvas circle.hit-dot[data-component]').first().click({ for
 await page.waitForTimeout(300);
 check('undo puts it back where it was', await offsetOf(), (v) => v === middle, `${middle}`);
 
-// A flange on the end does not stop the line: it carries on through.
+// A flange is a break in the line. The line carries on past one only by
+// bolting another flange to it, straight on; the flange itself stays.
 await startNewDrawing();
 await page.click('#tabs button:has-text("Command")');
 await page.waitForTimeout(200);
@@ -601,9 +603,24 @@ for (const handle of await page.locator('#canvas circle.hit-dot[data-node]').all
   const box = await handle.boundingBox();
   if (box && (!flangedEnd || box.x > flangedEnd.x)) flangedEnd = box;
 }
-await page.mouse.move(flangedEnd.x + 140, flangedEnd.y - 82, { steps: 10 });
+const fx = flangedEnd.x + flangedEnd.width / 2;
+const fy = flangedEnd.y + flangedEnd.height / 2;
+// Turning north straight off the flange is refused: nothing bolts to a bend.
+await page.mouse.move(fx + 140, fy - 82, { steps: 10 });
 await page.waitForTimeout(200);
-await page.mouse.click(flangedEnd.x + 140, flangedEnd.y - 82);
+await page.mouse.click(fx + 140, fy - 82);
+await page.waitForTimeout(500);
+check(
+  'a bend straight off a flanged end is refused',
+  await page.locator('#tab-body .run-list tbody tr').count(),
+  (v) => v === runsBeforeFlange,
+  `${runsBeforeFlange}`,
+);
+check('and it says why', await page.locator('#hud').innerText(), (v) => /straight on/.test(v), 'a message about continuing straight');
+// Carrying straight on (east) bolts a second flange to the first.
+await page.mouse.move(fx + 140, fy + 82, { steps: 10 });
+await page.waitForTimeout(200);
+await page.mouse.click(fx + 140, fy + 82);
 await page.waitForTimeout(500);
 check(
   'the line carries on past a flange',
@@ -614,11 +631,70 @@ check(
 await page.click('#tabs button:has-text("Items")');
 await page.waitForTimeout(300);
 check(
-  'and the flange is no longer counted as an end',
+  'and the joint is a pair of flanges',
   await page.locator('#tab-body').innerText(),
-  (v) => !/WELD NECK FLANGE/.test(v),
-  'no end flange',
+  (v) => /WELD NECK FLANGE\t6"\tSTD\t2/.test(v),
+  'two weld neck flanges',
 );
+await page.click('#tabs button:has-text("Welds")');
+await page.waitForTimeout(300);
+check(
+  'each welded to its own pipe',
+  (await page.locator('#tab-body').innerText().then((t) => t.match(/PIPE \/ WELD NECK FLANGE/g) ?? [])).length,
+  (v) => v === 2,
+  '2',
+);
+await page.click('#tabs button:has-text("Route")');
+await page.waitForTimeout(200);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(200);
+await page.mouse.click(fx, fy);
+await page.waitForTimeout(300);
+check(
+  'the point reads as a flanged joint',
+  await page.locator('#tab-body').innerText(),
+  (v) => /FLANGED JOINT/.test(v),
+  'a flanged joint heading',
+);
+
+// A flange picked from the palette breaks the run it is put on, and slides.
+await page.keyboard.press('Escape');
+await page.waitForTimeout(200);
+await page.locator('#canvas [data-run]').first().click({ force: true });
+await page.waitForTimeout(300);
+const runsBeforeSplit = await page.locator('#tab-body .run-list tbody tr').count();
+await page.click('.tool[data-kind="FLG_WN"]');
+await page.waitForTimeout(400);
+check(
+  'a flange from the palette breaks the run in two',
+  await page.locator('#tab-body .run-list tbody tr').count(),
+  (v) => v === runsBeforeSplit + 1,
+  `${runsBeforeSplit + 1}`,
+);
+const jointBox = await page.locator('#canvas .node.selected circle.hit-dot').first().boundingBox();
+check('and the joint is selected, ready to drag', jointBox !== null, (v) => v === true, 'true');
+const eastOf = async () => Number(await page.locator('#tab-body [data-f="e"]').inputValue());
+const jointEastBefore = await eastOf();
+await page.mouse.move(jointBox.x + jointBox.width / 2, jointBox.y + jointBox.height / 2);
+await page.mouse.down();
+await page.mouse.move(jointBox.x + jointBox.width / 2 - 70, jointBox.y + jointBox.height / 2 - 40, { steps: 10 });
+await page.mouse.up();
+await page.waitForTimeout(400);
+await page.locator('#canvas .node.selected circle.hit-dot').first().click({ force: true }).catch(() => {});
+await page.waitForTimeout(200);
+check('dragging slides the flanged joint along the line', await eastOf(), (v) => v < jointEastBefore, `less than ${jointEastBefore}`);
+check('elbows are drawn round', await page.locator('#canvas path.pipe').count(), (v) => v === 0, '0 — no elbows on a straight line');
+
+// The valve's run is dimensioned to its faces, and the valve face to face.
+await startNewDrawing();
+await page.click('#tabs button:has-text("Command")');
+await page.waitForTimeout(200);
+await page.fill('#command-text', '3"\nSCH40\nORIGIN 0 0 0\nE 1000\n+BALL 500\nN 800');
+await page.click('[data-a="run-commands"]');
+await page.waitForTimeout(500);
+const dimTexts = await page.evaluate(() => [...document.querySelectorAll('#canvas .dim-text')].map((t) => t.textContent));
+check('a valve breaks the dimension at its faces', dimTexts.sort().join(' '), (v) => v === '203 399 399 800', '203 399 399 800');
+check('and the elbow between the runs is round', await page.locator('#canvas path.pipe').count(), (v) => v === 1, '1');
 await page.keyboard.press('Escape');
 await page.waitForTimeout(200);
 
@@ -668,10 +744,10 @@ check(
 
 // No hover in between: straight from lifting the pencil to the next contact.
 await penTap(penX + 150, penY - 88);
-check('and draws the run on the next tap, with no hover', await page.locator('#canvas .pipe').count(), (v) => v === 1, '1');
+check('and draws the run on the next tap, with no hover', await page.locator('#canvas line.pipe').count(), (v) => v === 1, '1');
 
 await penTap(penX + 300, penY - 176);
-check('and keeps going tap by tap', await page.locator('#canvas .pipe').count(), (v) => v === 2, '2');
+check('and keeps going tap by tap', await page.locator('#canvas line.pipe').count(), (v) => v === 2, '2');
 
 // A finger is for moving the sheet, never for drawing.
 const viewBefore = await page.locator('#canvas').getAttribute('viewBox');
@@ -681,7 +757,7 @@ await finger('touchMove', penX + 320, penY - 180);
 await page.waitForTimeout(80);
 await finger('touchEnd', penX + 320, penY - 180);
 await page.waitForTimeout(400);
-check('a finger drag pans instead of drawing', await page.locator('#canvas .pipe').count(), (v) => v === 2, 'still 2');
+check('a finger drag pans instead of drawing', await page.locator('#canvas line.pipe').count(), (v) => v === 2, 'still 2');
 check(
   'and it actually moves the sheet',
   await page.locator('#canvas').getAttribute('viewBox'),
@@ -694,7 +770,7 @@ await finger('touchStart', penX + 460, penY - 260);
 await page.waitForTimeout(80);
 await finger('touchEnd', penX + 460, penY - 260);
 await page.waitForTimeout(400);
-check('and a stray finger tap lays nothing', await page.locator('#canvas .pipe').count(), (v) => v === 2, 'still 2');
+check('and a stray finger tap lays nothing', await page.locator('#canvas line.pipe').count(), (v) => v === 2, 'still 2');
 
 // Picking the route back up needs no double tap.
 await page.keyboard.press('Escape');
@@ -713,7 +789,26 @@ await page.click('#tab-body [data-a="draw-from"]');
 await page.waitForTimeout(300);
 const firstNode = await page.locator('#canvas circle.hit-dot[data-node]').first().boundingBox();
 await penTap(firstNode.x + firstNode.width / 2, firstNode.y + firstNode.height / 2 - 150);
-check('and drawing carries on from there', await page.locator('#canvas .pipe').count(), (v) => v === 3, '3');
+check('and drawing carries on from there', await page.locator('#canvas line.pipe').count(), (v) => v === 3, '3');
+
+// No Esc key on a tablet: stopping is a button, and a finger tap on open sheet.
+check('a Stop button shows while drawing', await page.locator('#hud-stop').count(), (v) => v === 1, '1');
+await page.click('#hud-stop');
+await page.waitForTimeout(250);
+check('and pressing it puts the pencil down', await page.locator('#hud-stop').count(), (v) => v === 0, '0');
+const pipesBeforeStop = await page.locator('#canvas line.pipe').count();
+await penTap(penX + 260, penY + 120);
+check('after which a tap draws nothing', await page.locator('#canvas line.pipe').count(), (v) => v === pipesBeforeStop, `${pipesBeforeStop}`);
+await page.locator('#canvas circle.hit-dot[data-node]').first().click({ force: true });
+await page.waitForTimeout(200);
+await page.click('#tab-body [data-a="draw-from"]');
+await page.waitForTimeout(250);
+check('drawing again arms the pencil', await page.locator('#hud-stop').count(), (v) => v === 1, '1');
+await finger('touchStart', penX + 300, penY + 160);
+await page.waitForTimeout(80);
+await finger('touchEnd', penX + 300, penY + 160);
+await page.waitForTimeout(300);
+check('and a finger tap on open sheet stops it', await page.locator('#hud-stop').count(), (v) => v === 0, '0');
 
 await page.keyboard.press('Escape');
 await page.waitForTimeout(200);
@@ -822,14 +917,14 @@ await browser.close();
 
   await frame.click('[data-a="load-sample"]');
   await host.waitForTimeout(800);
-  check('the app draws inside a sandboxed viewer', await frame.locator('#canvas .pipe').count(), (v) => v === 5, '5');
+  check('the app draws inside a sandboxed viewer', await frame.locator('#canvas line.pipe').count(), (v) => v === 5, '5');
 
   await frame.click('#new');
   await host.waitForTimeout(400);
   check('New asks in the page, not through a blocked dialog', await frame.locator('.dialog-backdrop [data-confirm]').count(), (v) => v === 1, '1');
   await frame.click('.dialog-backdrop [data-confirm]');
   await host.waitForTimeout(600);
-  check('New works in a sandboxed viewer', await frame.locator('#canvas .pipe').count(), (v) => v === 0, '0');
+  check('New works in a sandboxed viewer', await frame.locator('#canvas line.pipe').count(), (v) => v === 0, '0');
   check('nothing was silently ignored by the sandbox', ignored, (v) => v.length === 0, 'no ignored calls');
 
   await sandboxBrowser.close();

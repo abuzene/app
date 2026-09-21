@@ -1,9 +1,9 @@
 import type { Analysis } from '../model/drawing';
-import type { Axis, Drawing, Vec3 } from '../model/types';
-import { COMPONENT_LABEL, TERMINAL_LABEL, fittingLabel, oletLegs, resolveEnds } from '../model/drawing';
-import { sizeLabel } from '../model/pipe-data';
-import { AXIS_VECTOR, axisBetween, axisScreenDir, project, scale3, add } from '../model/iso';
-import { componentSymbol, flangeSymbol, frameFor, isFlange, jointMark, oletSymbol, terminalSymbol } from './symbols';
+import type { Axis, Drawing, Run, Vec3 } from '../model/types';
+import { COMPONENT_LABEL, TERMINAL_LABEL, fittingLabel, isValve, oletLegs, resolveEnds } from '../model/drawing';
+import { componentTakeout, fittingTakeout, flangeLength, sizeLabel } from '../model/pipe-data';
+import { AXIS_VECTOR, axisBetween, axisScreenDir, length3, project, scale3, add, sub } from '../model/iso';
+import { componentSymbol, flangeSymbol, frameFor, gasketLine, isFlange, jointMark, oletSymbol, terminalSymbol, type Frame } from './symbols';
 
 export interface ViewBox {
   x: number;
@@ -231,36 +231,84 @@ export function renderDrawing(state: RenderState): string {
   let dims = '';
   let comps = '';
 
+  const BENDS = ['ELBOW_90', 'ELBOW_45', 'BEND'];
+  /**
+   * How far, in paper units, the straight pipe stops short of a point: at an
+   * elbow the run ends where the elbow starts, and the corner is drawn round.
+   */
+  const trimAt = (nodeId: string, run: Run, paperPerMm: number): number => {
+    const info = analysis.nodeInfo.get(nodeId);
+    if (!info || info.degree !== 2 || !BENDS.includes(info.fitting)) return 0;
+    return fittingTakeout(info.fitting, run.dn) * paperPerMm;
+  };
+  const towards = (from: Pt, to: Pt, by: number): Pt => {
+    const len = Math.hypot(to.x - from.x, to.y - from.y) || 1;
+    return { x: from.x + ((to.x - from.x) / len) * Math.min(by, len / 2), y: from.y + ((to.y - from.y) / len) * Math.min(by, len / 2) };
+  };
+
   for (const run of drawing.runs) {
     const a = paper(run.from);
     const b = paper(run.to);
     if (!a || !b) continue;
     const selected = sel?.kind === 'run' && sel.id === run.id;
-    pipes += `<line class="pipe${selected ? ' selected' : ''}" x1="${a.x.toFixed(2)}" y1="${a.y.toFixed(2)}" x2="${b.x.toFixed(2)}" y2="${b.y.toFixed(2)}"/>`;
-    hits += `<line class="hit" data-run="${run.id}" x1="${a.x.toFixed(2)}" y1="${a.y.toFixed(2)}" x2="${b.x.toFixed(2)}" y2="${b.y.toFixed(2)}"/>`;
 
     const lengths = analysis.runLengths.get(run.id);
+    const total = lengths?.centre ?? 0;
+    // Paper units per millimetre along this run, which is what places things
+    // at their true distance whether or not the sheet is to scale.
+    const paperPerMm = total > 0 ? Math.hypot(b.x - a.x, b.y - a.y) / total : 0;
+
+    // The straight pipe, stopping where an elbow takes over at either end.
+    const pa = towards(a, b, trimAt(run.from, run, paperPerMm));
+    const pb = towards(b, a, trimAt(run.to, run, paperPerMm));
+    pipes += `<line class="pipe${selected ? ' selected' : ''}" x1="${pa.x.toFixed(2)}" y1="${pa.y.toFixed(2)}" x2="${pb.x.toFixed(2)}" y2="${pb.y.toFixed(2)}"/>`;
+    hits += `<line class="hit" data-run="${run.id}" x1="${a.x.toFixed(2)}" y1="${a.y.toFixed(2)}" x2="${b.x.toFixed(2)}" y2="${b.y.toFixed(2)}"/>`;
+    const along = (mm: number): Pt => {
+      const t = total > 0 ? Math.max(0, Math.min(1, mm / total)) : 0.5;
+      return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+    };
+
+    // A valve is dimensioned to its faces, not through: the pipe either side
+    // of it is its own piece, so the run's dimension breaks at each face and
+    // the valve's face-to-face stands on its own between them.
     if (drawing.options.showDimensions && lengths && !run.noDim) {
-      dims += renderDimension(a, b, centroid, formatMm(lengths.centre), size);
+      const breaks: number[] = [];
+      for (const comp of run.inline) {
+        if (!isValve(comp.kind)) continue;
+        const half = componentTakeout(comp.kind, comp.dn ?? run.dn, false);
+        if (half <= 0) continue;
+        breaks.push(comp.offset - half, comp.offset + half);
+      }
+      const stops = [0, ...breaks.filter((mm) => mm > 0.5 && mm < total - 0.5).sort((x, y) => x - y), total];
+      for (let i = 0; i + 1 < stops.length; i += 1) {
+        const span = stops[i + 1] - stops[i];
+        if (span < 0.5) continue;
+        dims += renderDimension(along(stops[i]), along(stops[i + 1]), centroid, formatMm(span), size);
+      }
     }
 
     // Inline components, positioned by their true offset along the run.
-    const total = lengths?.centre ?? 0;
     const plane = symbolPlane(drawing, analysis.nodeById.get(run.from)!.pos, analysis.nodeById.get(run.to)!.pos);
     for (const comp of run.inline) {
       const t = total > 0 ? Math.max(0, Math.min(1, comp.offset / total)) : 0.5;
       const f = frameFor(a.x, a.y, b.x, b.y, t, size, plane?.across, plane?.up);
       const selectedComp = sel?.kind === 'component' && sel.id === comp.id;
+      const dn = comp.dn ?? run.dn;
       comps += `<g class="component${selectedComp ? ' selected' : ''}" data-component="${comp.id}">`;
-      comps += componentSymbol(comp.kind, f);
+      // The body reaches its real faces, so what bolts or welds to it sits
+      // against it rather than floating off along the pipe.
+      const faceHalf = isValve(comp.kind) ? componentTakeout(comp.kind, dn, false) * paperPerMm : undefined;
+      comps += componentSymbol(comp.kind, f, faceHalf);
 
       // A flanged component is drawn with the flanges it bolts between, each
       // facing in towards it, which is how it is actually built.
-      const ends = resolveEnds(comp.kind, comp.dn ?? run.dn, comp.ends, drawing.options.joint ?? 'BW');
-      if (ends === 'FLG' && !isFlange(comp.kind)) {
-        const gap = size * 2.6;
-        comps += flangeSymbol({ ...f, cx: f.cx - f.dx * gap, cy: f.cy - f.dy * gap }, 'FLG_WN', 1);
-        comps += flangeSymbol({ ...f, cx: f.cx + f.dx * gap, cy: f.cy + f.dy * gap }, 'FLG_WN', -1);
+      const ends = resolveEnds(comp.kind, dn, comp.ends, drawing.options.joint ?? 'BW');
+      if (ends === 'FLG' && !isFlange(comp.kind) && faceHalf !== undefined) {
+        const hub = flangeLength(dn) * paperPerMm;
+        const face = Math.max(faceHalf, size);
+        const shifted = (by: number): Frame => ({ ...f, cx: f.cx + f.dx * by, cy: f.cy + f.dy * by });
+        comps += gasketLine(f, -face) + flangeSymbol(shifted(-face), 'FLG_WN', 1, hub);
+        comps += gasketLine(f, face) + flangeSymbol(shifted(face), 'FLG_WN', -1, hub);
       }
       const label = comp.tag ?? '';
       if (label) {
@@ -269,6 +317,26 @@ export function renderDrawing(state: RenderState): string {
       comps += `<circle class="hit-dot" data-component="${comp.id}" cx="${f.cx.toFixed(2)}" cy="${f.cy.toFixed(2)}" r="${(size * 1.3).toFixed(2)}"/>`;
       comps += `</g>`;
     }
+  }
+
+  // Elbows are drawn round, sweeping from where one pipe stops to where the
+  // next starts — which is exactly where their weld marks sit.
+  for (const [nodeId, info] of analysis.nodeInfo) {
+    if (info.degree !== 2 || !BENDS.includes(info.fitting)) continue;
+    const c = paper(nodeId);
+    if (!c) continue;
+    const ends: Pt[] = [];
+    for (const run of info.runs) {
+      const otherId = run.from === nodeId ? run.to : run.from;
+      const q = paper(otherId);
+      const other = analysis.nodeById.get(otherId);
+      if (!q || !other) continue;
+      const trueLen = length3(sub(other.pos, info.node.pos));
+      const perMm = trueLen > 0 ? Math.hypot(q.x - c.x, q.y - c.y) / trueLen : 0;
+      ends.push(towards(c, q, fittingTakeout(info.fitting, run.dn) * perMm));
+    }
+    if (ends.length !== 2) continue;
+    pipes += `<path class="pipe" d="M ${ends[0].x.toFixed(2)} ${ends[0].y.toFixed(2)} Q ${c.x.toFixed(2)} ${c.y.toFixed(2)} ${ends[1].x.toFixed(2)} ${ends[1].y.toFixed(2)}"/>`;
   }
 
   // Nodes: fitting corners, terminals and labels.
@@ -281,6 +349,27 @@ export function renderDrawing(state: RenderState): string {
 
     nodes += `<g class="node${selected ? ' selected' : ''}" data-node="${node.id}">`;
 
+    if (info && info.fitting === 'NONE' && node.flange && info.degree === 2) {
+      // A flanged joint: a flange on each run, faces together at this point,
+      // each hub running back to its own weld.
+      let first = true;
+      for (const run of info.runs) {
+        const otherId = run.from === node.id ? run.to : run.from;
+        const q = paper(otherId);
+        const other = analysis.nodeById.get(otherId);
+        if (!q || !other) continue;
+        const plane = symbolPlane(drawing, node.pos, other.pos);
+        const f = frameFor(p.x, p.y, q.x, q.y, 0, size, plane?.across, plane?.up);
+        const trueLen = length3(sub(other.pos, node.pos));
+        const scaleHere = trueLen > 0 ? Math.hypot(q.x - p.x, q.y - p.y) / trueLen : 0;
+        const gap = size * 0.25;
+        const hub = componentTakeout(node.flange, run.dn) * scaleHere - gap;
+        if (first) nodes += gasketLine(f, 0);
+        first = false;
+        nodes += flangeSymbol({ ...f, cx: f.cx + f.dx * gap, cy: f.cy + f.dy * gap }, node.flange, -1, hub);
+      }
+    }
+
     if (info && info.degree === 1 && node.terminal && node.terminal.kind !== 'OPEN') {
       // Orient the end symbol along the single run leaving this node.
       const run = info.runs[0];
@@ -291,7 +380,10 @@ export function renderDrawing(state: RenderState): string {
         const other = analysis.nodeById.get(otherId);
         const endPlane = other ? symbolPlane(drawing, other.pos, node.pos) : null;
         const f = frameFor(q.x, q.y, p.x, p.y, 1, size, endPlane?.across, endPlane?.up);
-        nodes += terminalSymbol(node.terminal.kind, f, node.joint ?? drawing.options.joint ?? 'BW');
+        const trueLen = other ? length3(sub(node.pos, other.pos)) : 0;
+        const scaleHere = trueLen > 0 ? Math.hypot(p.x - q.x, p.y - q.y) / trueLen : 0;
+        const hub = isFlange(node.terminal.kind) ? componentTakeout(node.terminal.kind, run.dn) * scaleHere : undefined;
+        nodes += terminalSymbol(node.terminal.kind, f, node.joint ?? drawing.options.joint ?? 'BW', hub);
         if (node.terminal.note) {
           nodes += `<text class="note" x="${(p.x + f.dx * size * 2.4).toFixed(2)}" y="${(p.y + f.dy * size * 2.4).toFixed(2)}">${escapeText(node.terminal.note)}</text>`;
         }

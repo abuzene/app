@@ -1,5 +1,5 @@
-import type { Axis, ComponentKind, Drawing, TerminalKind } from './types';
-import { addComponent, ensureNode, route, runLength } from './edit';
+import type { Axis, ComponentKind, Drawing, FlangeKind, TerminalKind } from './types';
+import { addComponent, addFlangeJoint, ensureNode, route, runLength } from './edit';
 import { parseSize, schedulesFor } from './pipe-data';
 
 export interface CommandState {
@@ -219,9 +219,20 @@ export function runCommands(drawing: Drawing, text: string, state: CommandState)
         if (parsed === null) return fail(`Could not read the offset '${tokens[1]}'.`);
         offset = parsed;
       }
-      // Flanges and blinds carry their own joint; everything else follows the
+      // A flange breaks the line: the run is cut there and bolted back
+      // together, and the route carries on from the far half.
+      if (kind.startsWith('FLG_')) {
+        const at = offset ?? runLength(drawing, run) / 2;
+        const nodeId = addFlangeJoint(drawing, run.id, at, kind as FlangeKind);
+        if (!nodeId) return fail('The flange has to sit part way along the run.');
+        const tail = drawing.runs.find((r) => r.from === nodeId && r.id !== run.id);
+        if (tail) next.lastRun = tail.id;
+        applied += 1;
+        return;
+      }
+      // A spectacle blind bolts between flanges; everything else follows the
       // drawing's default end preparation.
-      const ends = kind.startsWith('FLG_') || kind === 'SPECTACLE' ? 'FLG' : undefined;
+      const ends = kind === 'SPECTACLE' ? 'FLG' : undefined;
       addComponent(drawing, run.id, kind, offset, ends);
       applied += 1;
       return;

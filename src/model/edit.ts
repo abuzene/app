@@ -1,4 +1,4 @@
-import type { Axis, ComponentKind, Drawing, EndType, InlineComponent, Run, Vec3 } from './types';
+import type { Axis, ComponentKind, Drawing, EndType, FlangeKind, InlineComponent, Run, Vec3 } from './types';
 import { add, axisBetween, equals3, length3, step, sub } from './iso';
 import { uid } from './drawing';
 
@@ -42,6 +42,8 @@ export function addRun(
 export interface RouteResult {
   run: Run | null;
   nodeId: string;
+  /** Set when nothing was drawn, saying why. */
+  refused?: string;
 }
 
 /**
@@ -63,6 +65,18 @@ export function route(
   const from = drawing.nodes.find((n) => n.id === fromId);
   if (!from || length <= 0) return null;
 
+  // A flange bolts to the flange facing it, so past a flanged end the line
+  // can only carry straight on. A bend there needs a piece of pipe first.
+  if (from.terminal && isFlangeKind(from.terminal.kind)) {
+    const only = drawing.runs.find((r) => r.from === fromId || r.to === fromId);
+    const other = only ? drawing.nodes.find((n) => n.id === (only.from === fromId ? only.to : only.from)) : undefined;
+    const arrive = only && other ? axisBetween(other.pos, from.pos) : null;
+    const back = only && other ? axisBetween(from.pos, other.pos) : null;
+    if (arrive && axis !== arrive && axis !== back) {
+      return { run: null, nodeId: fromId, refused: 'A flange continues straight on — add a length of pipe before turning.' };
+    }
+  }
+
   if (depth < 64) {
     const overlapping = findRunAlong(drawing, fromId, axis);
     if (overlapping) {
@@ -81,16 +95,54 @@ export function route(
   const target = step(from.pos, axis, length);
   const toId = ensureNode(drawing, target);
   const run = addRun(drawing, fromId, toId, dn, schedule);
-  // A point the line carries on through is no longer an end, so whatever was
-  // terminating it stops applying — a flange there becomes a joint in the line.
-  if (run) {
-    for (const id of [fromId, toId]) {
-      const node = drawing.nodes.find((n) => n.id === id);
-      const touching = drawing.runs.filter((r) => r.from === id || r.to === id).length;
-      if (node?.terminal && touching > 1) node.terminal = undefined;
+  if (run) settleEnds(drawing, [fromId, toId]);
+  return { run, nodeId: toId };
+}
+
+/**
+ * Keeps what sits on a point true to how many runs meet there.
+ *
+ * A flange is a break in the line, so the line can only carry on past one by
+ * bolting another flange against it: an end flange that the route continues
+ * through becomes a flanged joint, and a flanged joint left with one run
+ * becomes an end flange again. A cap or a blind is simply gone once the line
+ * carries on, and a plain end mark stops applying.
+ */
+export function settleEnds(drawing: Drawing, ids: string[]): void {
+  for (const id of ids) {
+    const node = drawing.nodes.find((n) => n.id === id);
+    if (!node) continue;
+    const touching = drawing.runs.filter((r) => r.from === id || r.to === id).length;
+    if (node.terminal && touching > 1) {
+      const kind = node.terminal.kind;
+      node.terminal = undefined;
+      if (isFlangeKind(kind) && kind !== 'FLG_BLIND') node.flange = kind;
+    }
+    if (node.flange && touching <= 1) {
+      node.terminal = { kind: node.flange };
+      node.flange = undefined;
     }
   }
-  return { run, nodeId: toId };
+}
+
+function isFlangeKind(kind: string): kind is FlangeKind {
+  return ['FLG_WN', 'FLG_SO', 'FLG_SW', 'FLG_THD', 'FLG_LAP', 'FLG_BLIND'].includes(kind);
+}
+
+/**
+ * Puts a flanged joint on a run: the run is broken at that distance and the
+ * two halves bolted together there. Returns the point the joint sits on.
+ */
+export function addFlangeJoint(drawing: Drawing, runId: string, distance: number, kind: FlangeKind): string | null {
+  const run = drawing.runs.find((r) => r.id === runId);
+  if (!run) return null;
+  const total = runLength(drawing, run);
+  const snapped = Math.max(1, Math.min(total - 1, distance));
+  const nodeId = splitRun(drawing, run.id, snapped);
+  if (!nodeId) return null;
+  const node = drawing.nodes.find((n) => n.id === nodeId);
+  if (node) node.flange = kind;
+  return nodeId;
 }
 
 /**
@@ -139,14 +191,20 @@ export function pruneNodes(drawing: Drawing): void {
 }
 
 export function deleteRun(drawing: Drawing, runId: string): void {
+  const run = drawing.runs.find((r) => r.id === runId);
   drawing.runs = drawing.runs.filter((r) => r.id !== runId);
   pruneNodes(drawing);
+  if (run) settleEnds(drawing, [run.from, run.to]);
 }
 
 export function deleteNode(drawing: Drawing, nodeId: string): void {
+  const touched = drawing.runs
+    .filter((r) => r.from === nodeId || r.to === nodeId)
+    .map((r) => (r.from === nodeId ? r.to : r.from));
   drawing.runs = drawing.runs.filter((r) => r.from !== nodeId && r.to !== nodeId);
   drawing.nodes = drawing.nodes.filter((n) => n.id !== nodeId);
   pruneNodes(drawing);
+  settleEnds(drawing, touched);
 }
 
 export function runLength(drawing: Drawing, run: Run): number {

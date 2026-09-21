@@ -1,7 +1,9 @@
-import type { ComponentKind, JointType, Run, TerminalKind } from '../model/types';
+import type { ComponentKind, FlangeKind, JointType, Run, TerminalKind } from '../model/types';
 import type { Host } from './types';
 import { COMPONENT_LABEL } from '../model/drawing';
-import { addComponent, runLength, splitRun } from '../model/edit';
+import { addComponent, addFlangeJoint, runLength, splitRun } from '../model/edit';
+import { componentTakeout, fittingTakeout } from '../model/pipe-data';
+import { isFlange } from '../render/symbols';
 import { componentSymbol, jointMark, oletSymbol, type Frame } from '../render/symbols';
 
 /** Branch fittings act on the header, they do not sit in the line. */
@@ -171,10 +173,33 @@ function place(host: Host, kind: ComponentKind): void {
         const node = d.nodes.find((n) => n.id === nodeId);
         if (node) node.terminal = { kind: kind as TerminalKind, note: node.terminal?.note };
       });
-      // A flange is as often a joint in the line as the end of it, so the route
-      // stays ready to carry on from here rather than stopping dead.
-      if (kind !== 'CAP') host.continueFrom(nodeId);
+      // The line can carry on past a flange, by bolting another to it: the
+      // route stays ready here. A cap or a blind closes the line for good.
+      if (kind !== 'CAP' && kind !== 'FLG_BLIND') host.continueFrom(nodeId);
       return;
+    }
+
+    // A flange on a point the line runs straight through makes that point a
+    // flanged joint. On a corner or a branch it has to sit on a point of its
+    // own a little way along, since a flange is a break in the pipe.
+    if (info && isFlange(kind)) {
+      if (kind === 'FLG_BLIND') {
+        host.notify('A blind closes the end of a line — select the end point first.');
+        return;
+      }
+      if (info.fitting === 'NONE' && info.degree === 2) {
+        host.edit(`Flange joint: ${label}`, (d) => {
+          const node = d.nodes.find((n) => n.id === nodeId);
+          if (node) node.flange = kind;
+        });
+        host.select({ kind: 'node', id: nodeId });
+        return;
+      }
+      const run = info.runs[0];
+      if (run) {
+        placeFlangeOnRun(host, run, kind, run.from === nodeId ? 'start' : 'end', fittingTakeout(info.fitting, run.dn));
+        return;
+      }
     }
 
     // A point part way along the route: sit the item against that point.
@@ -198,12 +223,49 @@ function place(host: Host, kind: ComponentKind): void {
     host.notify('Select the end of the line, a point, or a run first.');
     return;
   }
+  if (isFlange(kind)) {
+    if (kind === 'FLG_BLIND') {
+      host.notify('A blind closes the end of a line — select the end point first.');
+      return;
+    }
+    placeFlangeOnRun(host, run, kind, 'middle', 0);
+    return;
+  }
   let addedId: string | null = null;
   host.edit(`Add ${label}`, (d) => {
     const comp = addComponent(d, run.id, kind, undefined, kind === 'SPECTACLE' ? 'FLG' : undefined);
     addedId = comp?.id ?? null;
   });
   if (addedId) host.select({ kind: 'component', id: addedId });
+}
+
+/**
+ * Breaks a run with a flanged joint. Against a fitting at one end it sits
+ * just clear of the fitting, with room for the flange itself; otherwise it
+ * lands in the middle. Either way it slides along the run afterwards.
+ */
+function placeFlangeOnRun(host: Host, run: Run, kind: FlangeKind, where: 'start' | 'middle' | 'end', clearOf: number): void {
+  const d = host.state.drawing;
+  const total = runLength(d, run);
+  const snap = Math.max(1, d.options.snap);
+  const room = clearOf + componentTakeout(kind, run.dn) + snap;
+  let at = total / 2;
+  if (where === 'start') at = Math.min(total / 2, Math.ceil(room / snap) * snap);
+  if (where === 'end') at = Math.max(total / 2, total - Math.ceil(room / snap) * snap);
+  if (at <= 0 || at >= total) {
+    host.notify('The run is too short to take a flange there.');
+    return;
+  }
+  let nodeId: string | null = null;
+  host.edit(`Add ${COMPONENT_LABEL[kind]}`, (dd) => {
+    nodeId = addFlangeJoint(dd, run.id, at, kind);
+  });
+  if (nodeId) {
+    host.select({ kind: 'node', id: nodeId });
+    host.notify('Flanged joint added — drag it along the line to where it goes.');
+  } else {
+    host.notify('The run is too short to take a flange there.');
+  }
 }
 
 /**

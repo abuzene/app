@@ -1,4 +1,4 @@
-import type { ComponentKind, JointType, TerminalKind } from '../model/types';
+import type { ComponentKind, FlangeKind, JointType, TerminalKind } from '../model/types';
 
 /** Placement frame for a symbol: its centre, the pipe direction and the perpendicular. */
 /**
@@ -132,7 +132,7 @@ export function jointMark(f: Frame, joint: JointType, facing: Facing = 1): strin
 
 /* ----------------------------------------------------------------- flanges */
 
-export type FlangeKind = 'FLG_WN' | 'FLG_SO' | 'FLG_SW' | 'FLG_THD' | 'FLG_LAP' | 'FLG_BLIND';
+export type { FlangeKind };
 
 const FLANGE_KINDS: FlangeKind[] = ['FLG_WN', 'FLG_SO', 'FLG_SW', 'FLG_THD', 'FLG_LAP', 'FLG_BLIND'];
 
@@ -158,59 +158,96 @@ export function flangeJoint(kind: FlangeKind): JointType | null {
 }
 
 /**
- * One flange, drawn from the pipe outwards.
+ * One flange, drawn the way the fabrication sheets draw it.
  *
- * A flange is the disc seen in projection: a parallelogram with the bolt face
- * standing up across the pipe and the flange's own thickness running along it.
- * Drawn as a flat bar it has no thickness and reads as a tick mark, which is
- * what made every flanged joint on the drawing look like a stray line.
- * `facing` says which side the face looks towards, so a pair reads as bolted.
+ * The frame sits on the flange FACE — the point the pipe is dimensioned to —
+ * and `facing` says which way that face looks. Behind the face is the flange
+ * plate, a thin outlined rectangle the full flange diameter; behind that, on a
+ * weld neck, the hub tapers back to the weld. The weld mark itself is placed by
+ * the analysis at the true distance, so `hub` is that distance in paper units
+ * and the taper ends exactly where the dot is drawn.
  */
-export function flangeSymbol(f: Frame, kind: FlangeKind, facing: Facing = 1): string {
+export function flangeSymbol(f: Frame, kind: FlangeKind, facing: Facing = 1, hub?: number): string {
   const s = f.s;
   const d = facing;
+  const r = s * 1.0;
   const t = s * 0.2;
-  const r = s * 1.05;
+  const reach = Math.max(hub ?? s * 1.1, t * 1.5);
 
-  const disc = (at: number, cls = 'sym-fill') =>
+  // The plate, from the face back by its thickness.
+  const plate = (from: number, thick: number, cls = 'sym-fill') =>
     poly(
-      [
-        pt(f, at - t, 0, -r),
-        pt(f, at + t, 0, -r),
-        pt(f, at + t, 0, r),
-        pt(f, at - t, 0, r),
-      ],
+      [pt(f, from, 0, -r), pt(f, from - d * thick, 0, -r), pt(f, from - d * thick, 0, r), pt(f, from, 0, r)],
       cls,
     );
-
-  // The neck between the weld and the face, which a weld neck flange has and
-  // a slip-on does not.
-  const neck = (at: number) =>
-    line(f, [at - d * s * 0.55, 0, -r * 0.4], [at, 0, -r], 'sym-line') +
-    line(f, [at - d * s * 0.55, 0, r * 0.4], [at, 0, r], 'sym-line');
+  // The hub: a taper from the back of the plate to the weld.
+  const taper = (from: number, to: number, wide: number, narrow: number, cls = 'sym-fill') =>
+    poly([pt(f, from, 0, -wide), pt(f, from, 0, wide), pt(f, to, 0, narrow), pt(f, to, 0, -narrow)], cls);
+  // A short parallel hub, for the flanges the pipe slides or screws into.
+  const socket = (from: number, len: number, half: number) =>
+    poly([pt(f, from, 0, -half), pt(f, from, 0, half), pt(f, from - d * len, 0, half), pt(f, from - d * len, 0, -half)], 'sym-fill');
 
   switch (kind) {
     case 'FLG_WN':
-      return neck(d * t) + disc(d * t);
-    case 'FLG_BLIND':
-      return disc(0, 'sym-solid');
-    case 'FLG_LAP':
-      // The stub end the loose backing flange sits behind.
-      return disc(d * t) + line(f, [-d * s * 0.45, 0, -r * 0.8], [-d * s * 0.45, 0, r * 0.8], 'sym-line');
+      return taper(-d * t, -d * reach, r * 0.62, r * 0.3) + plate(0, t);
+    case 'FLG_SO':
+      // A slip-on is a thicker plate the pipe passes into; no hub to speak of.
+      return socket(-d * t * 1.6, s * 0.45, r * 0.34) + plate(0, t * 1.6);
     case 'FLG_SW':
     case 'FLG_THD':
-    case 'FLG_SO':
+      return socket(-d * t, s * 0.5, r * 0.4) + plate(0, t);
+    case 'FLG_LAP': {
+      // The stub end's flare at the face, with the loose backing flange behind it.
+      const flare = s * 0.35;
+      return plate(-d * flare, t) + taper(0, -d * flare, r * 0.9, r * 0.5);
+    }
+    case 'FLG_BLIND':
+      return plate(0, t * 1.6, 'sym-solid');
     default:
-      return disc(0);
+      return plate(0, t);
   }
 }
 
+/**
+ * The flange on the other side of the joint that is not this line's to make:
+ * the equipment nozzle, the valve, the flange the line bolts to. Drawn in
+ * outline, dashed, facing back towards the pipe.
+ */
+export function counterFlange(f: Frame, kind: FlangeKind, facing: Facing = 1, gap = 0): string {
+  const s = f.s;
+  const d = facing;
+  const r = s * 1.0;
+  const t = s * 0.2;
+  const at = d * gap;
+  const plate = poly(
+    [pt(f, at, 0, -r), pt(f, at + d * t, 0, -r), pt(f, at + d * t, 0, r), pt(f, at, 0, r)],
+    'sym-dashed',
+  );
+  if (kind === 'FLG_BLIND') return plate;
+  const hub = poly(
+    [
+      pt(f, at + d * t, 0, -r * 0.62),
+      pt(f, at + d * t, 0, r * 0.62),
+      pt(f, at + d * (t + s * 0.8), 0, r * 0.3),
+      pt(f, at + d * (t + s * 0.8), 0, -r * 0.3),
+    ],
+    'sym-dashed',
+  );
+  return plate + hub;
+}
+
+/** The small gap between two bolted faces, with the gasket's centre line. */
+export function gasketLine(f: Frame, at: number): string {
+  const r = f.s * 1.15;
+  return line(f, [at, 0, -r], [at, 0, r], 'sym-thin');
+}
+
 /** A flanged joint: two flanges bolted face to face. */
-export function flangePair(f: Frame, kind: FlangeKind): string {
-  const gap = f.s * 0.22;
+export function flangePair(f: Frame, kind: FlangeKind, hub?: number): string {
+  const gap = f.s * 0.25;
   const back: Frame = { ...f, cx: f.cx - f.dx * gap, cy: f.cy - f.dy * gap };
   const front: Frame = { ...f, cx: f.cx + f.dx * gap, cy: f.cy + f.dy * gap };
-  return flangeSymbol(back, kind, -1) + flangeSymbol(front, kind, 1);
+  return gasketLine(f, 0) + flangeSymbol(back, kind, 1, hub) + flangeSymbol(front, kind, -1, hub);
 }
 
 /* ---------------------------------------------------------------- fittings */
@@ -286,11 +323,11 @@ export function oletSymbol(f: Frame): string {
 /* -------------------------------------------------------- inline components */
 
 /** The two opposed triangles that read as a valve body on an isometric. */
-function bowtie(f: Frame, cls = 'sym-fill'): string {
+function bowtie(f: Frame, cls = 'sym-fill', reach = f.s): string {
   const s = f.s;
   return (
-    poly([pt(f, -s, 0, -s * 0.85), pt(f, -s, 0, s * 0.85), pt(f, 0, 0, 0)], cls) +
-    poly([pt(f, s, 0, -s * 0.85), pt(f, s, 0, s * 0.85), pt(f, 0, 0, 0)], cls)
+    poly([pt(f, -reach, 0, -s * 0.85), pt(f, -reach, 0, s * 0.85), pt(f, 0, 0, 0)], cls) +
+    poly([pt(f, reach, 0, -s * 0.85), pt(f, reach, 0, s * 0.85), pt(f, 0, 0, 0)], cls)
   );
 }
 
@@ -303,21 +340,27 @@ function handwheel(f: Frame, at = 1.5): string {
   return line(f, [0, -f.s * 0.55, f.s * at], [0, f.s * 0.55, f.s * at], 'sym-line');
 }
 
-export function componentSymbol(kind: ComponentKind, f: Frame): string {
+/**
+ * `reach` is half the valve's face-to-face in paper units: the body is drawn
+ * out to its real faces, so the flanges bolted to it sit hard against it and
+ * the joint marks land on its ends, as they do on the sheets.
+ */
+export function componentSymbol(kind: ComponentKind, f: Frame, reach?: number): string {
   const s = f.s;
   if (isFlange(kind)) return flangePair(f, kind);
+  const body = (cls?: string) => bowtie(f, cls, Math.max(s, reach ?? s));
 
   switch (kind) {
     case 'GATE':
-      return bowtie(f) + stem(f) + handwheel(f);
+      return body() + stem(f) + handwheel(f);
     case 'GLOBE':
-      return bowtie(f) + circle(f, 0, 0, s * 0.45, 'sym-solid') + stem(f) + handwheel(f);
+      return body() + circle(f, 0, 0, s * 0.45, 'sym-solid') + stem(f) + handwheel(f);
     case 'BALL':
-      return bowtie(f) + circle(f, 0, 0, s * 0.42, 'sym-hollow') + stem(f) + handwheel(f);
+      return body() + circle(f, 0, 0, s * 0.42, 'sym-hollow') + stem(f) + handwheel(f);
     case 'BALL_ACT': {
       const [ax, ay] = pt(f, 0, 0, s * 2.1);
       return (
-        bowtie(f) +
+        body() +
         circle(f, 0, 0, s * 0.42, 'sym-hollow') +
         stem(f, 1.35) +
         // Pneumatic actuator: the cylinder sitting on the stem, with its
@@ -329,7 +372,7 @@ export function componentSymbol(kind: ComponentKind, f: Frame): string {
     }
     case 'PLUG':
       return (
-        bowtie(f) +
+        body() +
         poly(
           [
             pt(f, -s * 0.3, 0, -s * 0.45),
@@ -342,10 +385,10 @@ export function componentSymbol(kind: ComponentKind, f: Frame): string {
         stem(f)
       );
     case 'NEEDLE':
-      return bowtie(f) + stem(f) + poly([pt(f, 0, 0), pt(f, 0, -s * 0.25, s * 1.2), pt(f, 0, s * 0.25, s * 1.2)], 'sym-solid');
+      return body() + stem(f) + poly([pt(f, 0, 0), pt(f, 0, -s * 0.25, s * 1.2), pt(f, 0, s * 0.25, s * 1.2)], 'sym-solid');
     case 'CHECK':
       return (
-        bowtie(f) +
+        body() +
         line(f, [s * 0.05, 0, -s * 0.85], [s * 0.05, 0, s * 0.85], 'sym-line') +
         line(f, [-s * 0.6, 0, 0], [s * 0.9, 0, 0], 'sym-line') +
         poly(
@@ -354,18 +397,18 @@ export function componentSymbol(kind: ComponentKind, f: Frame): string {
         )
       );
     case 'BUTTERFLY':
-      return bowtie(f) + line(f, [-s * 0.55, 0, -s * 0.55], [s * 0.55, 0, s * 0.55], 'sym-line') + stem(f) + handwheel(f);
+      return body() + line(f, [-s * 0.55, 0, -s * 0.55], [s * 0.55, 0, s * 0.55], 'sym-line') + stem(f) + handwheel(f);
     case 'CONTROL': {
       const [ax, ay] = pt(f, 0, 0, s * 1.8);
       return (
-        bowtie(f) +
+        body() +
         stem(f, 1.8) +
         `<ellipse class="sym-hollow" cx="${ax.toFixed(2)}" cy="${ay.toFixed(2)}" rx="${(s * 0.9).toFixed(2)}" ry="${(s * 0.5).toFixed(2)}"/>`
       );
     }
     case 'RELIEF':
       return (
-        bowtie(f) +
+        body() +
         stem(f, 2) +
         poly(
           [
@@ -431,8 +474,15 @@ export function componentSymbol(kind: ComponentKind, f: Frame): string {
 }
 
 /** Symbol drawn on a free end of the line, facing out of the pipe. */
-export function terminalSymbol(kind: TerminalKind, f: Frame, joint: JointType = 'BW'): string {
-  if (isFlange(kind)) return flangeSymbol(f, kind, 1);
+export function terminalSymbol(kind: TerminalKind, f: Frame, joint: JointType = 'BW', hub?: number): string {
+  if (kind === 'FLG_BLIND') {
+    // A blind bolts to a flange on the pipe: the weld neck, the gap, the blind.
+    return flangeSymbol(f, 'FLG_WN', 1, hub) + gasketLine(f, f.s * 0.25) + counterFlange(f, 'FLG_BLIND', 1, f.s * 0.5);
+  }
+  if (isFlange(kind)) {
+    // This line's flange, and dashed beyond it whatever it bolts to.
+    return flangeSymbol(f, kind, 1, hub) + gasketLine(f, f.s * 0.25) + counterFlange(f, kind, 1, f.s * 0.5);
+  }
   const s = f.s;
   switch (kind) {
     case 'CAP':

@@ -302,6 +302,8 @@ export class Canvas {
       startClientY: event.clientY,
       startView,
       moved: false,
+      // Lifted without moving, this was a tap on open sheet: clear the selection.
+      tapSelect: panRequested ? undefined : null,
     };
   };
 
@@ -422,8 +424,14 @@ export class Canvas {
       return;
     }
 
-    // A finger tap selects rather than pans.
+    // A tap selects rather than pans; a tap on nothing puts the pencil down,
+    // which is how drawing is stopped without a keyboard.
     if (drag.kind === 'pan' && !drag.moved && drag.tapSelect !== undefined) {
+      if (drag.tapSelect === null) {
+        this.anchor = null;
+        this.cb.onPreview(null);
+        this.cb.onHover(null);
+      }
       this.cb.onSelect(drag.tapSelect);
       return;
     }

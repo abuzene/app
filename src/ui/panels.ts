@@ -1,4 +1,4 @@
-import type { ComponentKind, EndType, FittingKind, JointType, TerminalKind } from '../model/types';
+import type { ComponentKind, EndType, FittingKind, FlangeKind, JointType, TerminalKind } from '../model/types';
 import type { Host, TabId } from './types';
 import { COMPONENT_LABEL, DEFAULT_LOGO, TERMINAL_LABEL, fittingLabel, isValve, oletLabel, resolveEnds } from '../model/drawing';
 import { COMMAND_HELP } from '../model/commands';
@@ -17,6 +17,7 @@ const TABS: { id: TabId; label: string }[] = [
 const TERMINALS: TerminalKind[] = ['OPEN', 'FLG_WN', 'FLG_SO', 'FLG_SW', 'FLG_THD', 'FLG_LAP', 'FLG_BLIND', 'CAP', 'CONTINUATION', 'EQUIPMENT'];
 const FITTINGS: FittingKind[] = ['ELBOW_90', 'ELBOW_45', 'BEND', 'TEE', 'TEE_REDUCING', 'CROSS', 'OLET', 'MITRE'];
 const JOINTS: JointType[] = ['BW', 'SW', 'THD'];
+const FLANGE_KINDS: FlangeKind[] = ['FLG_WN', 'FLG_SO', 'FLG_SW', 'FLG_THD', 'FLG_LAP'];
 const JOINT_LABEL: Record<string, string> = {
   BW: 'Butt weld',
   SW: 'Socket weld',
@@ -94,13 +95,17 @@ function nodeProperties(host: Host, nodeId: string): string {
 
   const isOlet = fitting === 'OLET';
   const nodeJoint = node.joint ?? host.state.drawing.options.joint;
+  const straight = fitting === 'NONE' && (info?.degree ?? 0) === 2;
+  const flanged = straight && !!node.flange;
   const heading = isOlet
     ? oletLabel(nodeJoint)
-    : fitting === 'NONE'
-      ? isEnd
-        ? 'line end'
-        : 'joint'
-      : fittingLabel(fitting);
+    : flanged
+      ? `flanged joint — ${COMPONENT_LABEL[node.flange!] ?? node.flange}`
+      : fitting === 'NONE'
+        ? isEnd
+          ? 'line end'
+          : 'joint'
+        : fittingLabel(fitting);
 
   return `
 <div class="section" data-editor="node" data-id="${node.id}">
@@ -116,13 +121,22 @@ function nodeProperties(host: Host, nodeId: string): string {
       : `<div class="row"><label>Fitting</label><select data-f="fitting">${options(['auto', ...FITTINGS], node.fittingOverride ?? 'auto', { auto: `Automatic (${fittingLabel(fitting) || 'none'})` })}</select></div>`
   }
   ${
+    straight
+      ? `<div class="row"><label>Flange</label><select data-f="flange">${options(['none', ...FLANGE_KINDS], node.flange ?? 'none', { ...COMPONENT_LABEL, none: 'None — welded through' })}</select></div>`
+      : ''
+  }
+  ${
     isOlet
       ? `<div class="row"><label>Olet type</label><select data-f="joint">${options(JOINTS, nodeJoint, { BW: 'Weldolet', SW: 'Sockolet', THD: 'Threadolet' })}</select></div>`
-      : `<div class="row"><label>Joint</label><select data-f="joint">${options(['auto', ...JOINTS], node.joint ?? 'auto', { ...JOINT_LABEL, auto: `Drawing default (${JOINT_LABEL[host.state.drawing.options.joint] ?? 'butt weld'})` })}</select></div>`
+      : flanged
+        ? ''
+        : `<div class="row"><label>Joint</label><select data-f="joint">${options(['auto', ...JOINTS], node.joint ?? 'auto', { ...JOINT_LABEL, auto: `Drawing default (${JOINT_LABEL[host.state.drawing.options.joint] ?? 'butt weld'})` })}</select></div>`
   }
   <p class="empty-note">${
     isOlet
       ? 'Drag from this point to route the branch. The header keeps its full length — an olet is welded to its wall, not cut into it.'
+      : flanged
+        ? 'The pipe stops at the flange faces here: each side is its own piece, with its own flange, weld and cut length. Drag the joint along the line to move it.'
       : `Drag from this point on the drawing to route a new run. ${
           (info?.degree ?? 0) >= 2 ? 'Routing from a point that already has two runs creates a tee.' : ''
         }`
@@ -498,6 +512,13 @@ function wire(body: HTMLElement, host: Host): void {
       host.edit('Set joint type', (d) => {
         const node = d.nodes.find((n) => n.id === id);
         if (node) node.joint = value === 'auto' ? undefined : (value as JointType);
+      });
+    });
+    field('flange')?.addEventListener('change', (e) => {
+      const value = (e.target as HTMLSelectElement).value;
+      host.edit('Set flanged joint', (d) => {
+        const node = d.nodes.find((n) => n.id === id);
+        if (node) node.flange = value === 'none' ? undefined : (value as FlangeKind);
       });
     });
     field('fitting')?.addEventListener('change', (e) => {

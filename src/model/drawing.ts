@@ -344,6 +344,9 @@ function layout(drawing: Drawing, nodeById: Map<string, IsoNode>, adjacency: Map
  */
 function endTakeout(info: NodeInfo | undefined, run: Run): number {
   if (!info) return 0;
+  // A flanged joint: the pipe stops at the flange face, and the flange itself
+  // is what fills the length from there to the weld.
+  if (info.node.flange) return componentTakeout(info.node.flange, run.dn);
   if (info.fitting !== 'OLET') return fittingTakeout(info.fitting, run.dn);
   const legs = oletLegs(info);
   if (!legs) return 0;
@@ -400,7 +403,7 @@ export function analyse(drawing: Drawing): Analysis {
     }
     runLengths.set(run.id, { run, centre, cut: Math.max(0, cut) });
     if (cut < 0) {
-      warnings.push(`Run ${run.dn} of ${Math.round(centre)} mm is shorter than its fittings require.`);
+      warnings.push(`Run ${sizeLabel(run.dn)} of ${Math.round(centre)} mm is shorter than its fittings require.`);
     }
   }
 
@@ -467,16 +470,20 @@ export function analyse(drawing: Drawing): Analysis {
         const terminal = node.terminal?.kind ?? 'OPEN';
         const joint = terminalJoint(terminal, nodeJoint);
         if (joint) {
+          // The point is the flange face; the weld is a flange length back
+          // along the pipe, where the neck meets it.
+          const back = isFlange(terminal) ? componentTakeout(terminal, run.dn) : 0;
+          const at = atStart ? back : total - back;
           pushJoint(
             `n:${node.id}:term`,
             joint,
             run.dn,
             run.schedule,
             `PIPE / ${TERMINAL_LABEL[terminal] ?? terminal}`,
-            atStart ? a.pos : b.pos,
+            add(a.pos, scale3(dir, at)),
             facing,
             idx,
-            atStart ? 0 : total,
+            at,
           );
         }
       } else if (info.fitting === 'OLET') {
@@ -514,6 +521,25 @@ export function analyse(drawing: Drawing): Analysis {
               distance,
             );
           }
+        }
+      } else if (info.fitting === 'NONE' && node.flange) {
+        // Bolted flange to flange: each side has its own flange, welded to
+        // its own pipe a flange length back from the joint.
+        const joint = flangeJoint(node.flange);
+        if (joint) {
+          const back = componentTakeout(node.flange, run.dn);
+          const at = atStart ? back : total - back;
+          pushJoint(
+            `n:${node.id}:flg:${run.id}`,
+            joint,
+            run.dn,
+            run.schedule,
+            `PIPE / ${COMPONENT_LABEL[node.flange] ?? node.flange}`,
+            add(a.pos, scale3(dir, at)),
+            facing,
+            idx,
+            at,
+          );
         }
       } else if (info.fitting === 'NONE') {
         pushJoint(
@@ -680,20 +706,52 @@ export function analyse(drawing: Drawing): Analysis {
         pos: info.node.pos,
       });
     }
+    if (info.fitting === 'NONE' && info.node.flange && info.degree === 2) {
+      // One flange on each run, ballooned on its own side of the joint.
+      for (const run of info.runs) {
+        const other = nodeById.get(run.from === info.node.id ? run.to : run.from);
+        const dir = other ? direction(info.node.pos, other.pos) : null;
+        const back = componentTakeout(info.node.flange, run.dn) * 0.5;
+        instances.push({
+          key: `flg:${info.node.id}:${run.id}`,
+          bomKey: tally({
+            category: 'FLANGE',
+            description: COMPONENT_LABEL[info.node.flange],
+            dn: run.dn,
+            schedule: fittingThickness,
+            unit: 'off',
+          }),
+          pos: dir ? add(info.node.pos, scale3(dir, back)) : info.node.pos,
+        });
+      }
+    }
     if (info.degree === 1 && info.node.terminal && info.node.terminal.kind !== 'OPEN') {
       const kind = info.node.terminal.kind;
+      const dn = info.runs[0]?.dn ?? 'DN80';
       if (kind !== 'CONTINUATION' && kind !== 'EQUIPMENT') {
         instances.push({
           key: `term:${info.node.id}`,
           bomKey: tally({
             category: kind === 'CAP' ? 'FITTING' : 'FLANGE',
-            description: TERMINAL_LABEL[kind],
-            dn: info.runs[0]?.dn ?? 'DN80',
+            // A blind closes the line by bolting to a flange on the pipe, so
+            // the pipe end wears a weld neck and the blind is counted as well.
+            description: kind === 'FLG_BLIND' ? TERMINAL_LABEL.FLG_WN : TERMINAL_LABEL[kind],
+            dn,
             schedule: fittingThickness,
             unit: 'off',
           }),
           pos: info.node.pos,
         });
+        if (kind === 'FLG_BLIND') {
+          const run = info.runs[0];
+          const other = run ? nodeById.get(run.from === info.node.id ? run.to : run.from) : undefined;
+          const out = other ? direction(other.pos, info.node.pos) : null;
+          instances.push({
+            key: `blind:${info.node.id}`,
+            bomKey: tally({ category: 'FLANGE', description: TERMINAL_LABEL.FLG_BLIND, dn, schedule: fittingThickness, unit: 'off' }),
+            pos: out ? add(info.node.pos, scale3(out, componentTakeout('FLG_WN', dn) * 0.6)) : info.node.pos,
+          });
+        }
       }
     }
   }

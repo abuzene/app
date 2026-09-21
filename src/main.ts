@@ -88,6 +88,10 @@ const host: Host = {
     const result = runCommands(state.drawing, text, state.commandState);
     state.commandState = result.state;
     state.commandErrors = result.errors;
+    // Typed commands set the size as they go; drawing on carries it.
+    state.currentDn = result.state.dn;
+    state.currentSchedule = result.state.schedule;
+    refreshSizeSelects();
     if (result.applied === 0) undoStack.pop();
     recompute();
     persist();
@@ -115,6 +119,7 @@ const host: Host = {
     canvas.setAnchor(nodeId);
     state.selection = { kind: 'node', id: nodeId };
     state.commandState.currentNode = nodeId;
+    syncSizeFromSelection();
     render();
     host.notify('Carry on clicking to continue the line.');
   },
@@ -133,10 +138,20 @@ const canvas = new Canvas(svg, {
   },
   onRoute(fromId, axis, length) {
     let newNode: string | null = null;
+    let refused: string | null = null;
     host.edit('Route', (d) => {
       const result = route(d, fromId, axis, length, state.currentDn, state.currentSchedule);
-      newNode = result?.nodeId ?? null;
+      refused = result?.refused ?? null;
+      newNode = refused ? null : (result?.nodeId ?? null);
     });
+    if (refused) {
+      // Nothing changed, so the edit just recorded is not worth an undo step.
+      undoStack.pop();
+      state.preview = null;
+      host.notify(refused);
+      render();
+      return;
+    }
     if (newNode) {
       state.selection = { kind: 'node', id: newNode };
       state.commandState.currentNode = newNode;
@@ -334,7 +349,9 @@ function render(): void {
 function renderHud(): void {
   const parts: string[] = [];
   if (hoverMessage) parts.push(`<span>${hoverMessage}</span>`);
-  else if (canvas.drawingFrom) parts.push('<span>drawing — click to place, Esc to stop</span>');
+  else if (canvas.drawingFrom) parts.push('<span>drawing — tap where the pipe goes</span>');
+  // No keyboard on a tablet, so stopping the line is a button as well as Esc.
+  if (canvas.drawingFrom) parts.push('<button class="hud-stop" id="hud-stop" type="button">Stop drawing</button>');
   parts.push(`<span>snap ${state.drawing.options.snap} mm</span>`);
   if (state.drawing.options.schematic) parts.push('<span>not to scale</span>');
   for (const warning of state.analysis.warnings.slice(0, 2)) {
@@ -342,17 +359,32 @@ function renderHud(): void {
   }
   if (toast && toast.until > Date.now()) parts.push(`<span>${toast.message}</span>`);
   hudEl.innerHTML = parts.join('');
+  hudEl.querySelector('#hud-stop')?.addEventListener('click', stopDrawing);
 }
 
+/** Puts the pencil down: the route stays as drawn, nothing more is armed. */
+function stopDrawing(): void {
+  canvas.setAnchor(null);
+  state.preview = null;
+  hoverMessage = null;
+  host.select(null);
+}
+
+/**
+ * The size in the toolbar follows what is selected, so a line carried on from
+ * a point keeps the size of the pipe already there rather than whatever was
+ * last picked. Changing the size afterwards still applies to what comes next.
+ */
 function syncSizeFromSelection(): void {
   const sel = state.selection;
-  if (sel?.kind === 'run') {
-    const run = state.drawing.runs.find((r) => r.id === sel.id);
-    if (run) {
-      state.currentDn = run.dn;
-      state.currentSchedule = run.schedule;
-      refreshSizeSelects();
-    }
+  let run: Run | undefined;
+  if (sel?.kind === 'run') run = state.drawing.runs.find((r) => r.id === sel.id);
+  else if (sel?.kind === 'node') run = state.drawing.runs.find((r) => r.from === sel.id || r.to === sel.id);
+  else if (sel?.kind === 'component') run = state.drawing.runs.find((r) => r.inline.some((c) => c.id === sel.id));
+  if (run) {
+    state.currentDn = run.dn;
+    state.currentSchedule = run.schedule;
+    refreshSizeSelects();
   }
 }
 
