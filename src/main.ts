@@ -623,6 +623,9 @@ function renderHud(): void {
   // No keyboard on a tablet, so stopping the line is a button as well as Esc,
   // and so is deleting what is selected.
   if (canvas.drawingFrom) parts.push('<button class="hud-stop" id="hud-stop" type="button">Stop drawing</button>');
+  // Installed, the app fetches a new version in the background; this says so,
+  // so nobody keeps working on an old one without knowing.
+  if (updateReady) parts.push('<button class="hud-stop hud-update" id="hud-update" type="button">New version ready — tap to reload</button>');
   const sel = state.selection;
   // Drawing on from a picked point is a button here as well as in the panel,
   // which may be folded away on a tablet.
@@ -642,9 +645,35 @@ function renderHud(): void {
   hudEl.innerHTML = parts.join('');
   hudEl.querySelector('#hud-stop')?.addEventListener('click', stopDrawing);
   hudEl.querySelector('#hud-delete')?.addEventListener('click', deleteSelection);
+  hudEl.querySelector('#hud-update')?.addEventListener('click', () => location.reload());
   hudEl.querySelector('#hud-draw-from')?.addEventListener('click', () => {
     if (state.selection?.kind === 'node') host.continueFrom(state.selection.id);
   });
+}
+
+/* ------------------------------------------------------------- updates */
+
+let updateReady = false;
+
+/**
+ * Watches the service worker the built page registers. A new version takes
+ * over as soon as it has downloaded; the page it took over from is told, and
+ * offers a reload. The very first install is not an update, and says nothing.
+ * The worker is also asked to check for a new version every hour, since an
+ * app left open on a tablet for days would otherwise never look.
+ */
+if ('serviceWorker' in navigator) {
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController) return;
+    updateReady = true;
+    renderHud();
+  });
+  navigator.serviceWorker.ready
+    .then((registration) => {
+      setInterval(() => void registration.update().catch(() => {}), 60 * 60 * 1000);
+    })
+    .catch(() => {});
 }
 
 /** Puts the pencil down: the route stays as drawn, nothing more is armed. */

@@ -12,6 +12,13 @@ ASME B16.10 Class 150.
 
 ## Installing it
 
+The app is published at **https://abuzene.github.io/app/** on every push, by
+`.github/workflows/pages.yml`. Open that address on the tablet and add it to
+the home screen; from then on it opens as its own app, works with no
+network, and fetches each new version in the background — a bar at the
+bottom says when one is ready to reload into. The drawing being worked on
+lives in the device's own storage and survives updates.
+
 ```bash
 npm install
 npm run app       # builds dist/ as an installable app
