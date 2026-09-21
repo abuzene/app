@@ -82,7 +82,10 @@ ships, and the decisions already taken, so they are not re-litigated.
 - A run can be **fittings joined directly** (`run.direct`, HUD "No pipe —
   fittings touch", panel Pipe select, `setRunDirect`): pulled in to the sum
   of the take-outs, one weld mid-run "ELBOW / OLET", cut 0, no pipe on the
-  list.
+  list. A run with **no pipe left** in it (take-outs, including a terminal
+  flange/transition, use it all; no inline items) counts as touching
+  automatically (`touching` set in `analyse`): one weld named for both ends,
+  never two welds on one spot.
 - Dimensions are typed on the drawing: tap the figure. The editor opens on
   **pointerdown** (iOS only shows a keyboard inside the touch gesture) with a
   **keypad** beside it, above the tap, and the canvas captures the pointer so

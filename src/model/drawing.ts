@@ -456,6 +456,8 @@ export function analyse(drawing: Drawing): Analysis {
 
   // Run lengths and cut lengths.
   const runLengths = new Map<string, RunLengths>();
+  /** Runs whose two fittings meet with no pipe between. */
+  const touching = new Set<string>();
   for (const run of drawing.runs) {
     const a = nodeById.get(run.from);
     const b = nodeById.get(run.to);
@@ -477,6 +479,11 @@ export function analyse(drawing: Drawing): Analysis {
       cut -= componentTakeout(comp.kind, dn, ends === 'FLG' && valveFlangeKind(drawing.options.joint ?? 'BW')) * 2;
     }
     runLengths.set(run.id, { run, centre, cut: Math.max(0, cut) });
+    // Nothing left to cut between two fittings: they meet, and there is one
+    // weld between them — whether the run was marked so or is simply that
+    // short. Two welds on one spot, one to be struck off by hand, is no use.
+    const ends = endTakeout(fromInfo, run) + endTakeout(toInfo, run) + terminalTakeout(a, run.dn) + terminalTakeout(b, run.dn);
+    if (run.direct || (run.inline.length === 0 && cut <= 0.5 && ends > 0.5)) touching.add(run.id);
     if (cut < 0) {
       warnings.push(`Run ${sizeLabel(run.dn)} of ${Math.round(centre)} mm is shorter than its fittings require.`);
     }
@@ -527,7 +534,7 @@ export function analyse(drawing: Drawing): Analysis {
 
     // Fittings joined directly: the one weld is where they meet, between the
     // two, and neither fitting has a pipe weld of its own on this run.
-    if (run.direct) {
+    if (touching.has(run.id)) {
       const name = (node: IsoNode) => {
         const info = nodeInfo.get(node.id);
         if (info && info.fitting !== 'NONE') return fittingLabel(info.fitting);
@@ -778,7 +785,7 @@ export function analyse(drawing: Drawing): Analysis {
   for (const run of drawing.runs) {
     const a = nodeById.get(run.from);
     const b = nodeById.get(run.to);
-    if (!a || !b || run.direct) continue;
+    if (!a || !b || touching.has(run.id)) continue;
     const idx = runIndex.get(run.id) ?? 0;
     const total = length3(sub(b.pos, a.pos));
     const terminalBack = (node: IsoNode) =>
@@ -871,7 +878,7 @@ export function analyse(drawing: Drawing): Analysis {
     const a = nodeById.get(run.from);
     const b = nodeById.get(run.to);
     // No pipe between fittings joined directly, so nothing to balloon.
-    if (a && b && !run.direct) {
+    if (a && b && !touching.has(run.id)) {
       instances.push({
         key: `run:${run.id}`,
         bomKey: pipeKey(run.dn, run.schedule),

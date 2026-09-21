@@ -2018,6 +2018,13 @@ check('the run to a transition pulls in to the elbow and the stub', Math.round(M
 check('and its one weld is elbow to transition', await pipeNets(), (v) => v.some((r) => /^90 ELBOW LR \/ TRANSITION JOINT PE\/CS = $/.test(r)), '90 ELBOW LR / TRANSITION JOINT PE/CS, no pipe');
 await page.keyboard.press('Escape');
 await page.waitForTimeout(150);
+// His station sheet again: the run drawn just long enough for the elbow and
+// the stub, never marked as touching. One weld all the same, not two on one
+// spot with one to strike off by hand.
+await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 2000\nD 900\nE 234\nEND TRANSITION');
+check('a run with no pipe left in it has one weld, fitting to fitting', await pipeNets(), (v) => v.length === 4 && v.some((r) => /^90 ELBOW LR \/ TRANSITION JOINT PE\/CS = $/.test(r)), '4 welds, the last elbow to transition');
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
 
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 
