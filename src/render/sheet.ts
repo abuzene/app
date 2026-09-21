@@ -13,7 +13,9 @@ const SHEETS: Record<SheetSize, { w: number; h: number }> = {
   A2: { w: 594, h: 420 },
 };
 
-const MARGIN = 10;
+// Tight: the frame sits 5 mm in from the paper edge, which is as close as
+// most printers will put ink.
+const MARGIN = 5;
 
 function text(
   x: number,

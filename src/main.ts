@@ -1179,7 +1179,8 @@ function printSheet(sheet: string, size: SheetSize): void {
   }
   // Where the browser honours it, the paper is the sheet itself; elsewhere
   // the sheet is fitted to the paper by the print stylesheet.
-  page.textContent = `@page { size: ${w}mm ${h}mm; margin: 0; }`;
+  const named = size === 'A4' ? 'A4 landscape' : size === 'A3' ? 'A3 landscape' : `${w}mm ${h}mm`;
+  page.textContent = `@page { size: ${named}; size: ${w}mm ${h}mm; margin: 0; }`;
   root.innerHTML = sheet;
 
   // The page title is what "Save as PDF" names the file.

@@ -406,5 +406,5 @@ tr.selected { background: var(--accent-soft); }
   html, body { height: 100vh; overflow: hidden; background: #fff; margin: 0; }
   body > * { display: none !important; }
   #print-root { display: block !important; width: 100vw; height: 100vh; overflow: hidden; break-inside: avoid; }
-  #print-root svg { display: block; width: 100vw !important; height: 98vh !important; }
+  #print-root svg { display: block; width: 100vw !important; height: 100vh !important; }
 }
