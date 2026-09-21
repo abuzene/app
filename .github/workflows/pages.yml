@@ -1,10 +1,11 @@
 # Builds the app and publishes dist/ to GitHub Pages, so the installed app
-# updates itself from https://abuzene.github.io/app/ on every push.
+# updates itself from https://abuzene.github.io/app/ on every push to main.
+# Only main may deploy: the github-pages environment rejects other branches.
 name: Publish to GitHub Pages
 
 on:
   push:
-    branches: [main, 'claude/**']
+    branches: [main]
   workflow_dispatch:
 
 permissions:
