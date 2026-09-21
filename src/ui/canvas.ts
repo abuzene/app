@@ -27,8 +27,8 @@ interface DragState {
   /** What is being slid, for the slide drags. */
   targetId?: string;
   moved: boolean;
-  /** A pan that places a run instead, if the pointer never really moved. */
-  placing?: boolean;
+  /** What a finger tap should select, if the finger never really moved. */
+  tapSelect?: Selection;
 }
 
 const MIN_VIEW = 8;
@@ -169,6 +169,10 @@ export class Canvas {
   private onPointerDown = (event: PointerEvent): void => {
     if (!this.drawing) return;
     this.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    // A finger never draws. On a tablet the pen is the pencil and the fingers
+    // are for moving the sheet around, so a stray palm or a scrolling hand
+    // cannot lay pipe. A finger tap still selects, on the way back up.
+    const fingers = event.pointerType === 'touch';
     if (this.pointers.size === 2) {
       this.drag = null;
       this.cb.onPreview(null);
@@ -183,7 +187,29 @@ export class Canvas {
     const compEl = target?.closest('[data-component]');
 
     const startView = { ...this.view };
-    const panRequested = event.button === 1 || event.button === 2 || event.shiftKey;
+    const panRequested = fingers || event.button === 1 || event.button === 2 || event.shiftKey;
+
+    // A finger drag moves the sheet; a finger tap selects whatever is under it.
+    if (fingers) {
+      this.svg.setPointerCapture(event.pointerId);
+      this.svg.classList.add('panning');
+      this.drag = {
+        kind: 'pan',
+        pointerId: event.pointerId,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        startView,
+        moved: false,
+        tapSelect: compEl
+          ? { kind: 'component', id: compEl.getAttribute('data-component')! }
+          : nodeEl
+            ? { kind: 'node', id: nodeEl.getAttribute('data-node')! }
+            : runEl
+              ? { kind: 'run', id: runEl.getAttribute('data-run')! }
+              : null,
+      };
+      return;
+    }
 
     if (!panRequested && compEl) {
       const id = compEl.getAttribute('data-component')!;
@@ -248,20 +274,22 @@ export class Canvas {
       return;
     }
 
-    // With a point armed, a touch on open canvas places the run. It still has
-    // to start as a possible pan: whether it was a tap or a drag is only known
-    // when the pointer comes up.
+    // With a point armed, touching open canvas draws the run to there. A pencil
+    // has no hover, so the run is worked out on contact rather than relying on
+    // a preview built up beforehand: touch and lift places it, and dragging
+    // before lifting adjusts it first.
     if (this.anchor && !panRequested) {
       this.svg.setPointerCapture(event.pointerId);
       this.drag = {
-        kind: 'pan',
+        kind: 'route',
         pointerId: event.pointerId,
         startClientX: event.clientX,
         startClientY: event.clientY,
         startView,
+        fromId: this.anchor,
         moved: false,
-        placing: true,
       };
+      this.previewFrom(this.anchor, event.clientX, event.clientY);
       return;
     }
 
@@ -394,15 +422,20 @@ export class Canvas {
       return;
     }
 
-    if (drag.kind === 'route' && this.preview && drag.moved) {
-      this.cb.onRoute(this.preview.fromId, this.preview.axis, this.preview.length);
+    // A finger tap selects rather than pans.
+    if (drag.kind === 'pan' && !drag.moved && drag.tapSelect !== undefined) {
+      this.cb.onSelect(drag.tapSelect);
       return;
     }
-    // A tap on open canvas with a point armed places the previewed run; the
-    // same gesture with movement was a pan, and places nothing.
-    if (drag.kind === 'pan' && drag.placing && !drag.moved && this.preview) {
-      this.cb.onRoute(this.preview.fromId, this.preview.axis, this.preview.length);
-      return;
+
+    if (drag.kind === 'route' && this.preview) {
+      // Drawn from a point that was armed, a touch places the run whether or
+      // not the pointer moved; started on a point itself, it has to be a drag.
+      const fromArmed = drag.fromId === this.anchor;
+      if (fromArmed || drag.moved) {
+        this.cb.onRoute(this.preview.fromId, this.preview.axis, this.preview.length);
+        return;
+      }
     }
     if (drag.kind === 'route' || !this.anchor) {
       this.cb.onPreview(null);

@@ -449,6 +449,21 @@ function setLayout(cls: 'panel-hidden' | 'wide', on: boolean): void {
   requestAnimationFrame(() => canvas.render());
 }
 
+// On a narrow screen the view switches live behind a button, so that Print
+// and the rest stay on screen. Tapping anywhere else puts them away again.
+const viewMenuEl = $('view-menu');
+$('view-menu-button').addEventListener('click', (event) => {
+  event.stopPropagation();
+  const open = viewMenuEl.classList.toggle('open');
+  $('view-menu-button').setAttribute('aria-expanded', String(open));
+});
+document.addEventListener('pointerdown', (event) => {
+  if (!viewMenuEl.contains(event.target as Node)) {
+    viewMenuEl.classList.remove('open');
+    $('view-menu-button').setAttribute('aria-expanded', 'false');
+  }
+});
+
 $('panel-toggle').addEventListener('click', () => {
   setLayout('panel-hidden', !appEl.classList.contains('panel-hidden'));
 });
@@ -889,6 +904,7 @@ window.addEventListener('keydown', (event) => {
   if (typing) return;
 
   if (event.key === 'Escape') {
+    viewMenuEl.classList.remove('open');
     canvas.setAnchor(null);
     state.preview = null;
     hoverMessage = null;

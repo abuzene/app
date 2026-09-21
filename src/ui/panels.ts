@@ -128,6 +128,7 @@ function nodeProperties(host: Host, nodeId: string): string {
         }`
   }</p>
   <div class="btn-row">
+    <button class="btn-line solid" data-a="draw-from">Draw from here</button>
     <button class="btn-line danger" data-a="delete-node">Delete point and its runs</button>
   </div>
 </div>`;
@@ -505,6 +506,11 @@ function wire(body: HTMLElement, host: Host): void {
         const node = d.nodes.find((n) => n.id === id);
         if (node) node.fittingOverride = value === 'auto' ? undefined : (value as FittingKind);
       });
+    });
+    // Double tapping a point works with a mouse, but is awkward with a pencil,
+    // so picking the route back up is a button too.
+    nodeEditor.querySelector('[data-a="draw-from"]')?.addEventListener('click', () => {
+      host.continueFrom(id);
     });
     nodeEditor.querySelector('[data-a="delete-node"]')?.addEventListener('click', () => {
       host.edit('Delete point', (d) => deleteNode(d, id));

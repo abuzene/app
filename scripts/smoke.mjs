@@ -622,6 +622,171 @@ check(
 await page.keyboard.press('Escape');
 await page.waitForTimeout(200);
 
+/* ------------------------------------------------------- pencil and finger */
+
+// An iPad pencil reports pointerType "pen" and, on most iPads, never hovers:
+// the first the app hears of it is the contact. Fingers report "touch" and
+// must never lay pipe, or a resting palm would draw. Playwright's mouse always
+// says "mouse", so these go through the devtools protocol instead.
+const cdp = await page.context().newCDPSession(page);
+const pen = (type, x, y) =>
+  cdp.send('Input.dispatchMouseEvent', {
+    type,
+    x,
+    y,
+    button: type === 'mouseMoved' ? 'none' : 'left',
+    buttons: type === 'mouseReleased' ? 0 : 1,
+    clickCount: type === 'mouseMoved' ? 0 : 1,
+    pointerType: 'pen',
+    force: 0.5,
+  });
+/** Touch and lift, with no hover beforehand — what a pencil actually does. */
+const penTap = async (x, y) => {
+  await pen('mousePressed', x, y);
+  await page.waitForTimeout(120);
+  await pen('mouseReleased', x, y);
+  await page.waitForTimeout(400);
+};
+const finger = (type, x, y) =>
+  cdp.send('Input.dispatchTouchEvent', {
+    type,
+    touchPoints: type === 'touchEnd' ? [] : [{ x, y, id: 1, force: 1 }],
+  });
+
+await startNewDrawing();
+const penBox = await page.locator('#canvas').boundingBox();
+const penX = penBox.x + penBox.width * 0.4;
+const penY = penBox.y + penBox.height * 0.55;
+
+await penTap(penX, penY);
+check(
+  'a pencil puts the first point down on contact',
+  await page.locator('#canvas circle.hit-dot[data-node]').count(),
+  (v) => v === 1,
+  '1',
+);
+
+// No hover in between: straight from lifting the pencil to the next contact.
+await penTap(penX + 150, penY - 88);
+check('and draws the run on the next tap, with no hover', await page.locator('#canvas .pipe').count(), (v) => v === 1, '1');
+
+await penTap(penX + 300, penY - 176);
+check('and keeps going tap by tap', await page.locator('#canvas .pipe').count(), (v) => v === 2, '2');
+
+// A finger is for moving the sheet, never for drawing.
+const viewBefore = await page.locator('#canvas').getAttribute('viewBox');
+await finger('touchStart', penX + 420, penY - 240);
+await page.waitForTimeout(80);
+await finger('touchMove', penX + 320, penY - 180);
+await page.waitForTimeout(80);
+await finger('touchEnd', penX + 320, penY - 180);
+await page.waitForTimeout(400);
+check('a finger drag pans instead of drawing', await page.locator('#canvas .pipe').count(), (v) => v === 2, 'still 2');
+check(
+  'and it actually moves the sheet',
+  await page.locator('#canvas').getAttribute('viewBox'),
+  (v) => v !== viewBefore,
+  'a different viewBox',
+);
+
+// A palm or a stray finger tap must not put pipe down either.
+await finger('touchStart', penX + 460, penY - 260);
+await page.waitForTimeout(80);
+await finger('touchEnd', penX + 460, penY - 260);
+await page.waitForTimeout(400);
+check('and a stray finger tap lays nothing', await page.locator('#canvas .pipe').count(), (v) => v === 2, 'still 2');
+
+// Picking the route back up needs no double tap.
+await page.keyboard.press('Escape');
+await page.waitForTimeout(200);
+await page.click('#tabs button:has-text("Route")');
+await page.waitForTimeout(200);
+await page.locator('#canvas circle.hit-dot[data-node]').first().click({ force: true });
+await page.waitForTimeout(300);
+check(
+  'a point offers a button to carry on from it',
+  await page.locator('#tab-body [data-a="draw-from"]').count(),
+  (v) => v === 1,
+  '1',
+);
+await page.click('#tab-body [data-a="draw-from"]');
+await page.waitForTimeout(300);
+const firstNode = await page.locator('#canvas circle.hit-dot[data-node]').first().boundingBox();
+await penTap(firstNode.x + firstNode.width / 2, firstNode.y + firstNode.height / 2 - 150);
+check('and drawing carries on from there', await page.locator('#canvas .pipe').count(), (v) => v === 3, '3');
+
+await page.keyboard.press('Escape');
+await page.waitForTimeout(200);
+
+// On a tablet the toolbar has to keep working: the view switches used to be
+// hidden outright, and Print used to scroll off the end.
+for (const [width, height, shape] of [
+  [1194, 834, 'landscape'],
+  [834, 1194, 'portrait'],
+]) {
+  await page.setViewportSize({ width, height });
+  await page.waitForTimeout(300);
+  check(
+    `Print stays on screen on an iPad in ${shape}`,
+    await page.evaluate(() => {
+      const r = document.querySelector('#print').getBoundingClientRect();
+      return r.left >= 0 && r.right <= innerWidth;
+    }),
+    (v) => v === true,
+    'true',
+  );
+  check(
+    `the view switches fold into a button in ${shape}`,
+    await page.locator('#view-menu-button').isVisible(),
+    (v) => v === true,
+    'true',
+  );
+  await page.click('#view-menu-button');
+  await page.waitForTimeout(250);
+  check(
+    `and opening it shows them in ${shape}`,
+    await page.evaluate(() => {
+      const r = document.querySelector('#opt-welds').getBoundingClientRect();
+      return r.width > 0 && r.right <= innerWidth && r.bottom <= innerHeight;
+    }),
+    (v) => v === true,
+    'true',
+  );
+  // They still do their job from in there.
+  check(
+    `there are weld numbers to hide in ${shape}`,
+    await page.locator('#canvas .weld-no').count(),
+    (v) => v > 0,
+    'at least one',
+  );
+  await page.click('#opt-welds');
+  await page.waitForTimeout(350);
+  check(
+    `turning weld numbers off from the menu works in ${shape}`,
+    await page.locator('#canvas .weld-no').count(),
+    (v) => v === 0,
+    '0',
+  );
+  await page.click('#opt-welds');
+  await page.waitForTimeout(350);
+  await page.click('#canvas');
+  await page.waitForTimeout(200);
+  check(
+    `and tapping away puts the menu back in ${shape}`,
+    await page.locator('#view-menu.open').count(),
+    (v) => v === 0,
+    '0',
+  );
+}
+await page.setViewportSize({ width: 1500, height: 940 });
+await page.waitForTimeout(300);
+check(
+  'on a wide screen the switches sit in the toolbar',
+  await page.locator('#opt-welds').isVisible(),
+  (v) => v === true,
+  'true',
+);
+
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 
 await browser.close();

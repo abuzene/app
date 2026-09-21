@@ -84,6 +84,11 @@ body {
 
 .toggles { gap: 12px; }
 .check { display: flex; align-items: center; gap: 5px; font-size: 12px; color: #b9c5d6; cursor: pointer; }
+/* Wide enough, and the view switches simply sit in the toolbar; the button
+   that folds them away only appears when the screen cannot spare the room. */
+.view-menu { position: relative; }
+.view-menu > .btn { display: none; }
+.view-menu .menu { display: contents; }
 .check input { accent-color: var(--accent); margin: 0; }
 
 /* ---------- layout ---------- */
@@ -301,17 +306,40 @@ tr.clickable { cursor: pointer; }
 
 @media (max-width: 1280px) {
   .panel { flex-basis: 300px; }
-  .toggles { display: none; }
-}
+  /* On a tablet the five switches used to be hidden outright, leaving no way
+     at all to turn the dimensions or the weld numbers off. Here they fold into
+     a button instead, which keeps Print on screen without losing them. */
+  .view-menu > .btn { display: inline-block; }
+  .view-menu .menu {
+    display: none;
+    position: fixed; top: 56px; right: 14px; z-index: 30;
+    flex-direction: column; gap: 10px;
+    padding: 12px 14px;
+    background: var(--chrome-2);
+    border: 1px solid #0d1219; border-radius: 9px;
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45);
+  }
+  .view-menu.open .menu { display: flex; }
+  .view-menu.open > .btn { background: var(--chrome); color: #fff; }
 
-@media (max-width: 760px) {
-  /* Drop the chrome that only labels things, so the actions themselves fit. */
-  .toolbar { gap: 10px; padding: 0 8px; scrollbar-width: thin; }
+  /* Drop the chrome that only labels things: each select already reads as its
+     own label, so the buttons that do the work stay on screen. */
+  .toolbar { gap: 10px; padding: 0 8px; }
   .brand-text { display: none; }
   .field span { display: none; }
   .group { gap: 6px; }
-  .group.right { margin-left: 10px; }
   .btn { padding: 6px 9px; }
+  /* Narrower than this the toolbar scrolls sideways, so Print and its
+     neighbours are pinned to the right: the work buttons never scroll away. */
+  .group.right {
+    position: sticky; right: 0;
+    padding-left: 10px; margin-left: auto;
+    background: linear-gradient(to right, transparent, var(--chrome) 10px);
+  }
+}
+
+@media (max-width: 760px) {
+  .group.right { margin-left: 10px; }
 
   main { flex-direction: column; }
   .tools { flex: 0 0 auto; display: flex; overflow-x: auto; border-right: none; border-bottom: 1px solid var(--line); padding: 6px; }
