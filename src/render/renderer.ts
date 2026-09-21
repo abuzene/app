@@ -1,7 +1,8 @@
 import type { Analysis } from '../model/drawing';
 import type { Axis, Drawing, Vec3 } from '../model/types';
 import { COMPONENT_LABEL, TERMINAL_LABEL, fittingLabel, oletLegs, resolveEnds } from '../model/drawing';
-import { AXIS_VECTOR, axisScreenDir, project, scale3, add } from '../model/iso';
+import { sizeLabel } from '../model/pipe-data';
+import { AXIS_VECTOR, axisBetween, axisScreenDir, project, scale3, add } from '../model/iso';
 import { componentSymbol, flangeSymbol, frameFor, isFlange, jointMark, oletSymbol, terminalSymbol } from './symbols';
 
 export interface ViewBox {
@@ -36,6 +37,24 @@ export interface RenderState {
 export interface Pt {
   x: number;
   y: number;
+}
+
+/**
+ * The two isometric axes a symbol on this run is drawn in: across the pipe and
+ * up. A horizontal run takes the other horizontal axis across it and true up;
+ * a riser is drawn in a vertical plane instead, since "up" along it means
+ * nothing. This is what makes a valve read as an object on the pipe rather
+ * than a badge stuck to the screen.
+ */
+function symbolPlane(drawing: Drawing, a: Vec3, b: Vec3): { across: Pt; up: Pt } | null {
+  const axis = axisBetween(a, b);
+  if (!axis) return null;
+  const rotation = drawing.options.northRotation;
+  if (axis === 'U' || axis === 'D') {
+    return { across: axisScreenDir('E', rotation), up: axisScreenDir('N', rotation) };
+  }
+  const across = axis === 'N' || axis === 'S' ? 'E' : 'N';
+  return { across: axisScreenDir(across, rotation), up: axisScreenDir('U', rotation) };
 }
 
 export function escapeText(value: string): string {
@@ -227,9 +246,10 @@ export function renderDrawing(state: RenderState): string {
 
     // Inline components, positioned by their true offset along the run.
     const total = lengths?.centre ?? 0;
+    const plane = symbolPlane(drawing, analysis.nodeById.get(run.from)!.pos, analysis.nodeById.get(run.to)!.pos);
     for (const comp of run.inline) {
       const t = total > 0 ? Math.max(0, Math.min(1, comp.offset / total)) : 0.5;
-      const f = frameFor(a.x, a.y, b.x, b.y, t, size);
+      const f = frameFor(a.x, a.y, b.x, b.y, t, size, plane?.across, plane?.up);
       const selectedComp = sel?.kind === 'component' && sel.id === comp.id;
       comps += `<g class="component${selectedComp ? ' selected' : ''}" data-component="${comp.id}">`;
       comps += componentSymbol(comp.kind, f);
@@ -268,7 +288,9 @@ export function renderDrawing(state: RenderState): string {
       const q = paper(otherId);
       if (q) {
         // Frame runs from the pipe outwards, so the symbol faces off the end.
-        const f = frameFor(q.x, q.y, p.x, p.y, 1, size);
+        const other = analysis.nodeById.get(otherId);
+        const endPlane = other ? symbolPlane(drawing, other.pos, node.pos) : null;
+        const f = frameFor(q.x, q.y, p.x, p.y, 1, size, endPlane?.across, endPlane?.up);
         nodes += terminalSymbol(node.terminal.kind, f, node.joint ?? drawing.options.joint ?? 'BW');
         if (node.terminal.note) {
           nodes += `<text class="note" x="${(p.x + f.dx * size * 2.4).toFixed(2)}" y="${(p.y + f.dy * size * 2.4).toFixed(2)}">${escapeText(node.terminal.note)}</text>`;
@@ -295,7 +317,16 @@ export function renderDrawing(state: RenderState): string {
   analysis.joints.forEach((joint, index) => {
     const place = weldPlacement(drawing, analysis, joint.pos);
     if (!place) return;
-    const f = frameFor(place.a.x, place.a.y, place.b.x, place.b.y, place.t, size);
+    const f = frameFor(
+      place.a.x,
+      place.a.y,
+      place.b.x,
+      place.b.y,
+      place.t,
+      size,
+      place.plane?.across,
+      place.plane?.up,
+    );
     jointPoints.set(joint.key, { x: f.cx, y: f.cy });
     welds += `<g class="weld">${jointMark(f, joint.joint, joint.facing)}</g>`;
     if (drawing.options.showWelds && joint.number) {
@@ -336,7 +367,7 @@ export function renderDrawing(state: RenderState): string {
         // Dimensions are placed away from the middle of the drawing, so the
         // balloons go the other way and the two never fight for the same space.
         const inward = (centroid.x - f.cx) * f.nx + (centroid.y - f.cy) * f.ny >= 0 ? 1 : -1;
-        const reach = size * 3.4;
+        const reach = size * 4.6;
         return {
           number: item.number,
           fromX: f.cx,
@@ -348,7 +379,7 @@ export function renderDrawing(state: RenderState): string {
       .filter((m): m is NonNullable<typeof m> => m !== null);
 
     const r = size * 1.3;
-    for (const mark of spreadLabels(marks, r * 2.4)) {
+    for (const mark of spreadLabels(marks, r * 2.9)) {
       // The leader stops at the balloon's edge rather than running into it.
       const dx = mark.x - mark.fromX;
       const dy = mark.y - mark.fromY;
@@ -374,20 +405,31 @@ export function renderDrawing(state: RenderState): string {
     const branchOther = legs.branch.from === nodeId ? legs.branch.to : legs.branch.from;
     const out = paper(branchOther);
     if (!here || !out) continue;
-    const f = frameFor(here.x, here.y, out.x, out.y, 0, size);
+    const otherNode = analysis.nodeById.get(branchOther);
+    const branchPlane = otherNode ? symbolPlane(drawing, info.node.pos, otherNode.pos) : null;
+    const f = frameFor(here.x, here.y, out.x, out.y, 0, size, branchPlane?.across, branchPlane?.up);
     olets += `<g class="olet">${oletSymbol(f)}</g>`;
   }
 
-  // A reducing tee is drawn as the triangle across its three joints.
+  // A branch of a different size is called out in words beside it — "6\"X2\" NS"
+  // — rather than drawn as a special shape, which is how these sheets read.
   let tees = '';
   for (const [nodeId, info] of analysis.nodeInfo) {
-    if (info.fitting !== 'TEE_REDUCING') continue;
-    const corners = info.runs
-      .map((run) => jointPoints.get(`n:${nodeId}:${run.id}`))
-      .filter((c): c is Pt => Boolean(c));
-    if (corners.length < 3) continue;
-    tees += `<polygon class="fitting-body" points="${corners.map((c) => `${c.x.toFixed(2)},${c.y.toFixed(2)}`).join(' ')}"/>`;
+    const isReducingTee = info.fitting === 'TEE_REDUCING';
+    const isOlet = info.fitting === 'OLET';
+    if (!isReducingTee && !isOlet) continue;
+    const header = isOlet ? oletLegs(info)?.header[0] : info.runs[0];
+    const branch = isOlet
+      ? oletLegs(info)?.branch
+      : info.runs.find((r) => r.dn !== info.runs[0].dn);
+    if (!header || !branch || header.dn === branch.dn) continue;
+    const at = paper(nodeId);
+    if (!at) continue;
+    tees += `<text class="branch-note" x="${(at.x + size * 1.4).toFixed(2)}" y="${(at.y - size * 1.4).toFixed(2)}">${escapeText(
+      `${sizeLabel(header.dn)}X${sizeLabel(branch.dn)} NS`,
+    )}</text>`;
   }
+
   welds = olets + tees + welds + balloons;
 
   // Drag preview.
@@ -418,7 +460,7 @@ export function renderDrawing(state: RenderState): string {
  * collide and leaves everything else exactly where it was placed.
  */
 function spreadLabels<T extends { x: number; y: number }>(labels: T[], minGap: number): T[] {
-  for (let pass = 0; pass < 12; pass += 1) {
+  for (let pass = 0; pass < 40; pass += 1) {
     let moved = false;
     for (let i = 0; i < labels.length; i += 1) {
       for (let j = i + 1; j < labels.length; j += 1) {
@@ -447,8 +489,8 @@ function weldPlacement(
   drawing: Drawing,
   analysis: Analysis,
   pos: Vec3,
-): { a: Pt; b: Pt; t: number } | null {
-  let best: { a: Pt; b: Pt; t: number; d: number } | null = null;
+): { a: Pt; b: Pt; t: number; plane: { across: Pt; up: Pt } | null } | null {
+  let best: { a: Pt; b: Pt; t: number; d: number; plane: { across: Pt; up: Pt } | null } | null = null;
   for (const run of drawing.runs) {
     const fa = analysis.nodeById.get(run.from);
     const fb = analysis.nodeById.get(run.to);
@@ -469,10 +511,10 @@ function weldPlacement(
     if (!best || d < best.d) {
       const a = paperOf(analysis, drawing, run.from);
       const b = paperOf(analysis, drawing, run.to);
-      if (a && b) best = { a, b, t, d };
+      if (a && b) best = { a, b, t, d, plane: symbolPlane(drawing, fa.pos, fb.pos) };
     }
   }
-  return best ? { a: best.a, b: best.b, t: best.t } : null;
+  return best ? { a: best.a, b: best.b, t: best.t, plane: best.plane } : null;
 }
 
 /** Small compass drawn as a screen-fixed overlay rather than part of the sheet. */

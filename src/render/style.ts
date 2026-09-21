@@ -56,6 +56,8 @@ export function contentCss({ k, u, dark = false }: ContentStyleOptions): string 
 }
 .weld-no { fill: ${dim}; font-size: ${w(9)}px; font-family: inherit; }
 .weld-leader { stroke: ${dim}; stroke-width: ${w(0.7)}; fill: none; }
+.branch-note { fill: ${ink}; font-size: ${w(9.5)}px; pointer-events: none;
+  paint-order: stroke fill; stroke: ${dark ? '#0d1117' : '#ffffff'}; stroke-width: ${w(2.6)}; stroke-linejoin: round; }
 .balloon { pointer-events: none; }
 .balloon-leader { stroke: ${ink}; stroke-width: ${w(0.9)}; fill: none; }
 .balloon-ring { fill: ${dark ? '#0d1117' : '#ffffff'}; stroke: ${ink}; stroke-width: ${w(1.2)}; }

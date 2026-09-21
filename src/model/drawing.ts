@@ -49,7 +49,9 @@ export function defaultOptions(): DrawingOptions {
     schematic: false,
     schematicLength: 1500,
     showDimensions: true,
-    showWelds: false,
+    // Welds carry the numbers a welder's records are kept against, so they are
+    // shown by default here even though a typical sheet leaves them off.
+    showWelds: true,
     showItems: true,
     showNodeLabels: true,
     showGrid: true,

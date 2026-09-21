@@ -240,7 +240,12 @@ await page.fill('#command-text', 'DN80\nSTD\nORIGIN 0 0 0\nE 2000\nMARK t\nE 200
 await page.click('[data-a="run-commands"]');
 await page.waitForTimeout(500);
 await page.keyboard.press('Escape');
-check('a reducing tee is drawn as its triangle', await page.locator('#canvas .fitting-body').count(), (v) => v === 1, '1');
+check(
+  'a reducing tee is called out by its sizes',
+  await page.locator('#canvas .branch-note').evaluateAll((els) => els.map((e) => e.textContent)),
+  (v) => v.some((t) => /3"X2" NS/.test(t ?? '')),
+  '3"X2" NS beside the branch',
+);
 await page.click('#tabs button:has-text("Items")');
 await page.waitForTimeout(300);
 check('the reducing tee is taken off with its branch size', await page.locator('#tab-body').innerText(), (v) => /REDUCING TEE 3" x 2"/.test(v), 'REDUCING TEE 3" x 2"');
@@ -510,7 +515,7 @@ check(
 
 // Items are ballooned to the material list; welds are dots, not numbers.
 check('items are ballooned', await page.locator('#canvas .balloon').count(), (v) => v > 0, 'at least one');
-check('weld numbers are off by default', await page.locator('#canvas .weld-no').count(), (v) => v === 0, '0');
+check('weld numbers are shown', await page.locator('#canvas .weld-no').count(), (v) => v > 0, 'at least one');
 // SVG text has no innerText, so read it as text content.
 const balloonNumbers = await page
   .locator('#canvas .balloon-no')

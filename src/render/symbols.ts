@@ -1,15 +1,28 @@
 import type { ComponentKind, JointType, TerminalKind } from '../model/types';
 
 /** Placement frame for a symbol: its centre, the pipe direction and the perpendicular. */
+/**
+ * Where and how a symbol is drawn.
+ *
+ * A symbol on an isometric is not a flat badge stuck on the pipe: it is a real
+ * object seen in projection. So the frame carries three screen directions, not
+ * two — along the pipe, across it within the drawing plane, and genuinely up.
+ * A valve body then spreads across the pipe the way the pipe itself is drawn,
+ * and its stem stands up the page, which is what makes the symbol read as part
+ * of the drawing rather than pasted onto it.
+ */
 export interface Frame {
   cx: number;
   cy: number;
   /** Unit vector along the pipe, in screen space. */
   dx: number;
   dy: number;
-  /** Unit vector perpendicular to the pipe, in screen space. */
+  /** Across the pipe, in the drawing plane. */
   nx: number;
   ny: number;
+  /** Up, in the drawing plane. */
+  ux: number;
+  uy: number;
   /** Nominal symbol half-size in paper units. */
   s: number;
 }
@@ -17,15 +30,49 @@ export interface Frame {
 /** Which way a one-sided symbol (a flange, a cap) faces along the pipe. */
 export type Facing = 1 | -1;
 
-export function frameFor(x1: number, y1: number, x2: number, y2: number, at: number, s: number): Frame {
+export interface Dir2 {
+  x: number;
+  y: number;
+}
+
+/**
+ * Builds a frame along a drawn run. `across` and `up` are the screen directions
+ * of the two isometric axes the symbol is drawn in; left out, the frame falls
+ * back to the flat screen perpendicular, which is all a skewed run can offer.
+ */
+export function frameFor(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  at: number,
+  s: number,
+  across?: Dir2,
+  up?: Dir2,
+): Frame {
   const len = Math.hypot(x2 - x1, y2 - y1) || 1;
   const dx = (x2 - x1) / len;
   const dy = (y2 - y1) / len;
-  return { cx: x1 + dx * at * len, cy: y1 + dy * at * len, dx, dy, nx: -dy, ny: dx, s };
+  const n = across ?? { x: -dy, y: dx };
+  const u = up ?? { x: -dy, y: dx };
+  return {
+    cx: x1 + dx * at * len,
+    cy: y1 + dy * at * len,
+    dx,
+    dy,
+    nx: n.x,
+    ny: n.y,
+    ux: u.x,
+    uy: u.y,
+    s,
+  };
 }
 
-function pt(f: Frame, along: number, across: number): [number, number] {
-  return [f.cx + f.dx * along + f.nx * across, f.cy + f.dy * along + f.ny * across];
+function pt(f: Frame, along: number, across: number, up = 0): [number, number] {
+  return [
+    f.cx + f.dx * along + f.nx * across + f.ux * up,
+    f.cy + f.dy * along + f.ny * across + f.uy * up,
+  ];
 }
 
 function fmt(points: [number, number][]): string {
@@ -36,14 +83,16 @@ function poly(points: [number, number][], cls: string): string {
   return `<polygon class="${cls}" points="${fmt(points)}"/>`;
 }
 
-function line(f: Frame, a: [number, number], b: [number, number], cls: string): string {
-  const [x1, y1] = pt(f, a[0], a[1]);
-  const [x2, y2] = pt(f, b[0], b[1]);
+type P = [number, number] | [number, number, number];
+
+function line(f: Frame, a: P, b: P, cls: string): string {
+  const [x1, y1] = pt(f, a[0], a[1], a[2] ?? 0);
+  const [x2, y2] = pt(f, b[0], b[1], b[2] ?? 0);
   return `<line class="${cls}" x1="${x1.toFixed(2)}" y1="${y1.toFixed(2)}" x2="${x2.toFixed(2)}" y2="${y2.toFixed(2)}"/>`;
 }
 
-function circle(f: Frame, along: number, across: number, r: number, cls: string): string {
-  const [x, y] = pt(f, along, across);
+function circle(f: Frame, along: number, across: number, r: number, cls: string, up = 0): string {
+  const [x, y] = pt(f, along, across, up);
   return `<circle class="${cls}" cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="${r.toFixed(2)}"/>`;
 }
 
@@ -193,21 +242,18 @@ function eccentricReducer(f: Frame): string {
 }
 
 /**
- * An olet: the saddle that sits on the header wall where the branch leaves it.
- * The frame runs along the branch, away from the header, so the saddle widens
- * back down onto the pipe it is welded to.
+ * An olet: the forged body that straddles the header where the branch leaves
+ * it, drawn as the hexagon these sheets use. The frame runs along the branch,
+ * so the hexagon is laid out across it — that is, along the header it sits on.
  */
 export function oletSymbol(f: Frame): string {
-  const s = f.s;
-  return poly(
-    [
-      pt(f, 0, -s * 0.95),
-      pt(f, 0, s * 0.95),
-      pt(f, s * 0.85, s * 0.45),
-      pt(f, s * 0.85, -s * 0.45),
-    ],
-    'sym-fill',
-  );
+  const r = f.s * 0.85;
+  const points: [number, number][] = [];
+  for (let i = 0; i < 6; i += 1) {
+    const angle = (Math.PI / 3) * i + Math.PI / 6;
+    points.push(pt(f, r * Math.sin(angle) + f.s * 0.2, r * Math.cos(angle)));
+  }
+  return poly(points, 'sym-fill');
 }
 
 /* -------------------------------------------------------- inline components */
@@ -222,11 +268,12 @@ function bowtie(f: Frame, cls = 'sym-fill'): string {
 }
 
 function stem(f: Frame, height = 1.5): string {
-  return line(f, [0, 0], [0, -f.s * height], 'sym-line');
+  return line(f, [0, 0, 0], [0, 0, f.s * height], 'sym-line');
 }
 
+/** The lever or handwheel, lying across the pipe at the top of the stem. */
 function handwheel(f: Frame, at = 1.5): string {
-  return line(f, [-f.s * 0.5, -f.s * at], [f.s * 0.5, -f.s * at], 'sym-line');
+  return line(f, [0, -f.s * 0.55, f.s * at], [0, f.s * 0.55, f.s * at], 'sym-line');
 }
 
 export function componentSymbol(kind: ComponentKind, f: Frame): string {
@@ -241,7 +288,7 @@ export function componentSymbol(kind: ComponentKind, f: Frame): string {
     case 'BALL':
       return bowtie(f) + circle(f, 0, 0, s * 0.42, 'sym-hollow') + stem(f) + handwheel(f);
     case 'BALL_ACT': {
-      const [ax, ay] = pt(f, 0, -s * 2.1);
+      const [ax, ay] = pt(f, 0, 0, s * 2.1);
       return (
         bowtie(f) +
         circle(f, 0, 0, s * 0.42, 'sym-hollow') +
@@ -249,8 +296,8 @@ export function componentSymbol(kind: ComponentKind, f: Frame): string {
         // Pneumatic actuator: the cylinder sitting on the stem, with its
         // air connection out of the top.
         `<rect class="sym-hollow" x="${(ax - s * 1.05).toFixed(2)}" y="${(ay - s * 0.75).toFixed(2)}" width="${(s * 2.1).toFixed(2)}" height="${(s * 1.5).toFixed(2)}" rx="${(s * 0.35).toFixed(2)}"/>` +
-        line(f, [0, -s * 2.85], [0, -s * 3.4], 'sym-line') +
-        line(f, [-s * 0.45, -s * 3.4], [s * 0.45, -s * 3.4], 'sym-line')
+        line(f, [0, 0, s * 2.85], [0, 0, s * 3.4], 'sym-line') +
+        line(f, [0, -s * 0.45, s * 3.4], [0, s * 0.45, s * 3.4], 'sym-line')
       );
     }
     case 'PLUG':
@@ -263,7 +310,7 @@ export function componentSymbol(kind: ComponentKind, f: Frame): string {
         stem(f)
       );
     case 'NEEDLE':
-      return bowtie(f) + stem(f) + poly([pt(f, 0, 0), pt(f, -s * 0.25, -s * 1.2), pt(f, s * 0.25, -s * 1.2)], 'sym-solid');
+      return bowtie(f) + stem(f) + poly([pt(f, 0, 0), pt(f, 0, -s * 0.25, s * 1.2), pt(f, 0, s * 0.25, s * 1.2)], 'sym-solid');
     case 'CHECK':
       return (
         bowtie(f) +
@@ -274,7 +321,7 @@ export function componentSymbol(kind: ComponentKind, f: Frame): string {
     case 'BUTTERFLY':
       return bowtie(f) + line(f, [-s * 0.55, s * 0.55], [s * 0.55, -s * 0.55], 'sym-line') + stem(f) + handwheel(f);
     case 'CONTROL': {
-      const [ax, ay] = pt(f, 0, -s * 1.8);
+      const [ax, ay] = pt(f, 0, 0, s * 1.8);
       return (
         bowtie(f) +
         stem(f, 1.8) +
@@ -286,7 +333,12 @@ export function componentSymbol(kind: ComponentKind, f: Frame): string {
         bowtie(f) +
         stem(f, 2) +
         poly(
-          [pt(f, -s * 0.6, -s * 2), pt(f, s * 0.6, -s * 2), pt(f, s * 0.6, -s * 2.9), pt(f, -s * 0.6, -s * 2.9)],
+          [
+            pt(f, 0, -s * 0.6, s * 2),
+            pt(f, 0, s * 0.6, s * 2),
+            pt(f, 0, s * 0.6, s * 2.9),
+            pt(f, 0, -s * 0.6, s * 2.9),
+          ],
           'sym-hollow',
         )
       );
@@ -312,26 +364,31 @@ export function componentSymbol(kind: ComponentKind, f: Frame): string {
     case 'STRAINER':
       return (
         bowtie(f) +
-        line(f, [0, 0], [s * 1.1, s * 1.1], 'sym-line') +
+        line(f, [0, 0, 0], [s * 1.1, 0, -s * 1.1], 'sym-line') +
         poly(
-          [pt(f, s * 0.7, s * 0.9), pt(f, s * 1.3, s * 0.9), pt(f, s * 1.3, s * 1.6), pt(f, s * 0.7, s * 1.6)],
+          [
+            pt(f, s * 0.7, 0, -s * 0.9),
+            pt(f, s * 1.3, 0, -s * 0.9),
+            pt(f, s * 1.3, 0, -s * 1.6),
+            pt(f, s * 0.7, 0, -s * 1.6),
+          ],
           'sym-hollow',
         )
       );
     case 'INSTRUMENT':
-      return line(f, [0, 0], [0, -s * 1.6], 'sym-line') + circle(f, 0, -s * 2.4, s * 0.85, 'sym-hollow');
+      return line(f, [0, 0, 0], [0, 0, s * 1.6], 'sym-line') + circle(f, 0, 0, s * 0.85, 'sym-hollow', s * 2.4);
     case 'SUPPORT':
-      return poly([pt(f, -s * 0.8, s * 0.2), pt(f, s * 0.8, s * 0.2), pt(f, 0, s * 1.4)], 'sym-solid');
+      return poly([pt(f, 0, -s * 0.8, -s * 0.2), pt(f, 0, s * 0.8, -s * 0.2), pt(f, 0, 0, -s * 1.4)], 'sym-solid');
     case 'ANCHOR':
       return (
-        poly([pt(f, -s * 0.8, s * 0.2), pt(f, s * 0.8, s * 0.2), pt(f, 0, s * 1.4)], 'sym-solid') +
-        line(f, [-s * 1.1, s * 1.5], [s * 1.1, s * 1.5], 'sym-line')
+        poly([pt(f, 0, -s * 0.8, -s * 0.2), pt(f, 0, s * 0.8, -s * 0.2), pt(f, 0, 0, -s * 1.4)], 'sym-solid') +
+        line(f, [0, -s * 1.1, -s * 1.5], [0, s * 1.1, -s * 1.5], 'sym-line')
       );
     case 'GUIDE':
       return (
-        line(f, [-s * 0.8, -s * 0.9], [-s * 0.8, s * 0.9], 'sym-line') +
-        line(f, [s * 0.8, -s * 0.9], [s * 0.8, s * 0.9], 'sym-line') +
-        line(f, [-s * 0.8, s * 0.9], [s * 0.8, s * 0.9], 'sym-line')
+        line(f, [-s * 0.8, 0, s * 0.9], [-s * 0.8, 0, -s * 0.9], 'sym-line') +
+        line(f, [s * 0.8, 0, s * 0.9], [s * 0.8, 0, -s * 0.9], 'sym-line') +
+        line(f, [-s * 0.8, 0, -s * 0.9], [s * 0.8, 0, -s * 0.9], 'sym-line')
       );
     default:
       return circle(f, 0, 0, s * 0.6, 'sym-hollow');

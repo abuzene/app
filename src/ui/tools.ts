@@ -44,7 +44,7 @@ const OLET_SHORT: Record<JointType, string> = { BW: 'Weldolet', SW: 'Sockolet', 
 /** The tee icon: a branch off a header, with a joint mark on each of its ends. */
 function teeIcon(): string {
   const along = (x: number, y: number, dx: number, dy: number): Frame => ({
-    cx: x, cy: y, dx, dy, nx: -dy, ny: dx, s: 5,
+    cx: x, cy: y, dx, dy, nx: -dy, ny: dx, ux: 0, uy: -1, s: 5,
   });
   return (
     `<svg viewBox="0 0 58 36" aria-hidden="true">` +
@@ -59,7 +59,7 @@ function teeIcon(): string {
 
 /** The olet icon shows the saddle on a length of header, branch going up. */
 function oletIcon(): string {
-  const f: Frame = { cx: 29, cy: 26, dx: 0, dy: -1, nx: 1, ny: 0, s: 7 };
+  const f: Frame = { cx: 29, cy: 26, dx: 0, dy: -1, nx: 1, ny: 0, ux: 0, uy: -1, s: 7 };
   return (
     `<svg viewBox="0 0 58 36" aria-hidden="true">` +
     `<line class="icon-pipe" x1="4" y1="26" x2="54" y2="26"/>` +
@@ -72,7 +72,8 @@ function oletIcon(): string {
 /** The palette icons are the drawing symbols themselves, so nothing can drift. */
 function icon(kind: ComponentKind): string {
   // The frame leaves headroom for the symbols that carry a stem and actuator.
-  const f: Frame = { cx: 29, cy: 21, dx: 1, dy: 0, nx: 0, ny: 1, s: 7 };
+  // Across the icon is down the page, up is up: the stems then stand up.
+  const f: Frame = { cx: 29, cy: 21, dx: 1, dy: 0, nx: 0, ny: 1, ux: 0, uy: -1, s: 7 };
   // A stub of pipe gives the compact symbols — flanges, reducers — something to
   // read against, exactly as they appear on the drawing.
   const stub = `<line class="icon-pipe" x1="4" y1="${f.cy}" x2="54" y2="${f.cy}"/>`;
