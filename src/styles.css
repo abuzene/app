@@ -413,5 +413,5 @@ tr.selected { background: var(--accent-soft); }
      own, and its vh is not the printable height: there the sheet sits in the
      flow at a width whose height is sure to fit on the page. */
   #print-root.tablet { position: static; height: auto; overflow: visible; }
-  #print-root.tablet svg { width: 88% !important; height: auto !important; margin: 0 auto; }
+  #print-root.tablet svg { width: 95% !important; height: auto !important; margin: 0 auto; }
 }

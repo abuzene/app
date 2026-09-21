@@ -87,7 +87,9 @@ ships, and the decisions already taken, so they are not re-litigated.
   hidden iframe printed blank on iPad. On desktop the sheet is **pinned**
   (`position: fixed`, 100%/100%) to the page box. On a tablet
   (`tabletPrinter`, `#print-root.tablet`) it is laid out **in the flow at
-  88% width, height auto**: iOS prints nothing that is pinned (blank page),
+  95% width, height auto** (from his PDFs: iOS keeps ~5% side margins and
+  a ~6% footer strip, and honours `@page size` since Safari 17). iOS prints
+  nothing that is pinned (blank page),
   keeps its own margins and footer, ignores `@page`, and its vh is not the
   printable height (a 100vh sheet spilled on to a second page). The print
   dialog has a **Paper** choice (landscape / upright, upright by default on
