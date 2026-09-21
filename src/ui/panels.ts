@@ -1,6 +1,6 @@
 import type { ComponentKind, EndType, FittingKind, FlangeKind, JointType, TerminalKind } from '../model/types';
 import type { Host, TabId } from './types';
-import { COMPONENT_LABEL, DEFAULT_LOGO, TERMINAL_LABEL, fittingLabel, isMark, isSupport, isValve, oletLabel, resolveEnds } from '../model/drawing';
+import { COMPONENT_LABEL, DEFAULT_LOGO, ROOT_GAP, TERMINAL_LABEL, fittingLabel, isMark, isSupport, isValve, oletLabel, oletLegs, resolveEnds, type Analysis } from '../model/drawing';
 import { COMMAND_HELP } from '../model/commands';
 import { DN_LIST, SIZE_LABELS, defaultValveEnds, schedulesFor, sizeLabel } from '../model/pipe-data';
 import { axisBetween } from '../model/iso';
@@ -362,6 +362,29 @@ function weldProperties(host: Host, key: string): string {
 </div>`;
 }
 
+/**
+ * The cut length of the pipe at a weld: what the fitter marks on the pipe
+ * this weld joins. Pipe to pipe has one either side.
+ */
+function pipeNetAt(analysis: Analysis, key: string): string {
+  let at = analysis.pieces.filter((p) => p.ends.some((e) => e.key === key));
+  // An olet's header weld: the header is the pipe it sits on, whole.
+  const header = key.match(/^n:(.+):header$/);
+  if (at.length === 0 && header) {
+    const info = analysis.nodeInfo.get(header[1]);
+    const legs = info ? oletLegs(info) : null;
+    if (legs) at = analysis.pieces.filter((p) => legs.header.every((r) => p.runIds.includes(r.id)));
+  }
+  if (at.length === 0) return '';
+  return at.map((p) => fmtMm(p.net)).join(' / ');
+}
+
+/** Millimetres to the half, plainly: 2881 or 2878.5. */
+function fmtMm(mm: number): string {
+  const half = Math.round(mm * 2) / 2;
+  return Number.isInteger(half) ? String(half) : half.toFixed(1);
+}
+
 function weldsTab(host: Host): string {
   const { welds } = host.state.analysis;
   if (welds.length === 0) {
@@ -375,6 +398,7 @@ function weldsTab(host: Host): string {
   <td>${esc(sizeLabel(w.dn))}</td>
   <td>${esc(w.joint)}</td>
   <td>${esc(w.joins)}</td>
+  <td class="num" data-pipe-net="${esc(w.key)}">${esc(pipeNetAt(host.state.analysis, w.key))}</td>
 </tr>`,
     )
     .join('');
@@ -398,9 +422,10 @@ function weldsTab(host: Host): string {
   <h3>Weld list</h3>
   <p class="empty-note">Numbered along the route; type over any number to set it by hand. Threaded joints are marked on the drawing but are not welds.</p>
   <table>
-    <thead><tr><th>No.</th><th>Size</th><th>Prep</th><th>Joins</th></tr></thead>
+    <thead><tr><th>No.</th><th>Size</th><th>Prep</th><th>Joins</th><th class="num">Pipe net</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>
+  <p class="empty-note">Pipe net: the pipe at the weld as it is cut — take-outs off, and a ${ROOT_GAP} mm root gap off for every fitting butt-welded to it. An olet takes nothing off its header; pipe to pipe takes no gap.</p>
   <div class="totals">
     ${Object.entries(byPrep)
       .map(([prep, n]) => `<span>${esc(prep)} <strong>${n}</strong></span>`)
@@ -832,9 +857,9 @@ function wire(body: HTMLElement, host: Host): void {
     return toCsv(rows);
   };
   const weldCsv = () => {
-    const rows = [['Weld', 'Size', 'Preparation', 'Joins']];
+    const rows = [['Weld', 'Size', 'Preparation', 'Joins', 'Pipe net mm']];
     for (const w of host.state.analysis.welds) {
-      rows.push([w.number, sizeLabel(w.dn), w.joint, w.joins]);
+      rows.push([w.number, sizeLabel(w.dn), w.joint, w.joins, pipeNetAt(host.state.analysis, w.key)]);
     }
     return toCsv(rows);
   };

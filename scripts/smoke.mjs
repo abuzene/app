@@ -374,6 +374,7 @@ const oletWelds = await page.locator('#tab-body tbody tr').allInnerTexts();
 check('a weldolet has two welds: header and branch', oletWelds.length, (v) => v === 2, '2');
 check('one of them joins the header', oletWelds.join(' '), (v) => /HEADER \/ WELDOLET/.test(v), 'a header weld');
 check('the other joins the branch', oletWelds.join(' '), (v) => /BRANCH \/ WELDOLET/.test(v), 'a branch weld');
+check('the header weld shows the header whole: nothing off for the olet', oletWelds.find((r) => /HEADER/.test(r)) ?? '', (v) => /\t4000$/.test(v), 'HEADER … 4000');
 
 // Switching the olet type changes the branch connection, not the header.
 await page.click('#tabs button:has-text("Route")');
@@ -1957,6 +1958,36 @@ check('ends not on a line are joined round a corner', await runCount(), (v) => v
 check('the corner where the fewest turns put it', (await nodesAt()).some((p) => p[1] === 6000 && p[2] === 0), (v) => v === true, 'a point at 6000, 0');
 check('with the one elbow there', await page.locator('#hud').innerText(), (v) => /Joined, with an elbow at the turn/.test(v), 'Joined, with an elbow at the turn.');
 check('the joined end welded straight through', await page.locator('#tab-body').innerText(), (v) => /POINT — JOINT/.test(v), 'POINT — JOINT');
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
+
+/* ------------------------------------------- the pipe at each weld, as cut */
+
+// The weld list says how long the pipe at each weld is once it is cut: the
+// take-outs off, and a 2.5 mm root gap off for every fitting butt-welded to
+// it. Pipe to pipe leaves no gap, and an olet takes nothing off its header.
+const pipeNets = async () => {
+  await page.click('#tabs button:has-text("Welds")');
+  await page.waitForTimeout(200);
+  const rows = await page.locator('#tab-body table tbody tr').allInnerTexts();
+  return rows.map((r) => r.split('\t').slice(-2).join(' = '));
+};
+await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 3000\nN 2000\nEND CAP');
+check('an elbow takes its take-out and a root gap off the pipe', await pipeNets(), (v) => v[0] === 'PIPE / 90 ELBOW LR = 2883.5', '2886 less 2.5');
+check('a pipe between an elbow and a cap loses a gap at each', await pipeNets(), (v) => v[1] === 'PIPE / 90 ELBOW LR = 1881' && v[2] === 'PIPE / CAP = 1881', '1886 less 5');
+await routeLine('3"\nSTD\nORIGIN 0 0 0\nEND FLG\nE 3000\n+BALL 1500\nN 2000');
+check('a valve cuts the run into two pieces, each with its gaps', await pipeNets(), (v) => v[0] === 'PIPE / WELD NECK FLANGE = 1257.5' && v[2] === 'PIPE / BALL VALVE = 1211.5', 'flange to valve 1257.5, valve to elbow 1211.5');
+await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 3000\nN 2000');
+await page.click('#tabs button:has-text("Route")');
+await page.waitForTimeout(150);
+await page.locator('#tab-body .run-list tbody tr').first().click();
+await page.waitForTimeout(200);
+await page.locator('.tool[data-weld="BW"]').click();
+await page.waitForTimeout(400);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
+check('pipe to pipe shows the pipe either side, with no gap', await pipeNets(), (v) => v.some((r) => r === 'PIPE / PIPE = 1500 / 1383.5'), '1500 / 1383.5: the far piece less the elbow and its gap');
+check('the list copies with the net lengths', await page.evaluate(() => document.querySelector('[data-a="copy-welds"]') !== null), (v) => v === true, 'a Copy list button');
 await page.keyboard.press('Escape');
 await page.waitForTimeout(150);
 

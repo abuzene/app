@@ -112,6 +112,32 @@ export interface RunLengths {
   cut: number;
 }
 
+/**
+ * One length of pipe as it is cut: from one weld to the next, with the
+ * fittings' take-outs off and a root gap left at every fitting butt-welded
+ * to it. What the fitter marks on the pipe.
+ */
+export interface PipePiece {
+  /** The runs it lies along: two where it carries straight through an olet. */
+  runIds: string[];
+  dn: string;
+  schedule: string;
+  /** End to end, take-outs off, before the root gaps. */
+  length: number;
+  /** What is left to cut once the root gaps are off. */
+  net: number;
+  /** The joint at each end, if there is one, and the gap left for it. */
+  ends: [PieceEnd, PieceEnd];
+}
+
+export interface PieceEnd {
+  key?: string;
+  gap: number;
+}
+
+/** The root gap left at a butt weld to a fitting, in mm. */
+export const ROOT_GAP = 2.5;
+
 export interface Analysis {
   nodeInfo: Map<string, NodeInfo>;
   nodeById: Map<string, IsoNode>;
@@ -120,6 +146,8 @@ export interface Analysis {
   /** The joints that are actually welds, numbered along the route. */
   welds: Weld[];
   runLengths: Map<string, RunLengths>;
+  /** Every length of pipe as cut, with the welds at its ends. */
+  pieces: PipePiece[];
   bom: BomLine[];
   /** Every ballooned thing on the drawing, with its material list number. */
   items: ItemInstance[];
@@ -698,6 +726,99 @@ export function analyse(drawing: Drawing): Analysis {
   });
   const welds = joints.filter((j) => j.joint !== 'THD' && !j.skipped);
 
+  // The pipe as it is cut: the lengths between the welds. Each run's pipe
+  // starts past the fitting at one end and stops short of the one at the
+  // other, and whatever sits in the line takes its own length out of the
+  // middle. A butt weld to a fitting keeps a root gap; pipe to pipe, and the
+  // olet sitting on a header, take none, and a header carries straight on
+  // through its olet as one length.
+  const jointByKey = new Map(joints.map((j) => [j.key, j]));
+  const jointAt = (idx: number, distance: number, nodeId: string | null): Weld | undefined => {
+    for (let i = 0; i < ordered.length; i += 1) {
+      const o = ordered[i];
+      if (o.sortRun === idx && Math.abs(o.sortDist - distance) < 0.5) return joints[i];
+    }
+    return nodeId ? jointByKey.get(`n:${nodeId}`) : undefined;
+  };
+  const endFor = (weld: Weld | undefined): PieceEnd => {
+    if (!weld) return { gap: 0 };
+    const fitting = weld.joint === 'BW' && !weld.skipped && weld.joins !== 'PIPE / PIPE' && !weld.joins.startsWith('HEADER');
+    return { key: weld.key, gap: fitting ? ROOT_GAP : 0 };
+  };
+  const pieces: PipePiece[] = [];
+  /** Header pieces ending on each olet, with the end that is not on it. */
+  const atOlet = new Map<string, { piece: PipePiece; far: PieceEnd }[]>();
+  for (const run of drawing.runs) {
+    const a = nodeById.get(run.from);
+    const b = nodeById.get(run.to);
+    if (!a || !b || run.direct) continue;
+    const idx = runIndex.get(run.id) ?? 0;
+    const total = length3(sub(b.pos, a.pos));
+    const terminalBack = (node: IsoNode) =>
+      node.terminal && (node.terminal.kind === 'FLG_WN' || node.terminal.kind === 'FLG_SO' || node.terminal.kind === 'TRANSITION')
+        ? componentTakeout(node.terminal.kind, run.dn)
+        : 0;
+    const fromInfo = nodeInfo.get(run.from);
+    const toInfo = nodeInfo.get(run.to);
+    const start = endTakeout(fromInfo, run) + terminalBack(a);
+    const finish = total - endTakeout(toInfo, run) - terminalBack(b);
+    const taken: [number, number][] = [];
+    for (const comp of run.inline) {
+      const dn = comp.dn ?? run.dn;
+      const ends = resolveEnds(comp.kind, dn, comp.ends, defaultJoint);
+      const half = componentTakeout(comp.kind, dn, ends === 'FLG' && valveFlangeKind(defaultJoint));
+      if (half > 0) taken.push([comp.offset - half, comp.offset + half]);
+    }
+    taken.sort((x, y) => x[0] - y[0]);
+    let cursor = start;
+    const spans: [number, number][] = [];
+    for (const [lo, hi] of taken) {
+      if (lo > cursor + 0.5) spans.push([cursor, Math.min(lo, finish)]);
+      cursor = Math.max(cursor, hi);
+    }
+    if (finish > cursor + 0.5) spans.push([cursor, finish]);
+    const headerOf = (info: NodeInfo | undefined) => {
+      if (info?.fitting !== 'OLET') return false;
+      const legs = oletLegs(info);
+      return !!legs && legs.branch.id !== run.id;
+    };
+    for (const [lo, hi] of spans) {
+      if (hi - lo < 0.5) continue;
+      const first = endFor(jointAt(idx, lo, lo < 0.5 ? run.from : null));
+      const last = endFor(jointAt(idx, hi, hi > total - 0.5 ? run.to : null));
+      const piece: PipePiece = { runIds: [run.id], dn: run.dn, schedule: run.schedule, length: hi - lo, net: 0, ends: [first, last] };
+      pieces.push(piece);
+      if (lo < 0.5 && headerOf(fromInfo)) atOlet.set(run.from, [...(atOlet.get(run.from) ?? []), { piece, far: last }]);
+      if (hi > total - 0.5 && headerOf(toInfo)) atOlet.set(run.to, [...(atOlet.get(run.to) ?? []), { piece, far: first }]);
+    }
+  }
+  // A header carries straight on through its olet: its two pieces are one.
+  for (const two of atOlet.values()) {
+    if (two.length !== 2 || two[0].piece === two[1].piece) continue;
+    const [p, q] = two;
+    const merged: PipePiece = {
+      runIds: [...p.piece.runIds, ...q.piece.runIds],
+      dn: p.piece.dn,
+      schedule: p.piece.schedule,
+      length: p.piece.length + q.piece.length,
+      net: 0,
+      ends: [p.far, q.far],
+    };
+    pieces.splice(pieces.indexOf(p.piece), 1, merged);
+    pieces.splice(pieces.indexOf(q.piece), 1);
+    // A header through more than one olet: the pieces waiting at the next
+    // olet now stand for the joined length, with its far end as their far end.
+    for (const list of atOlet.values()) {
+      for (const entry of list) {
+        if (entry.piece !== p.piece && entry.piece !== q.piece) continue;
+        const here = entry.piece.ends[0] === entry.far ? entry.piece.ends[1] : entry.piece.ends[0];
+        entry.far = merged.ends[0] === here ? merged.ends[1] : merged.ends[0];
+        entry.piece = merged;
+      }
+    }
+  }
+  for (const piece of pieces) piece.net = Math.max(0, piece.length - piece.ends[0].gap - piece.ends[1].gap);
+
   // Material list, and the item number each thing on the drawing carries.
   //
   // A fabrication isometric identifies what it is made of by ballooning every
@@ -910,6 +1031,7 @@ export function analyse(drawing: Drawing): Analysis {
     joints,
     welds,
     runLengths,
+    pieces,
     bom,
     items,
     display: layout(drawing, nodeById, adjacency),

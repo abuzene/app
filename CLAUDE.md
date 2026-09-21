@@ -107,6 +107,13 @@ ships, and the decisions already taken, so they are not re-litigated.
   (straight out of / into the ends where possible), refused if it would lie
   along a line already drawn. Elbows come from the turns as usual. Tapping
   any other point while drawing still just moves the pencil there.
+- **Pipe net** (Welds tab column, `Analysis.pieces`, `PipePiece`, `ROOT_GAP`
+  = 2.5 mm): every length of pipe between its welds as cut: take-outs off
+  and a 2.5 mm root gap off at each BW weld to a fitting/valve/flange/cap.
+  Pipe-to-pipe welds take no gap (his spec: "from every fitting"), the
+  header takes nothing at an olet and runs through it as one piece (merged
+  in `analyse`; the header weld shows that whole length). Copy list carries
+  the column.
 - Supports and the AG/UG mark are **notes, not material**: no BOM line, no
   welds. Supports are numbered along the line unless named.
 - Printing happens from the page itself (`#print-root`, `@page` size); a
