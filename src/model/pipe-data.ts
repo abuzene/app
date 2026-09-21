@@ -205,6 +205,8 @@ export function componentTakeout(kind: string, dn: string, flanged = false): num
   if (kind === 'SPECTACLE') return 0;
   if (kind === 'RED_CONC' || kind === 'RED_ECC') return reducerLength(dn, dn) / 2;
   if (kind === 'UNION') return 25;
+  // A PE/steel transition: the steel stub to its weld is about this long.
+  if (kind === 'TRANSITION') return 120;
   if (kind === 'INSTRUMENT' || kind === 'SUPPORT' || kind === 'ANCHOR' || kind === 'GUIDE') return 0;
   const table = VALVE_FF[kind];
   if (table) return (lookup(table, dn) ?? 0) / 2 + (flanged ? flangeLength(dn) : 0);

@@ -197,6 +197,11 @@ export function fittingLabel(kind: FittingKind): string {
   }
 }
 
+/** How a fitting's make is named in the list: welded ones plainly, socket and screwed ones by their joint. */
+export function jointSuffix(joint: JointType): string {
+  return joint === 'SW' ? ' SW 3000#' : joint === 'THD' ? " SCR'D 3000#" : '';
+}
+
 export const COMPONENT_LABEL: Record<string, string> = {
   GATE: 'GATE VALVE',
   GLOBE: 'GLOBE VALVE',
@@ -219,6 +224,7 @@ export const COMPONENT_LABEL: Record<string, string> = {
   RED_ECC: 'ECCENTRIC REDUCER',
   CAP: 'CAP',
   UNION: 'UNION',
+  TRANSITION: 'TRANSITION JOINT PE/CS',
   STRAINER: 'STRAINER',
   INSTRUMENT: 'INSTRUMENT',
   SUPPORT: 'PIPE SUPPORT',
@@ -286,7 +292,7 @@ export function resolveEnds(
 
 function categoryOf(kind: string): BomLine['category'] {
   if (kind.startsWith('FLG_') || kind === 'SPECTACLE') return 'FLANGE';
-  if (['RED_CONC', 'RED_ECC', 'UNION'].includes(kind)) return 'FITTING';
+  if (['RED_CONC', 'RED_ECC', 'UNION', 'TRANSITION'].includes(kind)) return 'FITTING';
   if (['SUPPORT', 'ANCHOR', 'GUIDE', 'INSTRUMENT'].includes(kind)) return 'ITEM';
   return 'VALVE';
 }
@@ -592,6 +598,9 @@ export function analyse(drawing: Drawing): Analysis {
         ? { kind: 'reducer' }
         : { kind: 'valve', trueHalf: faceHalf, flange: ends === 'FLG' && !isFlange(comp.kind) ? 'FLG_WN' : undefined };
       for (const side of [0, 1] as const) {
+        // A transition joint is welded on its steel side only; the plastic
+        // side is fused, which is no weld of ours.
+        if (comp.kind === 'TRANSITION' && side === (comp.flip ? 1 : 0)) continue;
         const distance = side === 0 ? comp.offset - takeout : comp.offset + takeout;
         pushJoint(
           `c:${comp.id}:${side}`,
@@ -716,9 +725,9 @@ export function analyse(drawing: Drawing): Analysis {
         bomKey: tally({
           category: 'FITTING',
           description:
-            info.fitting === 'TEE_REDUCING' && branch
+            (info.fitting === 'TEE_REDUCING' && branch
               ? `${fittingLabel(info.fitting)} ${sizeLabel(dn)} x ${sizeLabel(branch.dn)}`
-              : fittingLabel(info.fitting),
+              : fittingLabel(info.fitting)) + jointSuffix(info.node.joint ?? drawing.options.joint ?? 'BW'),
           dn,
           schedule: fittingThickness,
           unit: 'off',

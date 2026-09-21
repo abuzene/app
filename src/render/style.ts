@@ -49,6 +49,7 @@ export function contentCss({ k, u, symbol = 4, dark = false }: ContentStyleOptio
 .sym-hollow { fill: none; stroke: ${ink}; stroke-width: ${w(1.6)}; }
 .sym-solid { fill: ${ink}; stroke: ${ink}; stroke-width: ${w(1)}; }
 .sym-thin { stroke: ${ink}; stroke-width: ${w(0.8)}; fill: none; }
+.sym-text { fill: ${ink}; font-weight: 600; pointer-events: none; }
 .sym-dashed { fill: none; stroke: ${ink}; stroke-width: ${w(1.2)}; stroke-dasharray: ${w(3)} ${w(2.2)}; }
 .component.selected .sym-line,
 .component.selected .sym-dashed,

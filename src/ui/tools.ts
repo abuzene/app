@@ -8,10 +8,15 @@ import { componentSymbol, jointMark, oletSymbol, type Frame } from '../render/sy
 
 /** Branch fittings act on the header, they do not sit in the line. */
 type BranchTool = { branch: 'TEE' } | { olet: JointType };
-type Tool = ComponentKind | BranchTool;
+/** A bend tool sets how the picked corner or tee is joined: welded, socket or screwed. */
+type BendTool = { bend: JointType };
+type Tool = ComponentKind | BranchTool | BendTool;
 
 function isBranch(tool: Tool): tool is BranchTool {
-  return typeof tool === 'object';
+  return typeof tool === 'object' && !('bend' in tool);
+}
+function isBend(tool: Tool): tool is BendTool {
+  return typeof tool === 'object' && 'bend' in tool;
 }
 
 interface ToolGroup {
@@ -21,7 +26,8 @@ interface ToolGroup {
 
 const GROUPS: ToolGroup[] = [
   { label: 'Flanges', kinds: ['FLG_WN', 'FLG_SO', 'FLG_SW', 'FLG_THD', 'FLG_LAP', 'FLG_BLIND'] },
-  { label: 'Fittings', kinds: ['RED_CONC', 'RED_ECC', 'CAP'] },
+  { label: 'Bends', kinds: [{ bend: 'BW' }, { bend: 'SW' }, { bend: 'THD' }] },
+  { label: 'Fittings', kinds: ['RED_CONC', 'RED_ECC', 'CAP', 'TRANSITION'] },
   { label: 'Valves', kinds: ['BALL', 'BALL_ACT'] },
   { label: 'Branch', kinds: [{ branch: 'TEE' }, { olet: 'BW' }, { olet: 'SW' }, { olet: 'THD' }] },
 ];
@@ -39,7 +45,10 @@ const SHORT: Partial<Record<ComponentKind, string>> = {
   RED_CONC: 'Conc',
   RED_ECC: 'Ecc',
   CAP: 'Cap',
+  TRANSITION: 'PE/CS',
 };
+
+const BEND_SHORT: Record<JointType, string> = { BW: 'Elbow BW', SW: 'Elbow SW', THD: 'Elbow NPT' };
 
 const OLET_SHORT: Record<JointType, string> = { BW: 'Weldolet', SW: 'Sockolet', THD: 'Thredolet' };
 
@@ -102,6 +111,39 @@ function oletIcon(): string {
     `<line class="icon-pipe" x1="${(ICON_CX - EAST.x * 20).toFixed(1)}" y1="${(ICON_CY + 5 - EAST.y * 20).toFixed(1)}" x2="${(ICON_CX + EAST.x * 20).toFixed(1)}" y2="${(ICON_CY + 5 + EAST.y * 20).toFixed(1)}"/>` +
       `<line class="sym-line" x1="${ICON_CX}" y1="${ICON_CY + 5}" x2="${ICON_CX}" y2="${ICON_CY - 13}"/>` +
       oletSymbol(f),
+  );
+}
+
+/** An elbow, drawn round, with the joint mark on each end that says how it is made. */
+function bendIcon(joint: JointType): string {
+  const cx = ICON_CX;
+  const cy = ICON_CY + 6;
+  const r = 7;
+  const inX = cx - EAST.x * 18;
+  const inY = cy - EAST.y * 18;
+  const upX = cx;
+  const upY = cy - 16;
+  const startX = cx - EAST.x * r;
+  const startY = cy - EAST.y * r;
+  const endX = cx;
+  const endY = cy - r;
+  const frame = (dx: number, dy: number, x: number, y: number): Frame => ({
+    cx: x,
+    cy: y,
+    dx,
+    dy,
+    nx: NORTH.x,
+    ny: NORTH.y,
+    ux: UP.x,
+    uy: UP.y,
+    s: 4.2,
+  });
+  return iconSvg(
+    `<line class="icon-pipe" x1="${inX.toFixed(1)}" y1="${inY.toFixed(1)}" x2="${startX.toFixed(1)}" y2="${startY.toFixed(1)}"/>` +
+      `<path class="icon-pipe" d="M ${startX.toFixed(1)} ${startY.toFixed(1)} Q ${cx} ${cy} ${endX} ${endY}"/>` +
+      `<line class="icon-pipe" x1="${upX}" y1="${endY}" x2="${upX}" y2="${upY}"/>` +
+      jointMark(frame(EAST.x, EAST.y, startX, startY), joint, 1) +
+      jointMark(frame(0, -1, endX, endY), joint, -1),
   );
 }
 
@@ -337,6 +379,29 @@ function openDimensionUpTo(host: Host, nodeId: string): void {
   host.editDimension(before.id, Math.max(0, stops.length - 2));
 }
 
+/**
+ * Sets how the picked corner or tee is joined. Fittings come welded, socket
+ * weld or screwed, and the list names them so; the marks on the drawing
+ * follow.
+ */
+function setBend(host: Host, joint: JointType): void {
+  const sel = host.state.selection;
+  if (sel?.kind !== 'node') {
+    host.notify('Pick the corner or tee first, then how it is joined.');
+    return;
+  }
+  const info = host.state.analysis.nodeInfo.get(sel.id);
+  if (!info || info.degree < 2) {
+    host.notify('That point is an end, not a bend.');
+    return;
+  }
+  const id = sel.id;
+  host.edit(`Bend ${joint}`, (d) => {
+    const node = d.nodes.find((n) => n.id === id);
+    if (node) node.joint = joint;
+  });
+}
+
 export function renderTools(container: HTMLElement, host: Host): void {
   const enabled = hasTarget(host);
   container.innerHTML = GROUPS.map(
@@ -344,6 +409,14 @@ export function renderTools(container: HTMLElement, host: Host): void {
       `<div class="tool-group-label">${group.label}</div>` +
       group.kinds
         .map((tool) => {
+          if (isBend(tool)) {
+            return (
+              `<button class="tool" data-bend="${tool.bend}" title="${BEND_SHORT[tool.bend]}"${enabled ? '' : ' disabled'}>` +
+              bendIcon(tool.bend) +
+              `<span class="tool-name">${BEND_SHORT[tool.bend].replace('Elbow ', '')}</span>` +
+              `</button>`
+            );
+          }
           if (isBranch(tool)) {
             const olet = 'olet' in tool;
             const name = olet ? OLET_SHORT[tool.olet] : 'Tee';
@@ -368,7 +441,9 @@ export function renderTools(container: HTMLElement, host: Host): void {
   container.querySelectorAll<HTMLButtonElement>('.tool').forEach((button) => {
     button.addEventListener('click', () => {
       const olet = button.dataset.olet as JointType | undefined;
-      if (olet) placeBranch(host, { olet });
+      const bend = button.dataset.bend as JointType | undefined;
+      if (bend) setBend(host, bend);
+      else if (olet) placeBranch(host, { olet });
       else if (button.dataset.branch === 'TEE') placeBranch(host, { branch: 'TEE' });
       else place(host, button.dataset.kind as ComponentKind);
     });

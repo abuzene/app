@@ -3,7 +3,7 @@ import type { Axis, Drawing, Run, Vec3 } from '../model/types';
 import { COMPONENT_LABEL, TERMINAL_LABEL, dimensionStops, fittingLabel, isValve, oletLegs, resolveEnds } from '../model/drawing';
 import { componentTakeout, sizeLabel } from '../model/pipe-data';
 import { AXIS_VECTOR, axisBetween, axisScreenDir, project, scale3, add } from '../model/iso';
-import { componentSymbol, flangeHub, flangeSymbol, frameFor, gasketLine, isFlange, jointMark, oletSymbol, terminalSymbol, type Frame } from './symbols';
+import { componentSymbol, flangeHub, flangeSymbol, frameFor, gasketLine, isFlange, jointMark, oletSymbol, terminalSymbol, transitionSymbol, type Frame } from './symbols';
 
 export interface ViewBox {
   x: number;
@@ -409,7 +409,7 @@ export function renderDrawing(state: RenderState): string {
       // The body reaches its real faces, so what bolts or welds to it sits
       // against it rather than floating off along the pipe.
       const faceHalf = isValve(comp.kind) ? faceReach(componentTakeout(comp.kind, dn, false), paperPerMm) : undefined;
-      comps += componentSymbol(comp.kind, f, faceHalf);
+      comps += comp.kind === 'TRANSITION' ? transitionSymbol(f, comp.flip ? -1 : 1) : componentSymbol(comp.kind, f, faceHalf);
 
       // A flanged component is drawn with the flanges it bolts between, each
       // facing in towards it, which is how it is actually built.

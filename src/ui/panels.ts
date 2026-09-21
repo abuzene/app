@@ -191,6 +191,11 @@ function componentProperties(host: Host, compId: string): string {
   <div class="row"><label>To end</label><input type="number" data-f="toend" step="1" min="0" max="${Math.round(total)}" value="${Math.round(total - comp.offset)}" /></div>
   <div class="row"><label>Size</label><select data-f="dn">${options(DN_LIST, comp.dn ?? run.dn, SIZE_LABELS)}</select></div>
   ${isReducer ? `<div class="row"><label>Reduces to</label><select data-f="dn2">${options(DN_LIST, comp.dn2 ?? run.dn, SIZE_LABELS)}</select></div>` : ''}
+  ${
+    comp.kind === 'TRANSITION'
+      ? `<div class="row"><label>Steel side</label><select data-f="flip">${options(['end', 'start'], comp.flip ? 'start' : 'end', { end: 'Towards the end of the run', start: 'Towards the start of the run' })}</select></div>`
+      : ''
+  }
   <div class="row"><label>Ends</label><select data-f="ends">${options(['auto', ...END_TYPES], comp.ends ?? 'auto', {
     auto: isValve(comp.kind)
       ? `By size (${defaultValveEnds(comp.dn ?? run.dn) === 'FLG' ? 'flanged' : 'threaded'})`
@@ -644,6 +649,11 @@ function wire(body: HTMLElement, host: Host): void {
     field('dn2')?.addEventListener('change', (e) =>
       withComponent('Change reduced size', (c) => {
         c.dn2 = (e.target as HTMLSelectElement).value;
+      }),
+    );
+    field('flip')?.addEventListener('change', (e) =>
+      withComponent('Turn item round', (c) => {
+        c.flip = (e.target as HTMLSelectElement).value === 'start' ? true : undefined;
       }),
     );
     field('ends')?.addEventListener('change', (e) =>

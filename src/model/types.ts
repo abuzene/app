@@ -43,6 +43,7 @@ export type ComponentKind =
   | 'RED_ECC'
   | 'CAP'
   | 'UNION'
+  | 'TRANSITION'
   | 'STRAINER'
   | 'INSTRUMENT'
   | 'SUPPORT'
@@ -76,6 +77,8 @@ export interface InlineComponent {
   dn2?: string;
   /** End preparation. Left unset, the component follows the drawing's default. */
   ends?: EndType;
+  /** Turns a one-way item round: a transition joint's steel side goes the other way. */
+  flip?: boolean;
   tag?: string;
   note?: string;
 }

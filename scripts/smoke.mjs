@@ -131,7 +131,7 @@ check('a length can be typed', await page.locator('#tab-body .run-list input[dat
 // Palette.
 await page.locator('#tab-body .run-list tbody tr').first().click();
 await page.waitForTimeout(200);
-check('the palette carries the fittings, ball valves, tee and olets', await page.locator('.tool').count(), (v) => v === 15, '15');
+check('the palette carries the fittings, ball valves, tee and olets', await page.locator('.tool').count(), (v) => v === 19, '19');
 check('a tee can be placed on a header', await page.locator('.tool[data-branch="TEE"]').count(), (v) => v === 1, '1');
 check('the actuated ball valve is there', await page.locator('.tool[data-kind="BALL_ACT"]').count(), (v) => v === 1, '1');
 await page.locator('.tool[data-kind="BALL"]').click();
@@ -1398,6 +1398,62 @@ await page.click('#hud-draw-from');
 await page.waitForTimeout(250);
 check('and pressing it arms the pencil', await page.locator('#hud-stop').count(), (v) => v === 1, '1');
 await page.keyboard.press('Escape');
+await page.waitForTimeout(200);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(200);
+
+/* ------------------------------------------- bends, transition, SW marks */
+
+// How a corner is joined is picked from the palette, and the list names it.
+await startNewDrawing();
+await page.click('#tabs button:has-text("Command")');
+await page.waitForTimeout(200);
+await page.fill('#command-text', '1"\nSCH40\nORIGIN 0 0 0\nE 1000\nN 800\n+TRANS 400');
+await page.click('[data-a="run-commands"]');
+await page.waitForTimeout(500);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(200);
+await page.click('#tabs button:has-text("Route")');
+await page.waitForTimeout(150);
+check('the palette offers the bend joints', await page.locator('.tool[data-bend]').count(), (v) => v === 3, '3');
+let cornerH = null;
+for (const h of await page.locator('#canvas circle.hit-dot[data-node]').all()) {
+  await h.click({ force: true });
+  await page.waitForTimeout(150);
+  if (/ELBOW/.test(await page.locator('#tab-body').innerText())) {
+    cornerH = h;
+    break;
+  }
+}
+check('a corner can be picked', cornerH !== null, (v) => v === true, 'true');
+await page.click('.tool[data-bend="SW"]');
+await page.waitForTimeout(400);
+await page.click('#tabs button:has-text("Items")');
+await page.waitForTimeout(250);
+check('a socket weld elbow is named so in the list', await page.locator('#tab-body').innerText(), (v) => /90 ELBOW LR SW 3000#/.test(v), 'ELBOW ... SW 3000#');
+check('and the transition joint is listed', await page.locator('#tab-body').innerText(), (v) => /TRANSITION JOINT PE\/CS/.test(v), 'TRANSITION JOINT PE/CS');
+await page.click('#tabs button:has-text("Welds")');
+await page.waitForTimeout(250);
+check('the transition is welded on one side only', (await page.locator('#tab-body').innerText().then((t) => t.match(/PIPE \/ TRANSITION JOINT/g) ?? [])).length, (v) => v === 1, '1');
+check('the elbow welds are socket welds now', (await page.locator('#tab-body').innerText().then((t) => t.match(/\tSW\tPIPE \/ 90 ELBOW/g) ?? [])).length, (v) => v === 2, '2');
+
+// A socket weld mark's lips reach back over the pipe, away from the fitting.
+const swMark = await page.evaluate(() => {
+  // The elbow's socket marks: three lines each. The bar sits across the pipe;
+  // the two lips run along it. Which way they run is what is checked here.
+  const groups = [...document.querySelectorAll('#canvas .weld')].filter((g) => g.querySelectorAll('line.sym-line').length === 3);
+  const corner = [...document.querySelectorAll('#canvas .node circle.hit-dot')].map((c) => ({ x: Number(c.getAttribute('cx')), y: Number(c.getAttribute('cy')) }))[1];
+  return groups.map((g) => {
+    const [bar, lipA] = [...g.querySelectorAll('line.sym-line')];
+    const barMid = { x: (Number(bar.getAttribute('x1')) + Number(bar.getAttribute('x2'))) / 2, y: (Number(bar.getAttribute('y1')) + Number(bar.getAttribute('y2'))) / 2 };
+    const lipEnd = { x: Number(lipA.getAttribute('x2')), y: Number(lipA.getAttribute('y2')) };
+    const dBar = Math.hypot(barMid.x - corner.x, barMid.y - corner.y);
+    const dLip = Math.hypot(lipEnd.x - corner.x, lipEnd.y - corner.y);
+    return dLip > dBar;
+  });
+});
+check('socket lips point away from the fitting, back over the pipe', swMark.length === 2 && swMark.every(Boolean), (v) => v === true, 'both marks');
+await page.click('#tabs button:has-text("Route")');
 await page.waitForTimeout(200);
 await page.keyboard.press('Escape');
 await page.waitForTimeout(200);

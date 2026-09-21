@@ -114,11 +114,12 @@ export function jointMark(f: Frame, joint: JointType, facing: Facing = 1): strin
   let out = '';
   switch (joint) {
     case 'SW':
-      // The bracket is the socket, so it wraps towards the fitting side.
+      // The bar is the bottom of the socket, at the fitting; the two lines are
+      // the socket's lips, reaching back over the pipe that enters it.
       out =
         line(f, [0, 0, -s * 0.62], [0, 0, s * 0.62], 'sym-line') +
-        line(f, [0, 0, -s * 0.62], [facing * s * 0.5, 0, -s * 0.62], 'sym-line') +
-        line(f, [0, 0, s * 0.62], [facing * s * 0.5, 0, s * 0.62], 'sym-line');
+        line(f, [0, 0, -s * 0.62], [-facing * s * 0.5, 0, -s * 0.62], 'sym-line') +
+        line(f, [0, 0, s * 0.62], [-facing * s * 0.5, 0, s * 0.62], 'sym-line');
       break;
     case 'THD':
       out = line(f, [0, 0, -s * 0.62], [0, 0, s * 0.62], 'sym-line');
@@ -327,6 +328,24 @@ export function oletSymbol(f: Frame): string {
   return poly(points, 'sym-fill');
 }
 
+/**
+ * A PE to steel transition joint: the coupling body across the line, the
+ * plastic side lettered PE and the steel side CS. `csSide` says which way the
+ * steel end faces along the frame; the weld sits on that end only.
+ */
+export function transitionSymbol(f: Frame, csSide: Facing = 1): string {
+  const s = f.s;
+  const half = s * 0.9;
+  const r = s * 0.7;
+  const body = poly([pt(f, -half, 0, -r), pt(f, -half, 0, r), pt(f, half, 0, r), pt(f, half, 0, -r)], 'sym-fill');
+  const seam = line(f, [0, 0, -r], [0, 0, r], 'sym-line');
+  const [px, py] = pt(f, -csSide * half * 0.55, 0, r * 1.9);
+  const [cx, cy] = pt(f, csSide * half * 0.55, 0, r * 1.9);
+  const label = (x: number, y: number, text: string) =>
+    `<text class="sym-text" x="${x.toFixed(2)}" y="${y.toFixed(2)}" text-anchor="middle" font-size="${(s * 0.7).toFixed(2)}">${text}</text>`;
+  return body + seam + label(px, py, 'PE') + label(cx, cy, 'CS');
+}
+
 /* -------------------------------------------------------- inline components */
 
 /** The two opposed triangles that read as a valve body on an isometric. */
@@ -447,6 +466,8 @@ export function componentSymbol(kind: ComponentKind, f: Frame, reach?: number): 
         line(f, [s * 0.4, 0, -s], [s * 0.4, 0, s], 'sym-line') +
         line(f, [0, 0, -s * 0.7], [0, 0, s * 0.7], 'sym-line')
       );
+    case 'TRANSITION':
+      return transitionSymbol(f, 1);
     case 'STRAINER':
       return (
         bowtie(f) +
