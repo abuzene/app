@@ -567,6 +567,8 @@ export function renderDrawing(state: RenderState): string {
               ? size * 0.9
               : r.kind === 'reducer'
                 ? size * 0.9
+                : r.kind === 'transition'
+                  ? 0
                 : r.kind === 'flange'
                   ? flangeHub(r.flange, size) + (r.paired ? size * FLANGE_GAP : 0)
                   : faceReach(r.trueHalf, at.perMm) + (r.flange ? flangeHub(r.flange, size) : 0);

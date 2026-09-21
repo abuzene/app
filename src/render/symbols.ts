@@ -518,6 +518,17 @@ export function terminalSymbol(kind: TerminalKind, f: Frame, joint: JointType = 
       // A socket or threaded cap reads from its end mark; only a butt welded
       // one carries the domed body.
       return joint === 'BW' ? capSymbol(f, 1) : '';
+    case 'TRANSITION': {
+      // The joint on the end of the steel, and beyond it the plastic pipe
+      // going on: six short dashes pointing the way.
+      const body = transitionSymbol({ ...f, cx: f.cx + f.dx * s * 0.9, cy: f.cy + f.dy * s * 0.9 }, -1);
+      let dashes = '';
+      for (let i = 0; i < 6; i += 1) {
+        const from = s * 2.1 + i * s * 0.6;
+        dashes += line(f, [from, 0, 0], [from + s * 0.35, 0, 0], 'sym-line');
+      }
+      return body + dashes;
+    }
     case 'CONTINUATION':
       return poly([pt(f, 0, 0, -s), pt(f, s * 1.4, 0, 0), pt(f, 0, 0, s)], 'sym-hollow');
     case 'EQUIPMENT':

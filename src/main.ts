@@ -671,6 +671,10 @@ function syncSizeFromSelection(): void {
     state.currentSchedule = run.schedule;
     refreshSizeSelects();
   }
+  // The joint in the toolbar shows the picked point's own joint, since that
+  // is what changing it would set; otherwise the drawing's default.
+  const node = sel?.kind === 'node' ? state.drawing.nodes.find((n) => n.id === sel.id) : undefined;
+  jointSelect.value = node?.joint ?? state.drawing.options.joint ?? 'BW';
 }
 
 /* ---------------------------------------------------------------- toolbar */
@@ -726,8 +730,22 @@ function updateOptions(mutate: (options: typeof state.drawing.options) => void):
 
 const jointSelect = $<HTMLSelectElement>('joint');
 jointSelect.addEventListener('change', () => {
+  const joint = jointSelect.value as 'BW' | 'SW' | 'THD';
+  const sel = state.selection;
+  // With a corner or tee picked, the choice is for that point; otherwise it
+  // is the drawing's default for everything not set on its own.
+  const info = sel?.kind === 'node' ? state.analysis.nodeInfo.get(sel.id) : undefined;
+  if (sel?.kind === 'node' && info && info.degree >= 2 && info.fitting !== 'OLET') {
+    const id = sel.id;
+    host.edit('Set joint on point', (d) => {
+      const node = d.nodes.find((n) => n.id === id);
+      if (node) node.joint = joint;
+    });
+    host.notify(`This ${info.fitting === 'NONE' ? 'joint' : 'fitting'} is now ${joint === 'BW' ? 'butt welded' : joint === 'SW' ? 'socket weld' : 'threaded'}.`);
+    return;
+  }
   updateOptions((o) => {
-    o.joint = jointSelect.value as 'BW' | 'SW' | 'THD';
+    o.joint = joint;
   });
 });
 

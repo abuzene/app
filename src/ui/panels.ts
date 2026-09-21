@@ -14,7 +14,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'title', label: 'Title' },
 ];
 
-const TERMINALS: TerminalKind[] = ['OPEN', 'FLG_WN', 'FLG_SO', 'FLG_SW', 'FLG_THD', 'FLG_LAP', 'FLG_BLIND', 'CAP', 'CONTINUATION', 'EQUIPMENT'];
+const TERMINALS: TerminalKind[] = ['OPEN', 'FLG_WN', 'FLG_SO', 'FLG_SW', 'FLG_THD', 'FLG_LAP', 'FLG_BLIND', 'CAP', 'TRANSITION', 'CONTINUATION', 'EQUIPMENT'];
 const FITTINGS: FittingKind[] = ['ELBOW_90', 'ELBOW_45', 'BEND', 'TEE', 'TEE_REDUCING', 'CROSS', 'OLET', 'MITRE'];
 const JOINTS: JointType[] = ['BW', 'SW', 'THD'];
 const FLANGE_KINDS: FlangeKind[] = ['FLG_WN', 'FLG_SO', 'FLG_SW', 'FLG_THD', 'FLG_LAP'];
@@ -24,7 +24,7 @@ const JOINT_LABEL: Record<string, string> = {
   THD: 'Threaded',
 };
 const END_TYPES: EndType[] = ['BW', 'SW', 'THD', 'FLG', 'PLAIN'];
-const COMPONENT_KINDS = Object.keys(COMPONENT_LABEL) as ComponentKind[];
+const COMPONENT_KINDS = (Object.keys(COMPONENT_LABEL) as ComponentKind[]).filter((k) => k !== 'TRANSITION');
 
 function esc(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');

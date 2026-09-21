@@ -241,6 +241,7 @@ export const TERMINAL_LABEL: Record<string, string> = {
   FLG_LAP: 'LAP JOINT FLANGE',
   FLG_BLIND: 'BLIND FLANGE',
   CAP: 'CAP',
+  TRANSITION: 'TRANSITION JOINT PE/CS',
   CONTINUATION: 'CONTINUATION',
   EQUIPMENT: 'EQUIPMENT CONNECTION',
 };
@@ -265,6 +266,8 @@ function componentJoint(c: InlineComponent, fallback: JointType, dn: string): Jo
 /** How a line end joins whatever terminates it. */
 function terminalJoint(kind: string, fallback: JointType): JointType | null {
   if (isFlange(kind)) return flangeJoint(kind);
+  // A transition joint is welded on its steel side; the plastic side is fused.
+  if (kind === 'TRANSITION') return 'BW';
   return kind === 'CAP' ? fallback : null;
 }
 
@@ -400,7 +403,7 @@ export function analyse(drawing: Drawing): Analysis {
     const toInfo = nodeInfo.get(run.to);
     let cut = centre - endTakeout(fromInfo, run) - endTakeout(toInfo, run);
     for (const end of [a, b]) {
-      if (end.terminal && (end.terminal.kind === 'FLG_WN' || end.terminal.kind === 'FLG_SO')) {
+      if (end.terminal && (end.terminal.kind === 'FLG_WN' || end.terminal.kind === 'FLG_SO' || end.terminal.kind === 'TRANSITION')) {
         cut -= componentTakeout(end.terminal.kind, run.dn);
       }
     }
@@ -483,7 +486,7 @@ export function analyse(drawing: Drawing): Analysis {
         if (joint) {
           // The point is the flange face; the weld is a flange length back
           // along the pipe, where the neck meets it.
-          const back = isFlange(terminal) ? componentTakeout(terminal, run.dn) : 0;
+          const back = isFlange(terminal) || terminal === 'TRANSITION' ? componentTakeout(terminal, run.dn) : 0;
           const at = atStart ? back : total - back;
           pushJoint(
             `n:${node.id}:term`,
@@ -497,7 +500,9 @@ export function analyse(drawing: Drawing): Analysis {
             at,
             isFlange(terminal)
               ? { anchor: node.pos, reach: { kind: 'flange', flange: terminal === 'FLG_BLIND' ? 'FLG_WN' : terminal, paired: false } }
-              : undefined,
+              : terminal === 'TRANSITION'
+                ? { anchor: node.pos, reach: { kind: 'transition' } }
+                : undefined,
           );
         }
       } else if (info.fitting === 'OLET') {
@@ -761,7 +766,7 @@ export function analyse(drawing: Drawing): Analysis {
         instances.push({
           key: `term:${info.node.id}`,
           bomKey: tally({
-            category: kind === 'CAP' ? 'FITTING' : 'FLANGE',
+            category: kind === 'CAP' || kind === 'TRANSITION' ? 'FITTING' : 'FLANGE',
             // A blind closes the line by bolting to a flange on the pipe, so
             // the pipe end wears a weld neck and the blind is counted as well.
             description: kind === 'FLG_BLIND' ? TERMINAL_LABEL.FLG_WN : TERMINAL_LABEL[kind],

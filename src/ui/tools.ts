@@ -8,15 +8,10 @@ import { componentSymbol, jointMark, oletSymbol, type Frame } from '../render/sy
 
 /** Branch fittings act on the header, they do not sit in the line. */
 type BranchTool = { branch: 'TEE' } | { olet: JointType };
-/** A bend tool sets how the picked corner or tee is joined: welded, socket or screwed. */
-type BendTool = { bend: JointType };
-type Tool = ComponentKind | BranchTool | BendTool;
+type Tool = ComponentKind | BranchTool;
 
 function isBranch(tool: Tool): tool is BranchTool {
-  return typeof tool === 'object' && !('bend' in tool);
-}
-function isBend(tool: Tool): tool is BendTool {
-  return typeof tool === 'object' && 'bend' in tool;
+  return typeof tool === 'object';
 }
 
 interface ToolGroup {
@@ -26,7 +21,6 @@ interface ToolGroup {
 
 const GROUPS: ToolGroup[] = [
   { label: 'Flanges', kinds: ['FLG_WN', 'FLG_SO', 'FLG_SW', 'FLG_THD', 'FLG_LAP', 'FLG_BLIND'] },
-  { label: 'Bends', kinds: [{ bend: 'BW' }, { bend: 'SW' }, { bend: 'THD' }] },
   { label: 'Fittings', kinds: ['RED_CONC', 'RED_ECC', 'CAP', 'TRANSITION'] },
   { label: 'Valves', kinds: ['BALL', 'BALL_ACT'] },
   { label: 'Branch', kinds: [{ branch: 'TEE' }, { olet: 'BW' }, { olet: 'SW' }, { olet: 'THD' }] },
@@ -48,7 +42,6 @@ const SHORT: Partial<Record<ComponentKind, string>> = {
   TRANSITION: 'PE/CS',
 };
 
-const BEND_SHORT: Record<JointType, string> = { BW: 'Elbow BW', SW: 'Elbow SW', THD: 'Elbow NPT' };
 
 const OLET_SHORT: Record<JointType, string> = { BW: 'Weldolet', SW: 'Sockolet', THD: 'Thredolet' };
 
@@ -114,39 +107,6 @@ function oletIcon(): string {
   );
 }
 
-/** An elbow, drawn round, with the joint mark on each end that says how it is made. */
-function bendIcon(joint: JointType): string {
-  const cx = ICON_CX;
-  const cy = ICON_CY + 6;
-  const r = 7;
-  const inX = cx - EAST.x * 18;
-  const inY = cy - EAST.y * 18;
-  const upX = cx;
-  const upY = cy - 16;
-  const startX = cx - EAST.x * r;
-  const startY = cy - EAST.y * r;
-  const endX = cx;
-  const endY = cy - r;
-  const frame = (dx: number, dy: number, x: number, y: number): Frame => ({
-    cx: x,
-    cy: y,
-    dx,
-    dy,
-    nx: NORTH.x,
-    ny: NORTH.y,
-    ux: UP.x,
-    uy: UP.y,
-    s: 4.2,
-  });
-  return iconSvg(
-    `<line class="icon-pipe" x1="${inX.toFixed(1)}" y1="${inY.toFixed(1)}" x2="${startX.toFixed(1)}" y2="${startY.toFixed(1)}"/>` +
-      `<path class="icon-pipe" d="M ${startX.toFixed(1)} ${startY.toFixed(1)} Q ${cx} ${cy} ${endX} ${endY}"/>` +
-      `<line class="icon-pipe" x1="${upX}" y1="${endY}" x2="${upX}" y2="${upY}"/>` +
-      jointMark(frame(EAST.x, EAST.y, startX, startY), joint, 1) +
-      jointMark(frame(0, -1, endX, endY), joint, -1),
-  );
-}
-
 /** A tee: a branch off a header, with a joint mark on each of its three ends. */
 function teeIcon(): string {
   const cy = ICON_CY + 5;
@@ -171,7 +131,7 @@ function teeIcon(): string {
 }
 
 /** Kinds that can close or terminate a line rather than sit along it. */
-const TERMINATING: ComponentKind[] = ['FLG_WN', 'FLG_SO', 'FLG_SW', 'FLG_THD', 'FLG_LAP', 'FLG_BLIND', 'CAP'];
+const TERMINATING: ComponentKind[] = ['FLG_WN', 'FLG_SO', 'FLG_SW', 'FLG_THD', 'FLG_LAP', 'FLG_BLIND', 'CAP', 'TRANSITION'];
 
 /** The run a newly picked component should be added to. */
 function targetRun(host: Host): Run | null {
@@ -222,6 +182,10 @@ function place(host: Host, kind: ComponentKind): void {
       host.select({ kind: 'node', id: nodeId });
       return;
     }
+    if (kind === 'TRANSITION') {
+      host.notify('A PE/CS transition goes on the end of the steel — pick the end point first.');
+      return;
+    }
 
     // A flange on a point the line runs straight through makes that point a
     // flanged joint. On a corner or a branch it has to sit on a point of its
@@ -265,6 +229,10 @@ function place(host: Host, kind: ComponentKind): void {
   const run = targetRun(host);
   if (!run) {
     host.notify('Select the end of the line, a point, or a run first.');
+    return;
+  }
+  if (kind === 'TRANSITION') {
+    host.notify('A PE/CS transition goes on the end of the steel — pick the end point first.');
     return;
   }
   if (isFlange(kind)) {
@@ -379,29 +347,6 @@ function openDimensionUpTo(host: Host, nodeId: string): void {
   host.editDimension(before.id, Math.max(0, stops.length - 2));
 }
 
-/**
- * Sets how the picked corner or tee is joined. Fittings come welded, socket
- * weld or screwed, and the list names them so; the marks on the drawing
- * follow.
- */
-function setBend(host: Host, joint: JointType): void {
-  const sel = host.state.selection;
-  if (sel?.kind !== 'node') {
-    host.notify('Pick the corner or tee first, then how it is joined.');
-    return;
-  }
-  const info = host.state.analysis.nodeInfo.get(sel.id);
-  if (!info || info.degree < 2) {
-    host.notify('That point is an end, not a bend.');
-    return;
-  }
-  const id = sel.id;
-  host.edit(`Bend ${joint}`, (d) => {
-    const node = d.nodes.find((n) => n.id === id);
-    if (node) node.joint = joint;
-  });
-}
-
 export function renderTools(container: HTMLElement, host: Host): void {
   const enabled = hasTarget(host);
   container.innerHTML = GROUPS.map(
@@ -409,14 +354,6 @@ export function renderTools(container: HTMLElement, host: Host): void {
       `<div class="tool-group-label">${group.label}</div>` +
       group.kinds
         .map((tool) => {
-          if (isBend(tool)) {
-            return (
-              `<button class="tool" data-bend="${tool.bend}" title="${BEND_SHORT[tool.bend]}"${enabled ? '' : ' disabled'}>` +
-              bendIcon(tool.bend) +
-              `<span class="tool-name">${BEND_SHORT[tool.bend].replace('Elbow ', '')}</span>` +
-              `</button>`
-            );
-          }
           if (isBranch(tool)) {
             const olet = 'olet' in tool;
             const name = olet ? OLET_SHORT[tool.olet] : 'Tee';
@@ -441,9 +378,7 @@ export function renderTools(container: HTMLElement, host: Host): void {
   container.querySelectorAll<HTMLButtonElement>('.tool').forEach((button) => {
     button.addEventListener('click', () => {
       const olet = button.dataset.olet as JointType | undefined;
-      const bend = button.dataset.bend as JointType | undefined;
-      if (bend) setBend(host, bend);
-      else if (olet) placeBranch(host, { olet });
+      if (olet) placeBranch(host, { olet });
       else if (button.dataset.branch === 'TEE') placeBranch(host, { branch: 'TEE' });
       else place(host, button.dataset.kind as ComponentKind);
     });

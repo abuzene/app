@@ -63,6 +63,7 @@ export type TerminalKind =
   | 'FLG_LAP'
   | 'FLG_BLIND'
   | 'CAP'
+  | 'TRANSITION'
   | 'CONTINUATION'
   | 'EQUIPMENT';
 
@@ -179,7 +180,9 @@ export type WeldReach =
   /** An in-line item: its face, plus a flange when it is flanged. */
   | { kind: 'valve'; trueHalf: number; flange?: FlangeKind }
   /** A reducer: a symbol length out from its centre. */
-  | { kind: 'reducer' };
+  | { kind: 'reducer' }
+  /** A PE/steel transition on the end: the weld on its steel side. */
+  | { kind: 'transition' };
 
 export interface WeldOverride {
   number?: string;
