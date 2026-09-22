@@ -66,7 +66,7 @@ export function contentCss({ k, u, symbol = 4, dark = false }: ContentStyleOptio
   stroke-width: ${w(2.6)};
   stroke-linejoin: round;
 }
-.weld-no { fill: ${ink}; font-size: ${t(0.72)}px; font-family: inherit; }
+.weld-no { fill: ${ink}; font-size: ${t(1.0)}px; font-family: inherit; font-weight: 600; }
 .weld-box { fill: ${dark ? '#0d1117' : '#ffffff'}; stroke: ${dim}; stroke-width: ${w(0.7)}; }
 .weld.selected .weld-box { stroke: ${accent}; stroke-width: ${w(1.4)}; }
 .weld.selected .weld-no { fill: ${accent}; font-weight: 700; }
@@ -84,7 +84,7 @@ export function contentCss({ k, u, symbol = 4, dark = false }: ContentStyleOptio
 .balloon-no { fill: ${ink}; font-size: ${t(0.72)}px; font-weight: 600; }
 .dim-line, .dim-ext, .dim-tick { stroke: ${dim}; stroke-width: ${w(0.9)}; fill: none; }
 .dim-ext { stroke-dasharray: ${w(3)} ${w(3)}; }
-.dim-text { fill: ${ink}; font-size: ${t(0.85)}px; text-anchor: middle; }
+.dim-text { fill: ${ink}; font-size: ${t(1.15)}px; text-anchor: middle; }
 .tag, .note { fill: ${ink}; font-size: ${t(0.78)}px; }
 .node-label { fill: ${accent}; font-size: ${t(0.85)}px; font-weight: 600; }
 .node-mark { fill: none; stroke: ${accent}; stroke-width: ${w(2)}; }

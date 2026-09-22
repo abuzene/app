@@ -666,13 +666,14 @@ export function renderDrawing(state: RenderState): string {
 
   // A tag that was dragged somewhere stays there; the rest spread out around it.
   const placedTags = weldLabels.filter((l) => l.placed);
-  const spreadTags = spreadLabels(weldLabels.filter((l) => !l.placed), size * 2.1, [...figures, ...placedTags]);
+  const spreadTags = spreadLabels(weldLabels.filter((l) => !l.placed), size * 2.6, [...figures, ...placedTags]);
   for (const label of [...placedTags, ...spreadTags]) {
     const selectedWeld = sel?.kind === 'weld' && sel.key === label.key;
     // The number sits in a rounded box on a leader to its weld — the weld's
     // own kind of balloon, told from an item balloon by its shape.
-    const boxW = Math.max(size * 1.6, label.text.length * size * 0.46 + size * 0.7);
-    const boxH = size * 1.15;
+    // Big enough to read on the sheet: the number is the size of a fitting.
+    const boxW = Math.max(size * 2.2, label.text.length * size * 0.64 + size * 0.9);
+    const boxH = size * 1.55;
     const ddx = label.x - label.fromX;
     const ddy = label.y - label.fromY;
     const stopAt = Math.max(Math.abs(ddx) / (boxW / 2), Math.abs(ddy) / (boxH / 2), 1e-6);
@@ -682,7 +683,7 @@ export function renderDrawing(state: RenderState): string {
       `<g class="weld${selectedWeld ? ' selected' : ''}">` +
       `<line class="weld-leader" x1="${label.fromX.toFixed(2)}" y1="${label.fromY.toFixed(2)}" x2="${ex.toFixed(2)}" y2="${ey.toFixed(2)}"/>` +
       `<rect class="weld-box" x="${(label.x - boxW / 2).toFixed(2)}" y="${(label.y - boxH / 2).toFixed(2)}" width="${boxW.toFixed(2)}" height="${boxH.toFixed(2)}" rx="${(size * 0.3).toFixed(2)}"/>` +
-      `<text class="weld-no" x="${label.x.toFixed(2)}" y="${(label.y + size * 0.27).toFixed(2)}" text-anchor="middle">${escapeText(label.text)}</text></g>`;
+      `<text class="weld-no" x="${label.x.toFixed(2)}" y="${(label.y + size * 0.36).toFixed(2)}" text-anchor="middle">${escapeText(label.text)}</text></g>`;
 
     // The tag itself is a touch target too: it is what is read, so it is what gets tapped.
     // The target is the box itself, so a small box on a small drawing does not

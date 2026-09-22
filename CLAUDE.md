@@ -70,7 +70,9 @@ ships, and the decisions already taken, so they are not re-litigated.
   short line and a long one, and the note reads "SCALE 1:R (FITTED TO
   SHEET)". The dialog's scale ("On-screen scale") sizes symbols against
   the pipe on screen only. He asked for this after a long line printed
-  with tiny symbols.
+  with tiny symbols. Dimension figures (`.dim-text` 1.15 × symbol) and
+  weld numbers (`.weld-no` 1.0 ×, bold, in a box 1.55 × tall) are set
+  large on his request; balloons stay at 0.72 ×.
 - Fitting reach is fixed (`FITTING_REACH`); weld marks sit on the symbol's
   end and are part of it — no line between dot and symbol.
 - A flange **breaks the line** (`node.flange`, flanged joint). Continuing
