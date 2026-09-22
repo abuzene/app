@@ -1,11 +1,11 @@
-import type { ComponentKind, EndType, FittingKind, FlangeKind, JointType, TerminalKind } from '../model/types';
+import type { Axis, ComponentKind, EndType, Equipment, FittingKind, FlangeKind, JointType, TerminalKind } from '../model/types';
 import type { Host, TabId } from './types';
 import { COMPONENT_LABEL, DEFAULT_LOGO, ROOT_GAP, TERMINAL_LABEL, fittingLabel, fmtMm, isMark, isReducer, isSupport, isValve, oletLabel, pipeNetAt, reducerName, resolveEnds } from '../model/drawing';
 import { COMMAND_HELP } from '../model/commands';
 import { DN_LIST, SIZE_LABELS, defaultValveEnds, schedulesFor, sizeLabel } from '../model/pipe-data';
-import { axisBetween } from '../model/iso';
+import { AXES, AXIS_VECTOR, axisBetween } from '../model/iso';
 import { projectsOf } from '../model/library';
-import { applyReducer, deleteNode, deleteRun, removeComponent, removeFlangeJoint, runLength, setRunDirect, setRunLength, setTerminal, splitRun } from '../model/edit';
+import { applyReducer, deleteNode, deleteRun, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, runLength, setRunDirect, setRunLength, setTerminal, splitRun } from '../model/edit';
 import { setDriveClientId } from '../model/drive';
 import { reducerPreview } from './reducer-preview';
 
@@ -125,6 +125,8 @@ function nodeProperties(host: Host, nodeId: string): string {
   const fitting = info?.fitting ?? 'NONE';
 
   const isOlet = fitting === 'OLET';
+  // An olet placed but not yet drawn from: its branch size and way are its own.
+  const pendingOlet = isOlet && (info?.degree ?? 0) === 2;
   const nodeJoint = node.joint ?? host.state.drawing.options.joint;
   const straight = fitting === 'NONE' && (info?.degree ?? 0) === 2;
   const flanged = straight && !!node.flange;
@@ -158,6 +160,12 @@ function nodeProperties(host: Host, nodeId: string): string {
   }
   ${alongLine(host, nodeId)}
   ${
+    pendingOlet
+      ? `<div class="row"><label>Branch size</label><select data-f="olet-dn">${options(DN_LIST, node.olet?.dn ?? '', SIZE_LABELS)}</select></div>
+         <div class="row"><label>Branch goes</label><select data-f="olet-dir">${options(AXES.filter((axis) => !axisAlong(host, nodeId, axis)), node.olet?.dir ?? 'U', AXIS_NAMES)}</select></div>`
+      : ''
+  }
+  ${
     isOlet
       ? `<div class="row"><label>Olet type</label><select data-f="joint">${options(JOINTS, nodeJoint, { BW: 'Weldolet', SW: 'Sockolet', THD: 'Threadolet' })}</select></div>`
       : flanged
@@ -165,8 +173,10 @@ function nodeProperties(host: Host, nodeId: string): string {
         : `<div class="row"><label>Joint</label><select data-f="joint">${options(['auto', ...JOINTS], node.joint ?? 'auto', { ...JOINT_LABEL, auto: `Drawing default (${JOINT_LABEL[host.state.drawing.options.joint] ?? 'butt weld'})` })}</select></div>`
   }
   <p class="empty-note">${
-    isOlet
-      ? 'Drag from this point to route the branch. The header keeps its full length — an olet is welded to its wall, not cut into it.'
+    pendingOlet
+      ? 'The olet rides on the header, which keeps its full length. Drag it along the line, or type the dimension up to it. Draw the branch from it whenever you like, at the branch size.'
+      : isOlet
+      ? 'The header keeps its full length — an olet is welded to its wall, not cut into it.'
       : flanged
         ? 'The pipe stops at the flange faces here: each side is its own piece, with its own flange, weld and cut length. Drag the joint along the line to move it.'
       : `Drag from this point on the drawing to route a new run. ${
@@ -174,9 +184,9 @@ function nodeProperties(host: Host, nodeId: string): string {
         }`
   }</p>
   <div class="btn-row">
-    <button class="btn-line solid" data-a="draw-from">Draw from here</button>
+    <button class="btn-line solid" data-a="draw-from">${pendingOlet ? 'Draw the branch from here' : 'Draw from here'}</button>
     ${node.flange ? '<button class="btn-line danger" data-a="remove-flanges">Remove both flanges — join the pipe straight</button>' : ''}
-    <button class="btn-line danger" data-a="delete-node">Delete point and its runs</button>
+    ${pendingOlet ? '<button class="btn-line danger" data-a="remove-olet">Remove olet — the header runs on whole</button>' : '<button class="btn-line danger" data-a="delete-node">Delete point and its runs</button>'}
   </div>
 </div>`;
 }
@@ -276,6 +286,37 @@ function runList(host: Host): string {
 </div>`;
 }
 
+const AXIS_NAMES: Record<string, string> = { N: 'North', S: 'South', E: 'East', W: 'West', U: 'Up', D: 'Down' };
+
+/** Whether an axis lies along the line through a point (either way). */
+function axisAlong(host: Host, nodeId: string, axis: Axis): boolean {
+  const info = host.state.analysis.nodeInfo.get(nodeId);
+  if (!info) return false;
+  const v = AXIS_VECTOR[axis];
+  return info.legs.some((leg) => Math.abs(leg.e * v.e + leg.n * v.n + leg.u * v.u) > 0.999);
+}
+
+function equipmentProperties(host: Host, id: string): string {
+  const box = host.state.drawing.equipment?.find((q) => q.id === id);
+  if (!box) return '';
+  return `
+<div class="section" data-editor="equipment" data-id="${box.id}">
+  <h3>Equipment — ${esc(box.name || 'unnamed')}</h3>
+  <div class="row"><label>Name</label><input type="text" data-f="name" value="${esc(box.name)}" placeholder="e.g. P-101 PUMP" /></div>
+  <div class="row"><label>Length</label><input type="number" data-f="length" step="1" min="1" value="${Math.round(box.length)}" /></div>
+  <div class="row"><label>Width</label><input type="number" data-f="width" step="1" min="1" value="${Math.round(box.width)}" /></div>
+  <div class="row"><label>Reaches</label><select data-f="axis">${options(AXES, box.axis, AXIS_NAMES)}</select></div>
+  <div class="row"><label>Wide along</label><select data-f="across">${options(AXES.filter((a) => a !== box.axis), box.across, AXIS_NAMES)}</select></div>
+  <div class="row"><label>East</label><input type="number" data-f="e" step="1" value="${Math.round(box.at.e)}" /></div>
+  <div class="row"><label>North</label><input type="number" data-f="n" step="1" value="${Math.round(box.at.n)}" /></div>
+  <div class="row"><label>Up</label><input type="number" data-f="u" step="1" value="${Math.round(box.at.u)}" /></div>
+  <p class="empty-note">A dashed box with a name in it, in millimetres: it stands on this point and reaches away from the line, its width centred. Drag it on the drawing to where it reads best. A note, not material: nothing on the list, no welds.</p>
+  <div class="btn-row">
+    <button class="btn-line danger" data-a="delete-equipment">Delete equipment</button>
+  </div>
+</div>`;
+}
+
 function routeTab(host: Host): string {
   const sel = host.state.selection;
   let props = '';
@@ -283,6 +324,7 @@ function routeTab(host: Host): string {
   else if (sel?.kind === 'node') props = nodeProperties(host, sel.id);
   else if (sel?.kind === 'component') props = componentProperties(host, sel.id);
   else if (sel?.kind === 'weld') props = weldProperties(host, sel.key);
+  else if (sel?.kind === 'equipment') props = equipmentProperties(host, sel.id);
   else
     props = `<div class="section"><h3>Nothing selected</h3><p class="empty-note">Click a run, a point or a component on the drawing to edit it.</p></div>`;
   return props + runList(host);
@@ -796,6 +838,22 @@ function wire(body: HTMLElement, host: Host): void {
     nodeEditor.querySelector('[data-a="draw-from"]')?.addEventListener('click', () => {
       host.continueFrom(id);
     });
+    for (const key of ['olet-dn', 'olet-dir'] as const) {
+      field(key)?.addEventListener('change', (e) => {
+        const value = (e.target as HTMLSelectElement).value;
+        host.edit(key === 'olet-dn' ? 'Set branch size' : 'Turn olet', (d) => {
+          const node = d.nodes.find((n) => n.id === id);
+          if (!node?.olet) return;
+          if (key === 'olet-dn') node.olet.dn = value;
+          else node.olet.dir = value as Axis;
+        });
+      });
+    }
+    nodeEditor.querySelector('[data-a="remove-olet"]')?.addEventListener('click', () => {
+      host.edit('Remove olet', (d) => removeOlet(d, id));
+      host.select(null);
+      host.notify('Olet removed; the header runs on whole.');
+    });
     nodeEditor.querySelector('[data-a="remove-flanges"]')?.addEventListener('click', () => {
       host.edit('Remove flanges', (d) => removeFlangeJoint(d, id));
       host.select(null);
@@ -808,6 +866,41 @@ function wire(body: HTMLElement, host: Host): void {
   }
 
   // Component editor.
+  const equipEditor = body.querySelector<HTMLElement>('[data-editor="equipment"]');
+  if (equipEditor) {
+    const id = equipEditor.dataset.id!;
+    const field = (name: string) => equipEditor.querySelector<HTMLInputElement & HTMLSelectElement>(`[data-f="${name}"]`);
+    const withBox = (label: string, fn: (q: Equipment) => void) =>
+      host.edit(label, (d) => {
+        const box = d.equipment?.find((q) => q.id === id);
+        if (box) fn(box);
+      }, { keepPanel: true });
+    field('name')?.addEventListener('change', (e) => withBox('Name equipment', (q) => { q.name = (e.target as HTMLInputElement).value.trim().toUpperCase(); }));
+    for (const key of ['length', 'width'] as const) {
+      field(key)?.addEventListener('change', (e) => {
+        const value = Number((e.target as HTMLInputElement).value);
+        if (Number.isFinite(value) && value > 0) withBox('Size equipment', (q) => { q[key] = value; });
+      });
+    }
+    field('axis')?.addEventListener('change', (e) =>
+      withBox('Turn equipment', (q) => {
+        q.axis = (e.target as HTMLSelectElement).value as Axis;
+        if (q.across === q.axis) q.across = q.axis === 'E' || q.axis === 'W' ? 'N' : 'E';
+      }),
+    );
+    field('across')?.addEventListener('change', (e) => withBox('Turn equipment', (q) => { q.across = (e.target as HTMLSelectElement).value as Axis; }));
+    for (const key of ['e', 'n', 'u'] as const) {
+      field(key)?.addEventListener('change', (e) => {
+        const value = Number((e.target as HTMLInputElement).value);
+        if (Number.isFinite(value)) withBox('Move equipment', (q) => { q.at[key] = value; });
+      });
+    }
+    equipEditor.querySelector('[data-a="delete-equipment"]')?.addEventListener('click', () => {
+      host.edit('Delete equipment', (d) => removeEquipment(d, id));
+      host.select(null);
+    });
+  }
+
   const compEditor = body.querySelector<HTMLElement>('[data-editor="component"]');
   if (compEditor) {
     const id = compEditor.dataset.id!;

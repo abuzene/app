@@ -238,6 +238,7 @@ export class Canvas {
     const weldEl = target?.closest('[data-weld]');
     const tagEl = target?.closest('[data-weld-tag]');
     const balloonEl = target?.closest('[data-balloon]');
+    const equipmentEl = target?.closest('[data-equipment]');
     const dimEl = target?.closest('[data-dim]');
     const handleEl = target?.closest('[data-run-end]');
 
@@ -311,6 +312,29 @@ export class Canvas {
         startView,
         targetId: key,
         anchor: { x: Number(tagEl.getAttribute('data-ax')), y: Number(tagEl.getAttribute('data-ay')) },
+        moved: false,
+      };
+      return;
+    }
+
+    // An equipment box is picked, and dragged to where it reads best.
+    if (!panRequested && equipmentEl) {
+      event.preventDefault();
+      this.capture(event.pointerId);
+      const id = equipmentEl.getAttribute('data-equipment')!;
+      this.cb.onSelect({ kind: 'equipment', id });
+      // The box moves with the pointer from where it is, rather than jumping
+      // so that its corner sits under the finger.
+      const start = this.toPaper(event.clientX, event.clientY);
+      const offset = this.drawing.itemOverrides?.[`eq:${id}`] ?? { dx: 0, dy: 0 };
+      this.drag = {
+        kind: 'slide-tag',
+        pointerId: event.pointerId,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        startView,
+        targetId: `item:eq:${id}`,
+        anchor: { x: start.x - offset.dx, y: start.y - offset.dy },
         moved: false,
       };
       return;

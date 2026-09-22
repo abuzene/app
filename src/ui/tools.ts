@@ -1,13 +1,14 @@
 import type { ComponentKind, FlangeKind, JointType, Run, TerminalKind } from '../model/types';
 import type { Host } from './types';
 import { COMPONENT_LABEL, TERMINAL_LABEL, dimensionStops, isValve, terminalTakeoutOf } from '../model/drawing';
-import { addComponent, addFlangeJoint, applyReducer, runLength, setTerminal, splitRun } from '../model/edit';
+import { addComponent, addEquipment, addFlangeJoint, applyReducer, runLength, setTerminal, splitRun } from '../model/edit';
+import { axisBetween } from '../model/iso';
 import { DN_LIST, componentTakeout, fittingTakeout, sizeLabel } from '../model/pipe-data';
 import { isFlange } from '../render/symbols';
 import { componentSymbol, jointMark, oletSymbol, type Frame } from '../render/symbols';
 
 /** Branch fittings act on the header, they do not sit in the line. */
-type BranchTool = { branch: 'TEE' } | { olet: JointType } | { weld: 'BW' };
+type BranchTool = { branch: 'TEE' } | { olet: JointType } | { weld: 'BW' } | { equipment: true };
 type Tool = ComponentKind | BranchTool;
 
 function isBranch(tool: Tool): tool is BranchTool {
@@ -24,7 +25,7 @@ const GROUPS: ToolGroup[] = [
   { label: 'Fittings', kinds: ['RED_CONC', 'RED_ECC', 'CAP', 'TRANSITION'] },
   { label: 'Valves', kinds: ['BALL', 'BALL_ACT'] },
   { label: 'Branch', kinds: [{ branch: 'TEE' }, { olet: 'BW' }, { olet: 'SW' }, { olet: 'THD' }] },
-  { label: 'Marks', kinds: ['SUPPORT', 'SUPPORT_L', 'GROUND'] },
+  { label: 'Marks', kinds: ['SUPPORT', 'SUPPORT_L', 'GROUND', { equipment: true }] },
   { label: 'Joints', kinds: [{ weld: 'BW' }] },
 ];
 
@@ -90,6 +91,16 @@ function icon(kind: ComponentKind): string {
     s: 5.2,
   };
   return iconSvg(stub(EAST) + componentSymbol(kind, f));
+}
+
+/** A dashed box with a name in it. */
+function equipmentIcon(): string {
+  return (
+    `<svg class="tool-icon" viewBox="0 0 48 48" aria-hidden="true">` +
+    `<polygon class="sym-dashed" points="6,30 24,40 42,30 24,20" style="stroke-dasharray:3 2"/>` +
+    `<text x="24" y="15" text-anchor="middle" font-size="9" font-weight="700" fill="currentColor">P-101</text>` +
+    `</svg>`
+  );
 }
 
 /** An olet on a length of header, branch going up. */
@@ -402,13 +413,16 @@ function placeFlangeOnRun(host: Host, run: Run, kind: FlangeKind, where: 'start'
  * the branch itself is drawn next, by dragging from the point.
  */
 function placeBranch(host: Host, tool: BranchTool): void {
+  if ('olet' in tool) {
+    void placeOlet(host, tool.olet);
+    return;
+  }
   const run = targetRun(host);
   if (!run) {
     host.notify('Select the header run first, then pick a branch fitting.');
     return;
   }
-  const isOlet = 'olet' in tool;
-  const label = isOlet ? OLET_SHORT[tool.olet].toLowerCase() : 'tee';
+  const label = 'tee';
   const at = runLength(host.state.drawing, run) / 2;
   let nodeId: string | null = null;
   host.edit(`Add ${label}`, (d) => {
@@ -416,15 +430,10 @@ function placeBranch(host: Host, tool: BranchTool): void {
     if (!nodeId) return;
     const node = d.nodes.find((n) => n.id === nodeId);
     if (!node) return;
-    if (isOlet) {
-      node.fittingOverride = 'OLET';
-      node.joint = tool.olet;
-    } else {
-      // A tee is what connectivity infers anyway, and it works out equal or
-      // reducing from the branch size once the branch is drawn.
-      node.fittingOverride = undefined;
-      node.joint = undefined;
-    }
+    // A tee is what connectivity infers anyway, and it works out equal or
+    // reducing from the branch size once the branch is drawn.
+    node.fittingOverride = undefined;
+    node.joint = undefined;
   });
   if (nodeId) {
     // The route is left ready at the new point, so the branch is drawn by
@@ -433,6 +442,59 @@ function placeBranch(host: Host, tool: BranchTool): void {
     host.continueFrom(nodeId);
     openDimensionUpTo(host, nodeId);
   }
+}
+
+/**
+ * An olet rides on the header: it is welded to the wall and takes nothing
+ * from the pipe, which stays one length. It is placed first — which way its
+ * branch will go and what size — and waits there; the branch is drawn from
+ * it whenever wanted, at that size. A plain point along a line becomes the
+ * olet itself; a run picked is marked at its middle, and the dimension up to
+ * it opens for typing.
+ */
+async function placeOlet(host: Host, joint: JointType): Promise<void> {
+  const { selection, analysis, drawing } = host.state;
+  const info = selection?.kind === 'node' ? analysis.nodeInfo.get(selection.id) : undefined;
+  const onNode = info && info.degree === 2 && info.fitting === 'NONE' && !info.node.flange ? info.node : null;
+  const run = onNode ? info!.runs[0] : targetRun(host);
+  if (!run) {
+    host.notify('Select the header run first, then pick the olet.');
+    return;
+  }
+  const a = drawing.nodes.find((n) => n.id === run.from);
+  const b = drawing.nodes.find((n) => n.id === run.to);
+  const choice = await host.oletDialog({ joint, header: run.dn, along: a && b ? axisBetween(a.pos, b.pos) : null });
+  if (!choice) return;
+  let nodeId: string | null = onNode?.id ?? null;
+  host.edit(`Add ${OLET_SHORT[joint].toLowerCase()}`, (d) => {
+    if (!nodeId) nodeId = splitRun(d, run.id, runLength(d, run) / 2);
+    const node = nodeId ? d.nodes.find((n) => n.id === nodeId) : undefined;
+    if (!node) return;
+    node.fittingOverride = 'OLET';
+    node.joint = joint;
+    node.olet = { dir: choice.dir, dn: choice.dn };
+  });
+  if (!nodeId) {
+    host.notify('The run is too short for an olet.');
+    return;
+  }
+  host.select({ kind: 'node', id: nodeId });
+  if (!onNode) openDimensionUpTo(host, nodeId);
+}
+
+/** A dashed equipment box on the picked point, named there and then in its panel. */
+function placeEquipment(host: Host): void {
+  const { selection, analysis } = host.state;
+  const info = selection?.kind === 'node' ? analysis.nodeInfo.get(selection.id) : undefined;
+  if (!info) {
+    host.notify('Select the point the equipment stands at, then pick Equipment.');
+    return;
+  }
+  let id: string | null = null;
+  host.edit('Add equipment', (d) => {
+    id = addEquipment(d, info.node.id, 'EQUIPMENT')?.id ?? null;
+  });
+  if (id) host.select({ kind: 'equipment', id });
 }
 
 /**
@@ -484,6 +546,14 @@ export function renderTools(container: HTMLElement, host: Host): void {
       group.kinds
         .map((tool) => {
           if (isBranch(tool)) {
+            if ('equipment' in tool) {
+              return (
+                `<button class="tool" data-equipment="1" title="Equipment box: a dashed outline with a name"${enabled ? '' : ' disabled'}>` +
+                equipmentIcon() +
+                `<span class="tool-name">Equipment</span>` +
+                `</button>`
+              );
+            }
             if ('weld' in tool) {
               return (
                 `<button class="tool" data-weld="BW" title="Butt weld in the pipe"${enabled ? '' : ' disabled'}>` +
@@ -516,6 +586,7 @@ export function renderTools(container: HTMLElement, host: Host): void {
     button.addEventListener('click', () => {
       const olet = button.dataset.olet as JointType | undefined;
       if (button.dataset.weld) placeWeld(host);
+      else if (button.dataset.equipment) placeEquipment(host);
       else if (olet) placeBranch(host, { olet });
       else if (button.dataset.branch === 'TEE') placeBranch(host, { branch: 'TEE' });
       else place(host, button.dataset.kind as ComponentKind);

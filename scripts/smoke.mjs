@@ -132,7 +132,7 @@ check('a length can be typed', await page.locator('#tab-body .run-list input[dat
 // Palette.
 await page.locator('#tab-body .run-list tbody tr').first().click();
 await page.waitForTimeout(200);
-check('the palette carries the fittings, ball valves, tee, olets, marks and a weld', await page.locator('.tool').count(), (v) => v === 18, '18');
+check('the palette carries the fittings, ball valves, tee, olets, marks, equipment and a weld', await page.locator('.tool').count(), (v) => v === 19, '19');
 check('and no slip-on or lap joint flange, which are not used here', await page.locator('.tool[data-kind="FLG_SO"], .tool[data-kind="FLG_LAP"]').count(), (v) => v === 0, '0');
 check('a tee can be placed on a header', await page.locator('.tool[data-branch="TEE"]').count(), (v) => v === 1, '1');
 check('the actuated ball valve is there', await page.locator('.tool[data-kind="BALL_ACT"]').count(), (v) => v === 1, '1');
@@ -341,19 +341,46 @@ const headerCut = async () => {
   }
   return total;
 };
+const runCountNow = () => page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).runs.length);
+const tapNodeEarly = async (id) => {
+  const el = page.locator(`#canvas circle.hit-dot[data-node="${id}"]`);
+  const b = await el.boundingBox();
+  const at = { bubbles: true, pointerId: 7, pointerType: 'mouse', button: 0, clientX: b.x + b.width / 2, clientY: b.y + b.height / 2, isPrimary: true };
+  await el.dispatchEvent('pointerdown', at);
+  await page.waitForTimeout(80);
+  await el.dispatchEvent('pointerup', at);
+  await page.waitForTimeout(300);
+};
 const cutBefore = await headerCut();
 check('header starts at its full length', cutBefore, (v) => v === 4000, '4000');
 
 await page.locator('#tab-body .run-list tbody tr').first().click();
 await page.waitForTimeout(250);
 await page.locator('.tool[data-olet="BW"]').click();
+await page.waitForTimeout(400);
+// An olet is placed on its own first: which way its branch will go and what
+// size, and it rides on the header waiting for the branch.
+check('picking an olet asks its branch size and which way it goes', await page.locator('.dialog[data-editor="olet"] [data-f="olet-dir"] option').allInnerTexts().then((v) => v.join(',')), (v) => v === 'North,South,Up,Down', 'the four ways off an east-west header');
+await page.selectOption('.dialog [data-f="olet-dn"]', 'DN25');
+await page.click('.dialog [data-confirm]');
 await page.waitForTimeout(500);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
 check('the header is still whole before the branch is drawn', await headerCut(), (v) => v === 4000, '4000');
-
-// Route a 1" branch off the olet by clicking where it goes.
-const oletHandle = await page.locator('#canvas .node.selected circle.hit-dot').boundingBox();
-await page.selectOption('#dn', 'DN25');
+check('the olet is drawn on the header, facing the way its branch will go, with no branch yet', `${await page.locator('#canvas .olet').count()} ${await page.locator('#canvas .olet line').count()} ${await runCountNow()}`, (v) => v === '1 1 2', '1 saddle, 1 stub, 2 header runs');
+await page.click('#tabs button:has-text("Items")');
+await page.waitForTimeout(300);
+check('and is on the list already, with both sizes', await page.locator('#tab-body').innerText(), (v) => /WELDOLET 6" x 1"/.test(v), 'WELDOLET 6" x 1"');
+await page.click('#tabs button:has-text("Route")');
+await page.waitForTimeout(200);
+const oletNode = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).nodes.find((n) => n.olet).id);
+await tapNodeEarly(oletNode);
+check('its panel offers the branch size, the way it goes, and drawing the branch', `${await page.locator('#tab-body [data-f="olet-dn"]').count()} ${await page.locator('#tab-body [data-f="olet-dir"]').count()} ${await page.locator('#tab-body [data-a="draw-from"]').innerText()}`, (v) => v === '1 1 Draw the branch from here', '1 1 Draw the branch from here');
+// Route the 1" branch off the olet by clicking where it goes: the size is the olet's.
+await page.click('#tab-body [data-a="draw-from"]');
 await page.waitForTimeout(250);
+check('drawing from the olet lays the branch at the branch size', await page.inputValue('#dn'), (v) => v === 'DN25', 'DN25');
+const oletHandle = await page.locator(`#canvas circle.hit-dot[data-node="${oletNode}"]`).boundingBox();
 await page.mouse.move(oletHandle.x + 130, oletHandle.y - 95, { steps: 10 });
 await page.waitForTimeout(200);
 await page.mouse.click(oletHandle.x + 130, oletHandle.y - 95);
@@ -2337,6 +2364,105 @@ await page.waitForTimeout(300);
 check('taken off again, the point comes back in', await page.evaluate(() => Math.min(...JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).nodes.map((n) => n.pos.e))), (v) => Math.abs(v) < 0.5, '0');
 await page.keyboard.press('Escape');
 await page.waitForTimeout(150);
+
+/* ----------------------------------------------- an olet taken off again */
+
+// An olet placed and not drawn from comes off on its own: the two header
+// runs join back into one, with no joint left where it sat.
+await routeLine('6"\nSTD\nORIGIN 0 0 0\nE 4000');
+await page.locator('#canvas [data-run]').first().click({ force: true });
+await page.waitForTimeout(200);
+await page.locator('.tool[data-olet="SW"]').click();
+await page.waitForTimeout(300);
+await page.click('.dialog [data-confirm]');
+await page.waitForTimeout(400);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
+check('a sockolet placed on its own has one header weld and nothing else', await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).runs.length), (v) => v === 2, '2 header runs');
+const soNode = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).nodes.find((n) => n.olet).id);
+await tapNode(soNode);
+check('the HUD offers to remove the olet, not the point', await page.locator('#hud-delete').innerText(), (v) => v === 'Remove olet', 'Remove olet');
+await page.click('#hud-delete');
+await page.waitForTimeout(300);
+check('removed, the header is one run again', `${await runCount()} ${(await nodesAt()).length}`, (v) => v === '1 2', '1 run, 2 points');
+
+/* ------------------------------------- short leaders on pipe numbers and letters */
+
+// A pipe's number or letter dragged along the pipe keeps a short leader to
+// the pipe beside it rather than one stretched back to where it started.
+await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 4000\nN 2000');
+const letterHit = page.locator('#canvas circle.hit-dot[data-balloon^="pc:"]').first();
+const letterBox = await letterHit.boundingBox();
+await page.mouse.move(letterBox.x + letterBox.width / 2, letterBox.y + letterBox.height / 2);
+await page.mouse.down();
+await page.mouse.move(letterBox.x + letterBox.width / 2 + 160, letterBox.y + letterBox.height / 2 + 60, { steps: 10 });
+await page.mouse.up();
+await page.waitForTimeout(300);
+const letterLeader = await page.locator('#canvas .pipe-letter .balloon-leader').first().evaluate((e) => Math.hypot(e.x2.baseVal.value - e.x1.baseVal.value, e.y2.baseVal.value - e.y1.baseVal.value));
+const letterSize = await page.locator('#canvas .pipe-letter-box').first().evaluate((e) => e.height.baseVal.value);
+check('a pipe letter dragged along the pipe keeps a short leader to the pipe beside it', letterLeader / letterSize, (v) => v < 2.5, 'under two and a half box heights');
+const pipeBalloon = page.locator('#canvas circle.hit-dot[data-balloon^="run:"]').first();
+const pbBox = await pipeBalloon.boundingBox();
+await page.mouse.move(pbBox.x + pbBox.width / 2, pbBox.y + pbBox.height / 2);
+await page.mouse.down();
+await page.mouse.move(pbBox.x + pbBox.width / 2 - 220, pbBox.y + pbBox.height / 2 - 160, { steps: 10 });
+await page.mouse.up();
+await page.waitForTimeout(300);
+const balloonKey = await pipeBalloon.getAttribute('data-balloon');
+const pipeLeader = await page.evaluate((key) => {
+  const hit = document.querySelector(`#canvas circle.hit-dot[data-balloon="${key}"]`);
+  const cx = +hit.getAttribute('cx');
+  const cy = +hit.getAttribute('cy');
+  const leaders = [...document.querySelectorAll('#canvas .balloon .balloon-leader')];
+  const mine = leaders.map((l) => ({ l, d: Math.hypot(l.x2.baseVal.value - cx, l.y2.baseVal.value - cy) })).sort((a, b) => a.d - b.d)[0].l;
+  return { len: Math.hypot(mine.x2.baseVal.value - mine.x1.baseVal.value, mine.y2.baseVal.value - mine.y1.baseVal.value), fromAnchor: Math.hypot(mine.x1.baseVal.value - +hit.getAttribute('data-ax'), mine.y1.baseVal.value - +hit.getAttribute('data-ay')) };
+}, balloonKey);
+check('a pipe number dragged along the pipe leads to the pipe beside it, not back to the middle', pipeLeader, (v) => v.fromAnchor > 20 && v.len < v.fromAnchor / 2, 'foot moved along the pipe, leader far shorter than that');
+
+/* ------------------------------------------------------- an equipment box */
+
+// Equipment: a dashed box with a name, standing on the picked point and
+// reaching away from the line; sized in the panel, dragged on the drawing,
+// printed on the sheet; nothing on the list.
+await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 3000\nEND FLG');
+const eqEnd = (await nodesAt()).find((p) => p[1] === 3000)[0];
+await tapNode(eqEnd);
+await page.locator('.tool[data-equipment]').click();
+await page.waitForTimeout(300);
+check('an equipment box stands on the picked point, reaching on past the line end', await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).equipment.map((q) => `${q.at.e} ${q.axis} ${q.length}x${q.width}`).join()), (v) => v === '3000 E 1500x1000', '3000 E 1500x1000');
+check('drawn dashed, and picked', `${await page.locator('#canvas .equipment.selected .equip-box').count()} ${await page.locator('#hud-delete').innerText()}`, (v) => v === '1 Delete equipment', '1 Delete equipment');
+await page.fill('#tab-body [data-f="name"]', 'p-101 pump');
+await page.keyboard.press('Tab');
+await page.fill('#tab-body [data-f="length"]', '2000');
+await page.keyboard.press('Tab');
+await page.waitForTimeout(300);
+check('named and sized in its panel', await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).equipment.map((q) => `${q.name} ${q.length}`).join()), (v) => v === 'P-101 PUMP 2000', 'P-101 PUMP 2000');
+check('the name is in the box', await page.locator('#canvas .equip-text').evaluate((e) => e.textContent), (v) => v === 'P-101 PUMP', 'P-101 PUMP');
+const eqBox = await page.locator('#canvas [data-equipment]').boundingBox();
+await page.mouse.move(eqBox.x + eqBox.width / 2, eqBox.y + eqBox.height / 2);
+await page.mouse.down();
+await page.mouse.move(eqBox.x + eqBox.width / 2 + 80, eqBox.y + eqBox.height / 2 + 40, { steps: 8 });
+await page.mouse.up();
+await page.waitForTimeout(300);
+const eqAfter = await page.locator('#canvas [data-equipment]').boundingBox();
+check('dragged, it moves with the pointer from where it was', [Math.round(eqAfter.x - eqBox.x), Math.round(eqAfter.y - eqBox.y)], (v) => Math.abs(v[0] - 80) < 6 && Math.abs(v[1] - 40) < 6, 'about 80 right, 40 down');
+await page.click('#tabs button:has-text("Items")');
+await page.waitForTimeout(200);
+check('and it is not material: nothing on the list', await page.locator('#tab-body').innerText(), (v) => !/PUMP|EQUIPMENT/.test(v), 'no list line');
+await page.click('#print');
+await page.waitForTimeout(300);
+await page.click('[data-x="preview"]');
+await page.waitForTimeout(500);
+check('but it is on the printed sheet', `${await page.locator('.sheet-preview .equip-box').count()} ${(await page.locator('.sheet-preview').innerText()).includes('P-101 PUMP')}`, (v) => v === '1 true', '1 true');
+await page.click('.dialog [data-close]');
+await page.waitForTimeout(200);
+await page.click('#tabs button:has-text("Route")');
+await page.waitForTimeout(200);
+await page.locator('#canvas [data-equipment]').click({ force: true });
+await page.waitForTimeout(200);
+await page.click('#tab-body [data-a="delete-equipment"]');
+await page.waitForTimeout(300);
+check('deleted from its panel', await page.locator('#canvas .equip-box').count(), (v) => v === 0, '0');
 
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 

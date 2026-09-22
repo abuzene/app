@@ -162,11 +162,12 @@ export interface Analysis {
   warnings: string[];
 }
 
-function inferFitting(legs: Vec3[], runs: Run[], override?: FittingKind): FittingKind {
-  // An olet needs a branch: delete the branch and the header closes back up to
-  // a plain butt joint rather than keeping a fitting that is no longer there.
+function inferFitting(legs: Vec3[], runs: Run[], override?: FittingKind, pendingOlet = false): FittingKind {
+  // An olet with no branch yet rides on the line, waiting for one; an olet
+  // whose branch was deleted closes back up to a plain butt joint rather
+  // than keeping a fitting that is no longer there.
   if (override === 'OLET' && legs.length < 3) {
-    return legs.length === 2 ? 'NONE' : 'NONE';
+    return pendingOlet && legs.length === 2 && 180 - angleBetween(legs[0], legs[1]) < 1 ? 'OLET' : 'NONE';
   }
   if (override) return override;
   if (legs.length <= 1) return 'NONE';
@@ -262,7 +263,11 @@ export function oletLabel(joint: JointType): string {
  * At an olet the two collinear runs are the header and the odd one out is the
  * branch. Returns null when the node is not shaped like an olet at all.
  */
-export function oletLegs(info: NodeInfo): { header: Run[]; branch: Run } | null {
+export function oletLegs(info: NodeInfo): { header: Run[]; branch: Run | null } | null {
+  // An olet placed but not yet drawn from: the two header runs, no branch.
+  if (info.runs.length === 2 && info.legs.length === 2 && info.node.olet && 180 - angleBetween(info.legs[0], info.legs[1]) < 1) {
+    return { header: [info.runs[0], info.runs[1]], branch: null };
+  }
   if (info.runs.length !== 3 || info.legs.length !== 3) return null;
   for (let i = 0; i < 3; i += 1) {
     const others = [0, 1, 2].filter((k) => k !== i);
@@ -493,7 +498,7 @@ function endTakeout(info: NodeInfo | undefined, run: Run): number {
   if (info.fitting !== 'OLET') return fittingTakeout(info.fitting, run.dn);
   const legs = oletLegs(info);
   if (!legs) return 0;
-  if (legs.branch.id !== run.id) return 0;
+  if (legs.branch?.id !== run.id) return 0;
   return oletTakeout(legs.header[0]?.dn ?? run.dn, run.dn);
 }
 
@@ -519,7 +524,7 @@ export function analyse(drawing: Drawing): Analysis {
       const dir = other ? direction(node.pos, other.pos) : null;
       if (dir) legs.push(dir);
     }
-    const fitting = inferFitting(legs, runs, node.fittingOverride);
+    const fitting = inferFitting(legs, runs, node.fittingOverride, !!node.olet);
     nodeInfo.set(node.id, { node, runs, legs, fitting, degree: runs.length });
     if (runs.length > 4) warnings.push(`Node ${node.label ?? node.id} has ${runs.length} connections.`);
   }
@@ -688,7 +693,7 @@ export function analyse(drawing: Drawing): Analysis {
       } else if (info.fitting === 'OLET') {
         const legs = oletLegs(info);
         if (legs) {
-          const isBranch = legs.branch.id === run.id;
+          const isBranch = legs.branch?.id === run.id;
           if (isBranch) {
             // The branch joint: this is what makes it a weldolet, sockolet or
             // threadolet, so it follows the node's joint type.
@@ -908,7 +913,7 @@ export function analyse(drawing: Drawing): Analysis {
     const headerOf = (info: NodeInfo | undefined) => {
       if (info?.fitting !== 'OLET') return false;
       const legs = oletLegs(info);
-      return !!legs && legs.branch.id !== run.id;
+      return !!legs && legs.branch?.id !== run.id;
     };
     const dir = direction(a.pos, b.pos) ?? { e: 0, n: 0, u: 0 };
     spans.forEach(([lo, hi], n) => {
@@ -1038,7 +1043,7 @@ export function analyse(drawing: Drawing): Analysis {
           key: `node:${info.node.id}`,
           bomKey: tally({
             category: 'FITTING',
-            description: `${oletLabel(joint)} ${sizeLabel(legs.header[0].dn)} x ${sizeLabel(legs.branch.dn)}`,
+            description: `${oletLabel(joint)} ${sizeLabel(legs.header[0].dn)} x ${sizeLabel(legs.branch?.dn ?? info.node.olet?.dn ?? legs.header[0].dn)}`,
             dn: legs.header[0].dn,
             schedule: fittingThickness,
             unit: 'off',

@@ -17,6 +17,7 @@ export type Selection =
   | { kind: 'node'; id: string }
   | { kind: 'component'; id: string }
   | { kind: 'weld'; key: string }
+  | { kind: 'equipment'; id: string }
   | null;
 
 /**
@@ -717,6 +718,26 @@ export function renderDrawing(state: RenderState): string {
   // of its line in the material list, on a leader out to a circle clear of the
   // drawing. This is how a fabrication isometric says what things are.
   let balloons = '';
+  /**
+   * The nearest point on a length of pipe to somewhere: a pipe's number or
+   * letter dragged along the line keeps its leader short, to the pipe right
+   * beside it, rather than stretched back to where it started.
+   */
+  const nearestOnRuns = (runIds: string[], x: number, y: number): Pt | null => {
+    let best: { p: Pt; d: number } | null = null;
+    for (const s of straights) {
+      if (!runIds.includes(s.run.id)) continue;
+      const vx = s.pb.x - s.pa.x;
+      const vy = s.pb.y - s.pa.y;
+      const len2 = vx * vx + vy * vy || 1;
+      const t = Math.max(0, Math.min(1, ((x - s.pa.x) * vx + (y - s.pa.y) * vy) / len2));
+      const p = { x: s.pa.x + vx * t, y: s.pa.y + vy * t };
+      const d = Math.hypot(p.x - x, p.y - y);
+      if (!best || d < best.d) best = { p, d };
+    }
+    return best?.p ?? null;
+  };
+
   if (drawing.options.showItems !== false) {
     const marks = analysis.items
       .map((item) => {
@@ -745,15 +766,18 @@ export function renderDrawing(state: RenderState): string {
     const placedMarks = marks.filter((m) => m.placed);
     const spreadMarks = spreadLabels(marks.filter((m) => !m.placed), r * 2.9, [...figures, ...weldLabels, ...placedMarks]);
     for (const mark of [...placedMarks, ...spreadMarks]) {
+      // A pipe's balloon leads to the pipe beside it, wherever it was put.
+      const runId = mark.key.startsWith('run:') ? mark.key.slice(4) : null;
+      const foot = (runId && nearestOnRuns([runId], mark.x, mark.y)) || { x: mark.fromX, y: mark.fromY };
       // The leader stops at the balloon's edge rather than running into it.
-      const dx = mark.x - mark.fromX;
-      const dy = mark.y - mark.fromY;
+      const dx = mark.x - foot.x;
+      const dy = mark.y - foot.y;
       const len = Math.hypot(dx, dy) || 1;
       const ex = mark.x - (dx / len) * r;
       const ey = mark.y - (dy / len) * r;
       balloons +=
         `<g class="balloon">` +
-        `<line class="balloon-leader" x1="${mark.fromX.toFixed(2)}" y1="${mark.fromY.toFixed(2)}" x2="${ex.toFixed(2)}" y2="${ey.toFixed(2)}"/>` +
+        `<line class="balloon-leader" x1="${foot.x.toFixed(2)}" y1="${foot.y.toFixed(2)}" x2="${ex.toFixed(2)}" y2="${ey.toFixed(2)}"/>` +
         `<circle class="balloon-ring" cx="${mark.x.toFixed(2)}" cy="${mark.y.toFixed(2)}" r="${r.toFixed(2)}"/>` +
         `<text class="balloon-no" x="${mark.x.toFixed(2)}" y="${(mark.y + size * 0.27).toFixed(2)}" text-anchor="middle">${mark.number}</text>` +
         `</g>`;
@@ -778,9 +802,11 @@ export function renderDrawing(state: RenderState): string {
     const y = placed ? f.cy + placed.dy : f.cy - f.ny * reach * inward;
     const boxW = Math.max(size * 1.7, piece.letter.length * size * 0.8 + size * 0.7);
     const boxH = size * 1.5;
+    // Dragged, the letter leads to the pipe right beside it.
+    const foot = nearestOnRuns(piece.runIds, x, y) ?? { x: f.cx, y: f.cy };
     letters +=
       `<g class="pipe-letter">` +
-      (placed ? `<line class="balloon-leader" x1="${f.cx.toFixed(2)}" y1="${f.cy.toFixed(2)}" x2="${x.toFixed(2)}" y2="${y.toFixed(2)}"/>` : '') +
+      (placed ? `<line class="balloon-leader" x1="${foot.x.toFixed(2)}" y1="${foot.y.toFixed(2)}" x2="${x.toFixed(2)}" y2="${y.toFixed(2)}"/>` : '') +
       `<rect class="pipe-letter-box" x="${(x - boxW / 2).toFixed(2)}" y="${(y - boxH / 2).toFixed(2)}" width="${boxW.toFixed(2)}" height="${boxH.toFixed(2)}"/>` +
       `<text class="pipe-letter-text" x="${x.toFixed(2)}" y="${(y + size * 0.36).toFixed(2)}" text-anchor="middle">${escapeText(piece.letter)}</text></g>`;
     weldHits += `<circle class="hit-dot" data-balloon="pc:${piece.key}" data-ax="${f.cx.toFixed(2)}" data-ay="${f.cy.toFixed(2)}" cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="${Math.max(boxH * 0.8, hitR * 0.55).toFixed(2)}"/>`;
@@ -794,13 +820,26 @@ export function renderDrawing(state: RenderState): string {
     const legs = oletLegs(info);
     if (!legs) continue;
     const here = paper(nodeId);
-    const branchOther = legs.branch.from === nodeId ? legs.branch.to : legs.branch.from;
-    const out = paper(branchOther);
-    if (!here || !out) continue;
-    const otherNode = analysis.nodeById.get(branchOther);
-    const branchPlane = otherNode ? symbolPlane(drawing, info.node.pos, otherNode.pos) : null;
+    if (!here) continue;
+    let out: Pt | null = null;
+    let branchPlane: { across: Pt; up: Pt } | null = null;
+    let stub = '';
+    if (legs.branch) {
+      const branchOther = legs.branch.from === nodeId ? legs.branch.to : legs.branch.from;
+      out = paper(branchOther);
+      const otherNode = analysis.nodeById.get(branchOther);
+      branchPlane = otherNode ? symbolPlane(drawing, info.node.pos, otherNode.pos) : null;
+    } else if (info.node.olet) {
+      // No branch drawn yet: the saddle faces the way the branch will go,
+      // with a short dashed stub to show it.
+      const d = axisScreenDir(info.node.olet.dir, drawing.options.northRotation);
+      out = { x: here.x + d.x * 10, y: here.y + d.y * 10 };
+      branchPlane = symbolPlane(drawing, info.node.pos, add(info.node.pos, AXIS_VECTOR[info.node.olet.dir]));
+      stub = `<line class="sym-dashed" x1="${(here.x + d.x * size * 0.9).toFixed(2)}" y1="${(here.y + d.y * size * 0.9).toFixed(2)}" x2="${(here.x + d.x * size * 2.6).toFixed(2)}" y2="${(here.y + d.y * size * 2.6).toFixed(2)}"/>`;
+    }
+    if (!out) continue;
     const f = frameFor(here.x, here.y, out.x, out.y, 0, size, branchPlane?.across, branchPlane?.up);
-    olets += `<g class="olet">${oletSymbol(f)}</g>`;
+    olets += `<g class="olet">${oletSymbol(f)}${stub}</g>`;
   }
 
   // A branch of a different size is called out in words beside it — "6\"X2\" NS"
@@ -812,7 +851,7 @@ export function renderDrawing(state: RenderState): string {
     if (!isReducingTee && !isOlet) continue;
     const header = isOlet ? oletLegs(info)?.header[0] : info.runs[0];
     const branch = isOlet
-      ? oletLegs(info)?.branch
+      ? oletLegs(info)?.branch ?? (info.node.olet ? { dn: info.node.olet.dn } : undefined)
       : info.runs.find((r) => r.dn !== info.runs[0].dn);
     if (!header || !branch || header.dn === branch.dn) continue;
     const at = paper(nodeId);
@@ -822,7 +861,35 @@ export function renderDrawing(state: RenderState): string {
     )}</text>`;
   }
 
-  welds = olets + tees + welds + balloons + callouts;
+  // Equipment: a dashed box with its name, standing on a point of the
+  // drawing and dragged wherever it reads best.
+  let equipment = '';
+  for (const box of drawing.equipment ?? []) {
+    const at = toPaper(box.at, drawing);
+    const along = AXIS_VECTOR[box.axis];
+    const side = AXIS_VECTOR[box.across];
+    const corners = [
+      add(box.at, scale3(side, -box.width / 2)),
+      add(box.at, scale3(side, box.width / 2)),
+      add(add(box.at, scale3(along, box.length)), scale3(side, box.width / 2)),
+      add(add(box.at, scale3(along, box.length)), scale3(side, -box.width / 2)),
+    ].map((c) => toPaper(c, drawing));
+    const placed = drawing.itemOverrides?.[`eq:${box.id}`];
+    const dx = placed?.dx ?? 0;
+    const dy = placed?.dy ?? 0;
+    const points = corners.map((c) => `${(c.x + dx).toFixed(2)},${(c.y + dy).toFixed(2)}`).join(' ');
+    const cx = corners.reduce((sum, c) => sum + c.x, 0) / 4 + dx;
+    const cy = corners.reduce((sum, c) => sum + c.y, 0) / 4 + dy;
+    const selectedBox = sel?.kind === 'equipment' && sel.id === box.id;
+    equipment +=
+      `<g class="equipment${selectedBox ? ' selected' : ''}">` +
+      `<polygon class="equip-box" points="${points}"/>` +
+      `<text class="equip-text" x="${cx.toFixed(2)}" y="${(cy + size * 0.36).toFixed(2)}" text-anchor="middle">${escapeText(box.name || 'EQUIPMENT')}</text>` +
+      `</g>`;
+    weldHits += `<polygon class="hit-box" data-equipment="${box.id}" data-ax="${at.x.toFixed(2)}" data-ay="${at.y.toFixed(2)}" points="${points}"/>`;
+  }
+
+  welds = olets + tees + equipment + welds + balloons + callouts;
 
   // Drag preview.
   let preview = '';

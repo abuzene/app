@@ -1,4 +1,4 @@
-import type { Axis, ComponentKind, Drawing, EndType, FlangeKind, InlineComponent, IsoNode, Run, TerminalKind, Vec3 } from './types';
+import type { Axis, ComponentKind, Drawing, EndType, Equipment, FlangeKind, InlineComponent, IsoNode, Run, TerminalKind, Vec3 } from './types';
 import { add, axisBetween, direction, equals3, length3, scale3, step, sub } from './iso';
 import { dimensionStops, fittingsTouchLength, isValve, itemAtEnd, terminalTakeoutOf, uid, type Analysis } from './drawing';
 import { componentTakeout } from './pipe-data';
@@ -563,6 +563,38 @@ export function removeFlangeJoint(drawing: Drawing, nodeId: string): boolean {
   drawing.nodes = drawing.nodes.filter((n) => n.id !== nodeId);
   if (drawing.dimOverrides) delete drawing.dimOverrides[a.id + ':0'];
   return true;
+}
+
+/**
+ * Takes an olet off the line. With its branch gone (or never drawn) the two
+ * header runs are joined back into one, so no joint is left where it sat.
+ */
+export function removeOlet(drawing: Drawing, nodeId: string): void {
+  const node = drawing.nodes.find((n) => n.id === nodeId);
+  if (!node) return;
+  node.olet = undefined;
+  if (node.fittingOverride === 'OLET') node.fittingOverride = undefined;
+  node.joint = undefined;
+  if (drawing.runs.filter((r) => r.from === nodeId || r.to === nodeId).length === 2) removeFlangeJoint(drawing, nodeId);
+}
+
+/** Puts an equipment box on a point, reaching away from the line that ends there. */
+export function addEquipment(drawing: Drawing, nodeId: string, name: string): Equipment | null {
+  const node = drawing.nodes.find((n) => n.id === nodeId);
+  if (!node) return null;
+  const run = drawing.runs.find((r) => r.from === nodeId || r.to === nodeId);
+  const other = run ? drawing.nodes.find((n) => n.id === (run.from === nodeId ? run.to : run.from)) : undefined;
+  // Away from the pipe: on along the line's last leg; east when there is none.
+  const axis: Axis = other ? axisBetween(other.pos, node.pos) ?? 'E' : 'E';
+  const across: Axis = axis === 'U' || axis === 'D' ? 'E' : axis === 'E' || axis === 'W' ? 'N' : 'E';
+  const box: Equipment = { id: uid('q'), at: { ...node.pos }, axis, across, length: 1500, width: 1000, name };
+  drawing.equipment = [...(drawing.equipment ?? []), box];
+  return box;
+}
+
+export function removeEquipment(drawing: Drawing, id: string): void {
+  drawing.equipment = (drawing.equipment ?? []).filter((q) => q.id !== id);
+  if (drawing.itemOverrides) delete drawing.itemOverrides[`eq:${id}`];
 }
 
 /**

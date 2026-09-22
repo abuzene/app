@@ -113,6 +113,28 @@ export interface IsoNode {
   fittingOverride?: FittingKind;
   /** Overrides the drawing's default joint type at this point. */
   joint?: JointType;
+  /**
+   * An olet riding on the line here: which way its branch goes and what size
+   * it is. Set when the olet is placed, before any branch is drawn; the
+   * branch run, once drawn, is what the analysis then goes by.
+   */
+  olet?: { dir: Axis; dn: string };
+}
+
+/**
+ * A piece of equipment drawn as a dashed box with a name in it: a pump, a
+ * tank, a skid. A note on the drawing, not material — no list line, no
+ * welds. It stands on a point of the drawing (`at`), reaches `length` along
+ * `axis` from there and is `width` wide across, centred on that line.
+ */
+export interface Equipment {
+  id: string;
+  at: Vec3;
+  axis: Axis;
+  across: Axis;
+  length: number;
+  width: number;
+  name: string;
 }
 
 export type FittingKind =
@@ -269,6 +291,8 @@ export interface Drawing {
   dimOverrides?: Record<string, DimOverride>;
   /** Names typed over the material list's own, by list line key. */
   bomNames?: Record<string, string>;
+  /** Equipment boxes drawn on the sheet. */
+  equipment?: Equipment[];
 }
 
 export interface DimOverride {

@@ -179,6 +179,32 @@ ships, and the decisions already taken, so they are not re-litigated.
   `drawing.bomNames[lineKey]`, applied at the end of `analyse` after the
   sort, so item numbers stay put): capitalised, printed on the sheet's
   BILL OF MATERIALS as typed, cleared to get the list's own name back.
+- **Olets ride on the header** (his complaint: "inserting an olet split the
+  pipe like a tee"). Picking an olet with a run (or a plain point along a
+  line) selected opens a **dialog** (`oletDialog` in main.ts: Branch size,
+  Branch goes N/S/E/W/U/D minus the header's axis) and places the olet
+  **alone**: `placeOlet` in tools.ts splits the run at the middle (an
+  internal point — the header stays one piece, one letter, one cut length;
+  the two dimensions are how he positions it, and the dimension up to it
+  opens for typing), sets `fittingOverride: 'OLET'`, `node.joint` and
+  `node.olet = { dir, dn }`. `inferFitting`/`oletLegs` treat a 2-run
+  collinear node with `node.olet` as an olet with `branch: null`: header
+  weld, BOM line "WELDOLET 6" x 1"", balloon, saddle drawn facing `dir`
+  with a dashed stub. The node panel shows Branch size / Branch goes and
+  **Draw the branch from here** (`continueFrom` sets `currentDn` to the
+  olet's size); HUD/panel **Remove olet** (`removeOlet` in edit.ts) joins
+  the header back into one run. Never arm the pencil on placement.
+- **Leaders on pipe numbers and letters** end at the nearest point of the
+  pipe (`nearestOnRuns` in the renderer), so a dragged balloon/letter keeps
+  a short leader; fitting balloons still point at the fitting.
+- **Equipment box** (`drawing.equipment`, `Equipment` in types.ts; Marks
+  palette "Equipment", `placeEquipment` in tools.ts, needs a picked point):
+  a dashed isometric rectangle (`.equip-box`) with the name in it
+  (`.equip-text`), standing on the point, reaching `length` along `axis`
+  (default: on past the line's last leg) and `width` centred along
+  `across`, in mm. Panel: name (capitalised), length, width, axes, E/N/U;
+  dragged as a whole on the drawing (paper offset `itemOverrides['eq:<id>']`,
+  relative drag). Selection kind `equipment`; a note, not material.
 - Supports and the AG/UG mark are **notes, not material**: no BOM line, no
   welds. Supports are numbered along the line unless named.
 - Printing happens from the page itself (`#print-root`, `@page` size); a
@@ -256,7 +282,9 @@ E 3000        route (N S E W U D)           ORIGIN 0 0 0
 MARK t / GOTO t   a tee at t                END FLG | CAP | BLIND | TRANS | CONT
 ```
 Olets and the touching flag are palette/HUD only: `.tool[data-olet="BW"]`
-with a run selected, then route the branch; `#hud-direct` with a run
+with a run selected, confirm the dialog (`.dialog [data-f="olet-dn"]`,
+`[data-f="olet-dir"]`, `[data-confirm]`), then `#tab-body [data-a="draw-from"]`
+on the olet point and tap where the branch goes; `#hud-direct` with a run
 selected. Welds tab rows: `#tab-body table tbody tr` (No. is an input, so
 innerText starts with a tab). In scripts select points by dispatching
 `pointerdown`/`pointerup` on `circle.hit-dot[data-node]`; a plain click

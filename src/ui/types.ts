@@ -1,6 +1,6 @@
 import type { Analysis } from '../model/drawing';
 import type { CommandState } from '../model/commands';
-import type { Drawing } from '../model/types';
+import type { Axis, Drawing, JointType } from '../model/types';
 import type { Preview, Selection, ViewBox } from '../render/renderer';
 import type { LibraryEntry } from '../model/library';
 import type { DriveStatus } from '../model/drive';
@@ -73,6 +73,8 @@ export interface Host {
    * to carry on drawing from its far end. Null when the box is dismissed.
    */
   reducerDialog(ask: ReducerAsk): Promise<ReducerChoice | null>;
+  /** Asks which way an olet's branch goes and what size it is. */
+  oletDialog(ask: OletAsk): Promise<OletChoice | null>;
   /** Makes this the size the next runs are drawn with. */
   setCurrentSize(dn: string): void;
 }
@@ -87,6 +89,19 @@ export interface ReducerAsk {
   drawOn: boolean;
   /** The end piece it sits against, when the end wears one: "WELD NECK FLANGE". */
   against?: string;
+}
+
+export interface OletAsk {
+  joint: JointType;
+  /** The header's size. */
+  header: string;
+  /** The header's direction, which the branch cannot share. */
+  along: Axis | null;
+}
+
+export interface OletChoice {
+  dn: string;
+  dir: Axis;
 }
 
 export interface ReducerChoice {

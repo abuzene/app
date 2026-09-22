@@ -1,14 +1,14 @@
 import './styles.css';
-import type { Drawing, Run, Vec3 } from './model/types';
+import type { Axis, Drawing, Run, Vec3 } from './model/types';
 import type { Preview, Selection } from './render/renderer';
-import type { AppState, Host, ReducerAsk, ReducerChoice } from './ui/types';
+import type { AppState, Host, OletAsk, OletChoice, ReducerAsk, ReducerChoice } from './ui/types';
 import { reducerPreview } from './ui/reducer-preview';
 import { analyse, dimensionStops, emptyDrawing, uid } from './model/drawing';
 import { loadLibrary, removeDrawing, renumberProject, sheetNumber, upsertDrawing, worthKeeping } from './model/library';
 import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, noteRemovedFromLibrary, setDriveClientId, syncDrive } from './model/drive';
-import { add, length3, scale3, sub } from './model/iso';
+import { AXES, AXIS_VECTOR, add, length3, scale3, sub } from './model/iso';
 import { initialCommandState, runCommands } from './model/commands';
-import { applyDimension, connectNodes, deleteNode, deleteRun, ensureNode, removeComponent, removeFlangeJoint, route, setRunDirect, stretchRun } from './model/edit';
+import { applyDimension, connectNodes, deleteNode, deleteRun, ensureNode, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, setRunDirect, stretchRun } from './model/edit';
 import { DN_LIST, schedulesFor, sizeLabel } from './model/pipe-data';
 import { northArrow, paperOf, toPaper } from './render/renderer';
 import { renderSheet, type SheetSize } from './render/sheet';
@@ -124,8 +124,15 @@ const host: Host = {
     state.selection = { kind: 'node', id: nodeId };
     state.commandState.currentNode = nodeId;
     syncSizeFromSelection();
+    // Drawing from an olet lays its branch, at the branch size.
+    const olet = state.drawing.nodes.find((n) => n.id === nodeId)?.olet;
+    const pending = olet && state.analysis.nodeInfo.get(nodeId)?.degree === 2;
+    if (pending) {
+      state.currentDn = olet.dn;
+      refreshSizeSelects();
+    }
     render();
-    host.notify('Carry on clicking to continue the line.');
+    host.notify(pending ? `Tap where the branch goes: ${sizeLabel(olet.dn)} from the olet.` : 'Carry on clicking to continue the line.');
   },
   notify(message) {
     toast = { message, until: Date.now() + 3200 };
@@ -185,6 +192,9 @@ const host: Host = {
   },
   reducerDialog(ask) {
     return reducerDialog(ask);
+  },
+  oletDialog(ask) {
+    return oletDialog(ask);
   },
   setCurrentSize(dn) {
     state.currentDn = dn;
@@ -886,8 +896,9 @@ function renderHud(): void {
   }
   if (sel && sel.kind !== 'weld') {
     const flanged = sel.kind === 'node' && !!state.drawing.nodes.find((n) => n.id === sel.id)?.flange;
-    const what = sel.kind === 'run' ? 'run' : sel.kind === 'node' ? (flanged ? 'flanges' : 'point') : 'item';
-    parts.push(`<button class="hud-stop hud-delete" id="hud-delete" type="button">${flanged ? 'Remove flanges' : `Delete ${what}`}</button>`);
+    const olet = sel.kind === 'node' && !!state.drawing.nodes.find((n) => n.id === sel.id)?.olet && state.analysis.nodeInfo.get(sel.id)?.degree === 2;
+    const what = sel.kind === 'run' ? 'run' : sel.kind === 'node' ? (flanged ? 'flanges' : 'point') : sel.kind === 'equipment' ? 'equipment' : 'item';
+    parts.push(`<button class="hud-stop hud-delete" id="hud-delete" type="button">${flanged ? 'Remove flanges' : olet ? 'Remove olet' : `Delete ${what}`}</button>`);
   }
   parts.push(`<span>snap ${state.drawing.options.snap} mm</span>`);
   if (state.drawing.options.schematic) parts.push('<span>not to scale</span>');
@@ -1697,6 +1708,48 @@ function reducerDialog(ask: ReducerAsk): Promise<ReducerChoice | null> {
   });
 }
 
+const AXIS_NAMES: Record<Axis, string> = { N: 'North', S: 'South', E: 'East', W: 'West', U: 'Up', D: 'Down' };
+
+/** Which way an olet's branch will go, and its size; the olet then waits on the line for it. */
+function oletDialog(ask: OletAsk): Promise<OletChoice | null> {
+  return new Promise((resolve) => {
+    const backdrop = document.createElement('div');
+    backdrop.className = 'dialog-backdrop';
+    const same = (a: Axis, b: Axis | null) => b !== null && (a === b || AXIS_VECTOR[a].e === -AXIS_VECTOR[b].e && AXIS_VECTOR[a].n === -AXIS_VECTOR[b].n && AXIS_VECTOR[a].u === -AXIS_VECTOR[b].u);
+    const dirs = AXES.filter((axis) => !same(axis, ask.along));
+    const pick = dirs.includes('U') ? 'U' : dirs[0];
+    const at = DN_LIST.indexOf(ask.header);
+    const small = DN_LIST[Math.max(0, at - 1)] ?? ask.header;
+    const name = ask.joint === 'SW' ? 'Sockolet' : ask.joint === 'THD' ? 'Threadolet' : 'Weldolet';
+    backdrop.innerHTML = `
+<div class="dialog" role="dialog" aria-label="Olet" data-editor="olet">
+  <h3>${name} on ${sizeLabel(ask.header)}</h3>
+  <div class="row"><label>Branch size</label><select data-f="olet-dn">${DN_LIST.map((dn) => `<option value="${dn}"${dn === small ? ' selected' : ''}>${sizeLabel(dn)}</option>`).join('')}</select></div>
+  <div class="row"><label>Branch goes</label><select data-f="olet-dir">${dirs.map((axis) => `<option value="${axis}"${axis === pick ? ' selected' : ''}>${AXIS_NAMES[axis]}</option>`).join('')}</select></div>
+  <p class="empty-note">The olet rides on the header, which keeps its full length. Type the dimension up to it to place it; draw the branch from it whenever you like, at the branch size.</p>
+  <div class="btn-row">
+    <button class="btn-line solid" data-confirm>Place olet</button>
+    <button class="btn-line" data-cancel>Cancel</button>
+  </div>
+</div>`;
+    document.body.appendChild(backdrop);
+    const close = (answer: OletChoice | null) => {
+      backdrop.remove();
+      resolve(answer);
+    };
+    backdrop.querySelector('[data-confirm]')?.addEventListener('click', () =>
+      close({
+        dn: backdrop.querySelector<HTMLSelectElement>('[data-f="olet-dn"]')!.value,
+        dir: backdrop.querySelector<HTMLSelectElement>('[data-f="olet-dir"]')!.value as Axis,
+      }),
+    );
+    backdrop.querySelector('[data-cancel]')?.addEventListener('click', () => close(null));
+    backdrop.addEventListener('click', (event) => {
+      if (event.target === backdrop) close(null);
+    });
+  });
+}
+
 /** Full-screen overlay used to show something the page cannot hand over as a file. */
 function openOverlay(title: string, body: string, wide = false): HTMLElement {
   const backdrop = document.createElement('div');
@@ -1978,13 +2031,18 @@ function deleteSelection(): void {
   // A flanged joint: the pair of flanges goes and the pipe is joined
   // straight through, rather than the point and its runs.
   const flanged = sel.kind === 'node' && !!state.drawing.nodes.find((n) => n.id === sel.id)?.flange;
-  host.edit(flanged ? 'Remove flanges' : 'Delete', (d) => {
+  // An olet with no branch: only the olet goes, and the header runs on whole.
+  const olet = sel.kind === 'node' && !!state.drawing.nodes.find((n) => n.id === sel.id)?.olet && state.analysis.nodeInfo.get(sel.id)?.degree === 2;
+  host.edit(flanged ? 'Remove flanges' : olet ? 'Remove olet' : 'Delete', (d) => {
     if (sel.kind === 'run') deleteRun(d, sel.id);
+    else if (sel.kind === 'equipment') removeEquipment(d, sel.id);
     else if (sel.kind === 'node' && flanged) removeFlangeJoint(d, sel.id);
+    else if (sel.kind === 'node' && olet) removeOlet(d, sel.id);
     else if (sel.kind === 'node') deleteNode(d, sel.id);
     else removeComponent(d, sel.id);
   });
   if (flanged) host.notify('Flanges removed; the pipe runs straight through.');
+  if (olet) host.notify('Olet removed; the header runs on whole.');
   if (sel.kind === 'node') canvas.setAnchor(null);
   state.preview = null;
   host.select(null);

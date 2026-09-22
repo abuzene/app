@@ -51,6 +51,10 @@ export function contentCss({ k, u, symbol = 4, dark = false }: ContentStyleOptio
 .sym-thin { stroke: ${ink}; stroke-width: ${w(0.8)}; fill: none; }
 .sym-text { fill: ${ink}; font-weight: 600; pointer-events: none; }
 .sym-dashed { fill: none; stroke: ${ink}; stroke-width: ${w(1.2)}; stroke-dasharray: ${w(3)} ${w(2.2)}; }
+.equip-box { fill: none; stroke: ${ink}; stroke-width: ${w(1.4)}; stroke-dasharray: ${w(4)} ${w(2.5)}; }
+.equip-text { fill: ${ink}; font-size: ${t(1.0)}px; font-weight: 700; pointer-events: none; }
+.equipment.selected .equip-box { stroke: ${accent}; }
+.hit-box { fill: transparent; stroke: transparent; stroke-width: ${w(10)}; cursor: pointer; }
 .component.selected .sym-line,
 .component.selected .sym-dashed,
 .component.selected .sym-hollow,
