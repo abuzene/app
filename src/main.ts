@@ -3,12 +3,12 @@ import type { Axis, Drawing, Run, Vec3 } from './model/types';
 import type { Preview, Selection } from './render/renderer';
 import type { AppState, Host, OletAsk, OletChoice, ReducerAsk, ReducerChoice } from './ui/types';
 import { reducerPreview } from './ui/reducer-preview';
-import { analyse, chainStops, dimensionStops, emptyDrawing, uid } from './model/drawing';
+import { analyse, chainStops, dimensionStops, emptyDrawing, oletLegs, oletMarks, uid } from './model/drawing';
 import { loadLibrary, removeDrawing, renumberProject, sheetNumber, upsertDrawing, worthKeeping } from './model/library';
 import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, noteRemovedFromLibrary, setDriveClientId, syncDrive } from './model/drive';
 import { AXES, AXIS_VECTOR, add, length3, scale3, sub } from './model/iso';
 import { initialCommandState, runCommands } from './model/commands';
-import { applyChainDimension, applyDimension, connectNodes, deletePoint, deleteRun, ensureNode, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, setRunDirect, stretchRun } from './model/edit';
+import { addMeasure, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, deleteRun, ensureNode, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, setRunDirect, stretchRun } from './model/edit';
 import { DN_LIST, schedulesFor, sizeLabel } from './model/pipe-data';
 import { northArrow, paperOf, toPaper } from './render/renderer';
 import { renderSheet, type SheetSize } from './render/sheet';
@@ -39,6 +39,7 @@ const state: AppState = {
   drawing,
   analysis: analyse(drawing),
   selection: null,
+  measureFrom: null,
   preview: null,
   commandState: initialCommandState(),
   commandText: '',
@@ -125,14 +126,14 @@ const host: Host = {
     state.commandState.currentNode = nodeId;
     syncSizeFromSelection();
     // Drawing from an olet lays its branch, at the branch size.
-    const olet = state.drawing.nodes.find((n) => n.id === nodeId)?.olet;
-    const pending = olet && state.analysis.nodeInfo.get(nodeId)?.degree === 2;
+    const info = state.analysis.nodeInfo.get(nodeId);
+    const pending = info?.fitting === 'OLET' ? oletLegs(info)?.pending[0] : undefined;
     if (pending) {
-      state.currentDn = olet.dn;
+      state.currentDn = pending.dn;
       refreshSizeSelects();
     }
     render();
-    host.notify(pending ? `Tap where the branch goes: ${sizeLabel(olet.dn)} from the olet.` : 'Carry on clicking to continue the line.');
+    host.notify(pending ? `Tap where the branch goes: ${sizeLabel(pending.dn)} from the olet, ${AXIS_NAMES[pending.dir].toLowerCase()}.` : 'Carry on clicking to continue the line.');
   },
   notify(message) {
     toast = { message, until: Date.now() + 3200 };
@@ -196,6 +197,12 @@ const host: Host = {
   oletDialog(ask) {
     return oletDialog(ask);
   },
+  measureFrom(nodeId) {
+    state.measureFrom = nodeId;
+    state.selection = { kind: 'node', id: nodeId };
+    render();
+    host.notify('Tap the other point of the dimension.');
+  },
   setCurrentSize(dn) {
     state.currentDn = dn;
     if (!schedulesFor(dn).includes(state.currentSchedule)) state.currentSchedule = schedulesFor(dn)[0] ?? state.currentSchedule;
@@ -231,8 +238,15 @@ let dimensionEditor: HTMLInputElement | null = null;
 function openDimensionEditor(key: string, clientX: number, clientY: number): void {
   // A header chain's pieces and its olets' distances have keys of their own.
   const chained = key.startsWith('chain:') || key.startsWith('olet:');
+  const measured = key.startsWith('meas:');
   let current: number;
-  if (chained) {
+  if (measured) {
+    const measure = state.drawing.measures?.find((m) => m.id === key.slice(5));
+    const na = measure ? state.analysis.nodeById.get(measure.a) : undefined;
+    const nb = measure ? state.analysis.nodeById.get(measure.b) : undefined;
+    if (!na || !nb) return;
+    current = Math.round(Math.hypot(nb.pos.e - na.pos.e, nb.pos.n - na.pos.n, nb.pos.u - na.pos.u));
+  } else if (chained) {
     const olet = key.match(/^olet:(.+)$/);
     const piece = key.match(/^chain:(.+):(\d+)$/);
     const chain = olet
@@ -264,6 +278,10 @@ function openDimensionEditor(key: string, clientX: number, clientY: number): voi
       const value = Number(text);
       if (!Number.isFinite(value) || value <= 0 || Math.round(value) === current) return;
       let refused: string | null = null;
+      if (measured) {
+        host.notify('A dimension between two points: move a point to change it.');
+        return;
+      }
       host.edit('Set dimension', (d) => {
         if (chained) refused = applyChainDimension(d, state.analysis, key, Math.round(value));
         else {
@@ -276,17 +294,26 @@ function openDimensionEditor(key: string, clientX: number, clientY: number): voi
         host.notify(refused);
       }
     },
-    [
-      {
-        label: 'Hide this dimension',
-        act: () => {
-          host.edit('Hide dimension', (d) => {
-            d.dimOverrides = { ...d.dimOverrides, [key]: { ...d.dimOverrides?.[key], hidden: true } };
-          });
-          host.notify('Dimension hidden. The run\'s panel brings it back.');
-        },
-      },
-    ],
+    measured
+      ? [
+          {
+            label: 'Remove this dimension',
+            act: () => {
+              host.edit('Remove dimension', (d) => removeMeasure(d, key.slice(5)));
+            },
+          },
+        ]
+      : [
+          {
+            label: 'Hide this dimension',
+            act: () => {
+              host.edit('Hide dimension', (d) => {
+                d.dimOverrides = { ...d.dimOverrides, [key]: { ...d.dimOverrides?.[key], hidden: true } };
+              });
+              host.notify('Dimension hidden. The run\'s panel brings it back.');
+            },
+          },
+        ],
   );
 }
 
@@ -452,6 +479,17 @@ function closeDimensionEditor(): void {
 
 const canvas = new Canvas(svg, {
   onSelect(selection: Selection) {
+    // A dimension by hand under way: the point tapped ends it.
+    if (state.measureFrom) {
+      const from = state.measureFrom;
+      state.measureFrom = null;
+      if (selection?.kind === 'node' && selection.id !== from) {
+        host.edit('Add dimension', (d) => addMeasure(d, from, selection.id));
+        host.notify('Dimension added. Tap its figure to take it off.');
+        return;
+      }
+      host.notify('Dimension not added.');
+    }
     // Something picked on the drawing is edited in the Route tab, so that is
     // where the panel goes — unless the weld list is open, which edits welds too.
     if (selection && state.tab !== 'route' && !(selection.kind === 'weld' && state.tab === 'welds')) {
@@ -916,6 +954,8 @@ function renderHud(): void {
   if (sel?.kind === 'node' && canvas.drawingFrom !== sel.id) {
     parts.push('<button class="hud-stop" id="hud-draw-from" type="button">Draw from here</button>');
   }
+  if (state.measureFrom) parts.push('<span>dimension — tap the other point</span>');
+  else if (sel?.kind === 'node') parts.push('<button class="hud-stop" id="hud-measure" type="button">Dimension from here</button>');
   if (sel?.kind === 'run') {
     // Fitting welded straight to fitting, no pipe between: the run stays as
     // their centre-to-centre, but there is nothing to cut and one weld.
@@ -924,7 +964,7 @@ function renderHud(): void {
   }
   if (sel && sel.kind !== 'weld') {
     const flanged = sel.kind === 'node' && !!state.drawing.nodes.find((n) => n.id === sel.id)?.flange;
-    const olet = sel.kind === 'node' && !!state.drawing.nodes.find((n) => n.id === sel.id)?.olet && state.analysis.nodeInfo.get(sel.id)?.degree === 2;
+    const olet = sel.kind === 'node' && oletAlone(sel.id);
     const plain = sel.kind === 'node' && isPlainPoint(state.drawing, sel.id);
     const what = sel.kind === 'run' ? 'run' : sel.kind === 'node' ? (flanged ? 'flanges' : 'point') : sel.kind === 'equipment' ? 'equipment' : 'item';
     parts.push(`<button class="hud-stop hud-delete" id="hud-delete" type="button">${flanged ? 'Remove flanges' : olet ? 'Remove olet' : plain ? 'Remove point' : `Delete ${what}`}</button>`);
@@ -946,6 +986,9 @@ function renderHud(): void {
     host.notify(on ? 'The fittings are joined directly: one weld, no pipe to cut.' : 'A pipe between the fittings again.');
   });
   hudEl.querySelector('#hud-update')?.addEventListener('click', () => location.reload());
+  hudEl.querySelector('#hud-measure')?.addEventListener('click', () => {
+    if (state.selection?.kind === 'node') host.measureFrom(state.selection.id);
+  });
   hudEl.querySelector('#hud-draw-from')?.addEventListener('click', () => {
     if (state.selection?.kind === 'node') host.continueFrom(state.selection.id);
   });
@@ -1745,7 +1788,7 @@ function oletDialog(ask: OletAsk): Promise<OletChoice | null> {
     const backdrop = document.createElement('div');
     backdrop.className = 'dialog-backdrop';
     const same = (a: Axis, b: Axis | null) => b !== null && (a === b || AXIS_VECTOR[a].e === -AXIS_VECTOR[b].e && AXIS_VECTOR[a].n === -AXIS_VECTOR[b].n && AXIS_VECTOR[a].u === -AXIS_VECTOR[b].u);
-    const dirs = AXES.filter((axis) => !same(axis, ask.along));
+    const dirs = AXES.filter((axis) => !same(axis, ask.along) && !(ask.taken ?? []).includes(axis));
     const pick = dirs.includes('U') ? 'U' : dirs[0];
     const at = DN_LIST.indexOf(ask.header);
     const small = DN_LIST[Math.max(0, at - 1)] ?? ask.header;
@@ -2037,6 +2080,7 @@ window.addEventListener('keydown', (event) => {
   if (typing) return;
 
   if (event.key === 'Escape') {
+    state.measureFrom = null;
     viewMenuEl.classList.remove('open');
     canvas.setAnchor(null);
     state.preview = null;
@@ -2054,6 +2098,12 @@ window.addEventListener('keydown', (event) => {
 });
 
 /** Removes whatever is selected: a run, a point and its runs, or an item. */
+/** An olet point with no branch drawn yet: only the olet is there to remove. */
+function oletAlone(nodeId: string): boolean {
+  const node = state.drawing.nodes.find((n) => n.id === nodeId);
+  return !!node && oletMarks(node).length > 0 && state.analysis.nodeInfo.get(nodeId)?.degree === 2;
+}
+
 function deleteSelection(): void {
   const sel = state.selection;
   if (!sel || sel.kind === 'weld') return;
@@ -2061,7 +2111,7 @@ function deleteSelection(): void {
   // straight through, rather than the point and its runs.
   const flanged = sel.kind === 'node' && !!state.drawing.nodes.find((n) => n.id === sel.id)?.flange;
   // An olet with no branch: only the olet goes, and the header runs on whole.
-  const olet = sel.kind === 'node' && !!state.drawing.nodes.find((n) => n.id === sel.id)?.olet && state.analysis.nodeInfo.get(sel.id)?.degree === 2;
+  const olet = sel.kind === 'node' && oletAlone(sel.id);
   // A plain point along a line just goes, and the pipe runs on through.
   const plain = sel.kind === 'node' && isPlainPoint(state.drawing, sel.id);
   host.edit(flanged ? 'Remove flanges' : olet ? 'Remove olet' : plain ? 'Remove point' : 'Delete', (d) => {

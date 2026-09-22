@@ -1,6 +1,6 @@
 import type { Analysis } from '../model/drawing';
 import type { Axis, DimOverride, Drawing, FlangeKind, Run, Vec3 } from '../model/types';
-import { COMPONENT_LABEL, TERMINAL_LABEL, chainStops, dimensionStops, fittingLabel, isMark, isReducer, isSupport, isValve, itemAtEnd, oletLegs, resolveEnds } from '../model/drawing';
+import { COMPONENT_LABEL, TERMINAL_LABEL, chainStops, dimensionStops, fittingLabel, isMark, isReducer, isSupport, isValve, itemAtEnd, oletEntries, oletLegs, resolveEnds } from '../model/drawing';
 import { componentTakeout, sizeLabel, valveFlangeKind } from '../model/pipe-data';
 import { AXIS_VECTOR, axisBetween, axisScreenDir, project, scale3, add } from '../model/iso';
 import { componentSymbol, flangeHub, flangeSymbol, frameFor, gasketLine, groundSymbol, isFlange, jointMark, oletSymbol, supportCallout, supportSymbol, terminalSymbol, transitionSymbol, type Facing, type Frame } from './symbols';
@@ -887,7 +887,8 @@ export function renderDrawing(state: RenderState): string {
   }
   balloons += letters;
 
-  // An olet is drawn as the saddle on the header where the branch leaves it.
+  // An olet is drawn as the saddle on the header where the branch leaves it;
+  // one saddle per olet, since several can sit on one point.
   let olets = '';
   for (const [nodeId, info] of analysis.nodeInfo) {
     if (info.fitting !== 'OLET') continue;
@@ -895,25 +896,45 @@ export function renderDrawing(state: RenderState): string {
     if (!legs) continue;
     const here = paper(nodeId);
     if (!here) continue;
-    let out: Pt | null = null;
-    let branchPlane: { across: Pt; up: Pt } | null = null;
-    let stub = '';
-    if (legs.branch) {
-      const branchOther = legs.branch.from === nodeId ? legs.branch.to : legs.branch.from;
-      out = paper(branchOther);
-      const otherNode = analysis.nodeById.get(branchOther);
-      branchPlane = otherNode ? symbolPlane(drawing, info.node.pos, otherNode.pos) : null;
-    } else if (info.node.olet) {
-      // No branch drawn yet: the saddle faces the way the branch will go,
-      // with a short dashed stub to show it.
-      const d = axisScreenDir(info.node.olet.dir, drawing.options.northRotation);
-      out = { x: here.x + d.x * 10, y: here.y + d.y * 10 };
-      branchPlane = symbolPlane(drawing, info.node.pos, add(info.node.pos, AXIS_VECTOR[info.node.olet.dir]));
-      stub = `<line class="sym-dashed" x1="${(here.x + d.x * size * 0.9).toFixed(2)}" y1="${(here.y + d.y * size * 0.9).toFixed(2)}" x2="${(here.x + d.x * size * 2.6).toFixed(2)}" y2="${(here.y + d.y * size * 2.6).toFixed(2)}"/>`;
+    for (const entry of oletEntries(legs)) {
+      let out: Pt | null = null;
+      let branchPlane: { across: Pt; up: Pt } | null = null;
+      let stub = '';
+      if (entry.run) {
+        const branchOther = entry.run.from === nodeId ? entry.run.to : entry.run.from;
+        out = paper(branchOther);
+        const otherNode = analysis.nodeById.get(branchOther);
+        branchPlane = otherNode ? symbolPlane(drawing, info.node.pos, otherNode.pos) : null;
+      } else {
+        // No branch drawn yet: the saddle faces the way the branch will go,
+        // with a short dashed stub to show it.
+        const d = axisScreenDir(entry.dir, drawing.options.northRotation);
+        out = { x: here.x + d.x * 10, y: here.y + d.y * 10 };
+        branchPlane = symbolPlane(drawing, info.node.pos, add(info.node.pos, AXIS_VECTOR[entry.dir]));
+        stub = `<line class="sym-dashed" x1="${(here.x + d.x * size * 0.9).toFixed(2)}" y1="${(here.y + d.y * size * 0.9).toFixed(2)}" x2="${(here.x + d.x * size * 2.6).toFixed(2)}" y2="${(here.y + d.y * size * 2.6).toFixed(2)}"/>`;
+      }
+      if (!out) continue;
+      const f = frameFor(here.x, here.y, out.x, out.y, 0, size, branchPlane?.across, branchPlane?.up);
+      olets += `<g class="olet">${oletSymbol(f)}${stub}</g>`;
     }
-    if (!out) continue;
-    const f = frameFor(here.x, here.y, out.x, out.y, 0, size, branchPlane?.across, branchPlane?.up);
-    olets += `<g class="olet">${oletSymbol(f)}${stub}</g>`;
+  }
+
+  // Dimensions put in by hand between two points: the straight distance
+  // between them, wherever they are.
+  for (const measure of drawing.measures ?? []) {
+    const pa = paper(measure.a);
+    const pb = paper(measure.b);
+    const na = analysis.nodeById.get(measure.a);
+    const nb = analysis.nodeById.get(measure.b);
+    if (!pa || !pb || !na || !nb) continue;
+    const key = `meas:${measure.id}`;
+    const place = drawing.dimOverrides?.[key];
+    if (place?.hidden) continue;
+    const value = Math.hypot(nb.pos.e - na.pos.e, nb.pos.n - na.pos.n, nb.pos.u - na.pos.u);
+    const dim = renderDimension(pa, pb, centroid, formatMm(value), size, key, hitR, { offset: size * 5.2, ...place });
+    dims += dim.svg;
+    dimHits += dim.hit;
+    figures.push(dim.at);
   }
 
   // A reducing tee's branch size is called out in words beside it — "6\"X2\" NS"

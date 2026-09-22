@@ -1,4 +1,5 @@
 import type {
+  Axis,
   Drawing,
   EndType,
   DrawingOptions,
@@ -12,7 +13,7 @@ import type {
   Weld,
   WeldReach,
 } from './types';
-import { add, angleBetween, direction, equals3, length3, scale3, sub } from './iso';
+import { AXIS_VECTOR, add, angleBetween, direction, equals3, length3, scale3, sub } from './iso';
 import { componentTakeout, defaultValveEnds, fittingTakeout, oletTakeout, sizeLabel, valveFlangeKind } from './pipe-data';
 import { flangeJoint, isFlange } from '../render/symbols';
 import platinumLogo from '../assets/platinum-logo.png';
@@ -268,18 +269,76 @@ export function oletLabel(joint: JointType): string {
  * At an olet the two collinear runs are the header and the odd one out is the
  * branch. Returns null when the node is not shaped like an olet at all.
  */
-export function oletLegs(info: NodeInfo): { header: Run[]; branch: Run | null } | null {
-  // An olet placed but not yet drawn from: the two header runs, no branch.
-  if (info.runs.length === 2 && info.legs.length === 2 && info.node.olet && 180 - angleBetween(info.legs[0], info.legs[1]) < 1) {
-    return { header: [info.runs[0], info.runs[1]], branch: null };
+export interface OletMark {
+  dir: Axis;
+  dn: string;
+}
+
+/** The olets marked on a point, however they were stored. */
+export function oletMarks(node: IsoNode): OletMark[] {
+  return node.olets ?? (node.olet ? [node.olet] : []);
+}
+
+export interface OletLegs {
+  /** The two collinear header runs. */
+  header: Run[];
+  /** The branches drawn, each with the way it leaves. */
+  branches: { run: Run; dir: Axis }[];
+  /** The first branch, for what only ever wants one. */
+  branch: Run | null;
+  /** Olets marked but not yet drawn from, with their place in the marks. */
+  pending: { dir: Axis; dn: string; markIndex: number }[];
+}
+
+/**
+ * The runs at an olet point: the two header runs the line runs straight
+ * through, and every branch off it — drawn, or only marked so far. More
+ * than one olet can sit on one point, leaving different ways.
+ */
+export function oletLegs(info: NodeInfo): OletLegs | null {
+  if (info.runs.length < 2 || info.legs.length !== info.runs.length) return null;
+  let header: [number, number] | null = null;
+  for (let i = 0; i < info.runs.length && !header; i += 1) {
+    for (let j = i + 1; j < info.runs.length; j += 1) {
+      if (180 - angleBetween(info.legs[i], info.legs[j]) < 1) {
+        header = [i, j];
+        break;
+      }
+    }
   }
-  if (info.runs.length !== 3 || info.legs.length !== 3) return null;
-  for (let i = 0; i < 3; i += 1) {
-    const others = [0, 1, 2].filter((k) => k !== i);
-    const deviation = 180 - angleBetween(info.legs[others[0]], info.legs[others[1]]);
-    if (deviation < 1) return { header: [info.runs[others[0]], info.runs[others[1]]], branch: info.runs[i] };
+  if (!header) return null;
+  const marks = oletMarks(info.node);
+  const branches = info.runs
+    .map((run, k) => ({ run, dir: axisOf(info.legs[k]) }))
+    .filter((_, k) => k !== header![0] && k !== header![1])
+    .filter((b): b is { run: Run; dir: Axis } => b.dir !== null);
+  if (branches.length === 0 && marks.length === 0) return null;
+  // A mark is spent by the branch drawn its way; a branch drawn some other
+  // way spends the next mark still waiting, so a branch never leaves a
+  // second olet behind on the point.
+  let pending = marks.map((mark, markIndex) => ({ ...mark, markIndex }));
+  const unmatched = branches.filter((b) => {
+    const at = pending.findIndex((mark) => mark.dir === b.dir);
+    if (at < 0) return true;
+    pending = pending.filter((_, i) => i !== at);
+    return false;
+  });
+  pending = pending.slice(unmatched.length);
+  return { header: [info.runs[header[0]], info.runs[header[1]]], branches, branch: branches[0]?.run ?? null, pending };
+}
+
+/** The axis a unit leg lies along, if it lies along one. */
+function axisOf(leg: Vec3): Axis | null {
+  for (const axis of ['N', 'S', 'E', 'W', 'U', 'D'] as Axis[]) {
+    const v = AXIS_VECTOR[axis];
+    if (leg.e * v.e + leg.n * v.n + leg.u * v.u > 0.999) return axis;
   }
   return null;
+}
+
+/** Every olet on a point: the branches drawn, then the ones marked and waiting. */
+export function oletEntries(legs: OletLegs): { dir: Axis; dn: string; run: Run | null }[] {
+  return [...legs.branches.map((b) => ({ dir: b.dir, dn: b.run.dn, run: b.run as Run | null })), ...legs.pending.map((p) => ({ dir: p.dir, dn: p.dn, run: null }))];
 }
 
 /**
@@ -503,7 +562,7 @@ function endTakeout(info: NodeInfo | undefined, run: Run): number {
   if (info.fitting !== 'OLET') return fittingTakeout(info.fitting, run.dn);
   const legs = oletLegs(info);
   if (!legs) return 0;
-  if (legs.branch?.id !== run.id) return 0;
+  if (!legs.branches.some((b) => b.run.id === run.id)) return 0;
   return oletTakeout(legs.header[0]?.dn ?? run.dn, run.dn);
 }
 
@@ -616,7 +675,7 @@ export function analyse(drawing: Drawing): Analysis {
       const dir = other ? direction(node.pos, other.pos) : null;
       if (dir) legs.push(dir);
     }
-    const fitting = inferFitting(legs, runs, node.fittingOverride, !!node.olet);
+    const fitting = inferFitting(legs, runs, node.fittingOverride, oletMarks(node).length > 0);
     nodeInfo.set(node.id, { node, runs, legs, fitting, degree: runs.length });
     if (runs.length > 4) warnings.push(`Node ${node.label ?? node.id} has ${runs.length} connections.`);
   }
@@ -785,15 +844,16 @@ export function analyse(drawing: Drawing): Analysis {
       } else if (info.fitting === 'OLET') {
         const legs = oletLegs(info);
         if (legs) {
-          const isBranch = legs.branch?.id === run.id;
-          if (isBranch) {
+          const branchIndex = legs.branches.findIndex((b) => b.run.id === run.id);
+          if (branchIndex >= 0) {
             // The branch joint: this is what makes it a weldolet, sockolet or
-            // threadolet, so it follows the node's joint type.
+            // threadolet, so it follows the node's joint type. A second olet
+            // on the point keys its welds by the way its branch leaves.
             const distance2 = atStart
               ? oletTakeout(legs.header[0]?.dn ?? run.dn, run.dn)
               : total - oletTakeout(legs.header[0]?.dn ?? run.dn, run.dn);
             pushJoint(
-              `n:${node.id}:branch`,
+              branchIndex === 0 ? `n:${node.id}:branch` : `n:${node.id}:branch:${legs.branches[branchIndex].dir}`,
               nodeJoint,
               run.dn,
               run.schedule,
@@ -805,18 +865,20 @@ export function analyse(drawing: Drawing): Analysis {
               { anchor: node.pos, reach: { kind: 'olet' } },
             );
           } else {
-            // The olet is welded to the header wall whatever its branch is.
-            pushJoint(
-              `n:${node.id}:header`,
-              'BW',
-              legs.header[0]?.dn ?? run.dn,
-              run.schedule,
-              `HEADER / ${oletLabel(nodeJoint)}`,
-              node.pos,
-              facing,
-              idx,
-              distance,
-            );
+            // Each olet is welded to the header wall whatever its branch is.
+            oletEntries(legs).forEach((entry, k) => {
+              pushJoint(
+                k === 0 ? `n:${node.id}:header` : `n:${node.id}:header:${entry.dir}`,
+                'BW',
+                legs.header[0]?.dn ?? run.dn,
+                run.schedule,
+                `HEADER / ${oletLabel(nodeJoint)}`,
+                node.pos,
+                facing,
+                idx,
+                distance,
+              );
+            });
           }
         }
       } else if (info.fitting === 'NONE' && node.flange) {
@@ -1005,7 +1067,7 @@ export function analyse(drawing: Drawing): Analysis {
     const headerOf = (info: NodeInfo | undefined) => {
       if (info?.fitting !== 'OLET') return false;
       const legs = oletLegs(info);
-      return !!legs && legs.branch?.id !== run.id;
+      return !!legs && !legs.branches.some((b) => b.run.id === run.id);
     };
     const dir = direction(a.pos, b.pos) ?? { e: 0, n: 0, u: 0 };
     spans.forEach(([lo, hi], n) => {
@@ -1135,16 +1197,18 @@ export function analyse(drawing: Drawing): Analysis {
       const legs = oletLegs(info);
       const joint = info.node.joint ?? drawing.options.joint ?? 'BW';
       if (legs) {
-        instances.push({
-          key: `node:${info.node.id}`,
-          bomKey: tally({
-            category: 'FITTING',
-            description: `${oletLabel(joint)} ${sizeLabel(legs.header[0].dn)} x ${sizeLabel(legs.branch?.dn ?? info.node.olet?.dn ?? legs.header[0].dn)}`,
-            dn: legs.header[0].dn,
-            schedule: fittingThickness,
-            unit: 'off',
-          }),
-          pos: info.node.pos,
+        oletEntries(legs).forEach((entry, k) => {
+          instances.push({
+            key: k === 0 ? `node:${info.node.id}` : `node:${info.node.id}:${entry.dir}`,
+            bomKey: tally({
+              category: 'FITTING',
+              description: `${oletLabel(joint)} ${sizeLabel(legs.header[0].dn)} x ${sizeLabel(entry.dn)}`,
+              dn: legs.header[0].dn,
+              schedule: fittingThickness,
+              unit: 'off',
+            }),
+            pos: info.node.pos,
+          });
         });
       }
       continue;
@@ -1322,7 +1386,7 @@ export function pieceLetter(index: number): string {
  */
 export function pipeNetAt(analysis: Analysis, key: string): string {
   let at = analysis.pieces.filter((p) => p.ends.some((e) => e.key === key));
-  const header = key.match(/^n:(.+):header$/);
+  const header = key.match(/^n:(.+):header(?::[NSEWUD])?$/);
   if (at.length === 0 && header) {
     const info = analysis.nodeInfo.get(header[1]);
     const legs = info ? oletLegs(info) : null;

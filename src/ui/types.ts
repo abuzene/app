@@ -12,6 +12,8 @@ export interface AppState {
   analysis: Analysis;
   selection: Selection;
   preview: Preview | null;
+  /** A dimension by hand being put in: the point it starts from. */
+  measureFrom: string | null;
   commandState: CommandState;
   commandText: string;
   commandErrors: { line: number; text: string; message: string }[];
@@ -78,6 +80,8 @@ export interface Host {
   oletDialog(ask: OletAsk): Promise<OletChoice | null>;
   /** Makes this the size the next runs are drawn with. */
   setCurrentSize(dn: string): void;
+  /** Starts a dimension by hand from a point; the next point tapped ends it. */
+  measureFrom(nodeId: string): void;
 }
 
 export interface ReducerAsk {
@@ -98,6 +102,8 @@ export interface OletAsk {
   header: string;
   /** The header's direction, which the branch cannot share. */
   along: Axis | null;
+  /** Ways already taken by olets on the same point. */
+  taken?: Axis[];
 }
 
 export interface OletChoice {

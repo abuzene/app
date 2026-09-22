@@ -203,6 +203,26 @@ ships, and the decisions already taken, so they are not re-litigated.
   **Draw the branch from here** (`continueFrom` sets `currentDn` to the
   olet's size); HUD/panel **Remove olet** (`removeOlet` in edit.ts) joins
   the header back into one run. Never arm the pencil on placement.
+- **Several olets on one point** (`node.olets: {dir, dn}[]`; the old
+  `node.olet` is still read through `oletMarks(node)`, never written):
+  picking an olet with an olet point selected adds another mark (the
+  dialog hides ways already taken). `oletLegs` returns `header`,
+  `branches` (drawn, each with its `dir`), `branch` (the first) and
+  `pending` (marks with no branch in their direction); `oletEntries` lists
+  branches then pending. Each entry has a saddle, a list line (instance
+  `node:<id>` then `node:<id>:<dir>`) and a header weld (`n:<node>:header`
+  then `n:<node>:header:<dir>`); branch welds `n:<node>:branch` then
+  `n:<node>:branch:<dir>`. The panel shows size/way per pending olet
+  (`[data-olet-dn]`/`[data-olet-dir]` = mark index); Draw the branch from
+  here arms the first pending one's size.
+- **Dimensions by hand** (`drawing.measures: {id, a, b}[]`, keys
+  `meas:<id>`): pick a point, then the Marks palette "Dimension" tool, the
+  HUD "Dimension from here" or the panel button (`host.measureFrom`,
+  `state.measureFrom`), then tap the other point (`onSelect` completes it;
+  anything else, or Escape, cancels). Drawn as a dimension on the far row
+  reading the straight 3-D distance; its figure cannot be typed (a notice),
+  the keypad offers "Remove this dimension" (`removeMeasure`); draggable
+  like any dimension via `dimOverrides`.
 - **Header chains** (`HeaderChain`, `headerChains`, `chainStops` in
   drawing.ts; `analysis.chains`/`chainOfRun`): runs collinear through olet
   points are one header. The renderer dimensions the chain **end to end as

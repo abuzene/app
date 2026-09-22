@@ -1,6 +1,6 @@
 import type { Axis, ComponentKind, EndType, Equipment, FittingKind, FlangeKind, JointType, TerminalKind } from '../model/types';
 import type { Host, TabId } from './types';
-import { COMPONENT_LABEL, DEFAULT_LOGO, ROOT_GAP, TERMINAL_LABEL, fittingLabel, fmtMm, isMark, isReducer, isSupport, isValve, oletLabel, pipeNetAt, reducerName, resolveEnds } from '../model/drawing';
+import { COMPONENT_LABEL, DEFAULT_LOGO, ROOT_GAP, TERMINAL_LABEL, fittingLabel, fmtMm, isMark, isReducer, isSupport, isValve, oletLabel, oletLegs, oletMarks, pipeNetAt, reducerName, resolveEnds } from '../model/drawing';
 import { COMMAND_HELP } from '../model/commands';
 import { DN_LIST, SIZE_LABELS, defaultValveEnds, schedulesFor, sizeLabel } from '../model/pipe-data';
 import { AXES, AXIS_VECTOR, axisBetween } from '../model/iso';
@@ -125,8 +125,10 @@ function nodeProperties(host: Host, nodeId: string): string {
   const fitting = info?.fitting ?? 'NONE';
 
   const isOlet = fitting === 'OLET';
-  // An olet placed but not yet drawn from: its branch size and way are its own.
-  const pendingOlet = isOlet && (info?.degree ?? 0) === 2;
+  // Olets placed but not yet drawn from: each has its branch size and way.
+  const pendingOlets = isOlet && info ? oletLegs(info)?.pending ?? [] : [];
+  const pendingOlet = pendingOlets.length > 0;
+  const oletAlone = pendingOlet && (info?.degree ?? 0) === 2;
   const nodeJoint = node.joint ?? host.state.drawing.options.joint;
   const straight = fitting === 'NONE' && (info?.degree ?? 0) === 2;
   const flanged = straight && !!node.flange;
@@ -159,12 +161,12 @@ function nodeProperties(host: Host, nodeId: string): string {
       : ''
   }
   ${alongLine(host, nodeId)}
-  ${
-    pendingOlet
-      ? `<div class="row"><label>Branch size</label><select data-f="olet-dn">${options(DN_LIST, node.olet?.dn ?? '', SIZE_LABELS)}</select></div>
-         <div class="row"><label>Branch goes</label><select data-f="olet-dir">${options(AXES.filter((axis) => !axisAlong(host, nodeId, axis)), node.olet?.dir ?? 'U', AXIS_NAMES)}</select></div>`
-      : ''
-  }
+  ${pendingOlets
+    .map(
+      (mark, k) => `<div class="row"><label>${pendingOlets.length > 1 ? `Olet ${k + 1} size` : 'Branch size'}</label><select data-olet-dn="${mark.markIndex}">${options(DN_LIST, mark.dn, SIZE_LABELS)}</select></div>
+         <div class="row"><label>${pendingOlets.length > 1 ? `Olet ${k + 1} goes` : 'Branch goes'}</label><select data-olet-dir="${mark.markIndex}">${options(AXES.filter((axis) => !axisAlong(host, nodeId, axis)), mark.dir, AXIS_NAMES)}</select></div>`,
+    )
+    .join('')}
   ${
     isOlet
       ? `<div class="row"><label>Olet type</label><select data-f="joint">${options(JOINTS, nodeJoint, { BW: 'Weldolet', SW: 'Sockolet', THD: 'Threadolet' })}</select></div>`
@@ -187,7 +189,8 @@ function nodeProperties(host: Host, nodeId: string): string {
     <button class="btn-line solid" data-a="draw-from">${pendingOlet ? 'Draw the branch from here' : 'Draw from here'}</button>
     ${balloonButtons(host, [`node:${nodeId}`, `term:${nodeId}`, ...drawing.runs.filter((r) => r.from === nodeId || r.to === nodeId).map((r) => `flg:${nodeId}:${r.id}`)])}
     ${node.flange ? '<button class="btn-line danger" data-a="remove-flanges">Remove both flanges — join the pipe straight</button>' : ''}
-    ${pendingOlet ? '<button class="btn-line danger" data-a="remove-olet">Remove olet — the header runs on whole</button>' : isPlainPoint(drawing, nodeId) ? '<button class="btn-line danger" data-a="delete-node">Remove point — the pipe runs straight through</button>' : '<button class="btn-line danger" data-a="delete-node">Delete point and its runs</button>'}
+    <button class="btn-line" data-a="measure-from">Dimension from here</button>
+    ${oletAlone ? '<button class="btn-line danger" data-a="remove-olet">Remove olet — the header runs on whole</button>' : isPlainPoint(drawing, nodeId) ? '<button class="btn-line danger" data-a="delete-node">Remove point — the pipe runs straight through</button>' : '<button class="btn-line danger" data-a="delete-node">Delete point and its runs</button>'}
   </div>
 </div>`;
 }
@@ -872,17 +875,24 @@ function wire(body: HTMLElement, host: Host): void {
     nodeEditor.querySelector('[data-a="draw-from"]')?.addEventListener('click', () => {
       host.continueFrom(id);
     });
-    for (const key of ['olet-dn', 'olet-dir'] as const) {
-      field(key)?.addEventListener('change', (e) => {
-        const value = (e.target as HTMLSelectElement).value;
-        host.edit(key === 'olet-dn' ? 'Set branch size' : 'Turn olet', (d) => {
+    nodeEditor.querySelectorAll<HTMLSelectElement>('[data-olet-dn], [data-olet-dir]').forEach((select) => {
+      select.addEventListener('change', () => {
+        const isSize = select.dataset.oletDn !== undefined;
+        const at = Number(isSize ? select.dataset.oletDn : select.dataset.oletDir);
+        const value = select.value;
+        host.edit(isSize ? 'Set branch size' : 'Turn olet', (d) => {
           const node = d.nodes.find((n) => n.id === id);
-          if (!node?.olet) return;
-          if (key === 'olet-dn') node.olet.dn = value;
-          else node.olet.dir = value as Axis;
+          if (!node) return;
+          const marks = oletMarks(node).map((m) => ({ ...m }));
+          if (!marks[at]) return;
+          if (isSize) marks[at].dn = value;
+          else marks[at].dir = value as Axis;
+          node.olets = marks;
+          node.olet = undefined;
         });
       });
-    }
+    });
+    nodeEditor.querySelector('[data-a="measure-from"]')?.addEventListener('click', () => host.measureFrom(id));
     nodeEditor.querySelector('[data-a="remove-olet"]')?.addEventListener('click', () => {
       host.edit('Remove olet', (d) => removeOlet(d, id));
       host.select(null);

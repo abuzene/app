@@ -140,7 +140,7 @@ check('a length can be typed', await page.locator('#tab-body .run-list input[dat
 // Palette.
 await page.locator('#tab-body .run-list tbody tr').first().click();
 await page.waitForTimeout(200);
-check('the palette carries the fittings, ball valves, tee, olets, marks, equipment and a weld', await page.locator('.tool').count(), (v) => v === 19, '19');
+check('the palette carries the fittings, ball valves, tee, olets, marks, equipment and a weld', await page.locator('.tool').count(), (v) => v === 20, '20');
 check('and no slip-on or lap joint flange, which are not used here', await page.locator('.tool[data-kind="FLG_SO"], .tool[data-kind="FLG_LAP"]').count(), (v) => v === 0, '0');
 check('a tee can be placed on a header', await page.locator('.tool[data-branch="TEE"]').count(), (v) => v === 1, '1');
 check('the actuated ball valve is there', await page.locator('.tool[data-kind="BALL_ACT"]').count(), (v) => v === 1, '1');
@@ -382,9 +382,9 @@ await page.waitForTimeout(300);
 check('and is on the list already, with both sizes', await page.locator('#tab-body').innerText(), (v) => /WELDOLET 6" x 1"/.test(v), 'WELDOLET 6" x 1"');
 await page.click('#tabs button:has-text("Route")');
 await page.waitForTimeout(200);
-const oletNode = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).nodes.find((n) => n.olet).id);
+const oletNode = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).nodes.find((n) => n.olets).id);
 await tapNodeEarly(oletNode);
-check('its panel offers the branch size, the way it goes, and drawing the branch', `${await page.locator('#tab-body [data-f="olet-dn"]').count()} ${await page.locator('#tab-body [data-f="olet-dir"]').count()} ${await page.locator('#tab-body [data-a="draw-from"]').innerText()}`, (v) => v === '1 1 Draw the branch from here', '1 1 Draw the branch from here');
+check('its panel offers the branch size, the way it goes, and drawing the branch', `${await page.locator('#tab-body [data-olet-dn]').count()} ${await page.locator('#tab-body [data-olet-dir]').count()} ${await page.locator('#tab-body [data-a="draw-from"]').innerText()}`, (v) => v === '1 1 Draw the branch from here', '1 1 Draw the branch from here');
 // Route the 1" branch off the olet by clicking where it goes: the size is the olet's.
 await page.click('#tab-body [data-a="draw-from"]');
 await page.waitForTimeout(250);
@@ -2508,6 +2508,62 @@ await page.keyboard.press('Enter');
 await page.waitForTimeout(400);
 check('typing the header\'s dimension moves its far end, the olets staying put', await chainDimTexts(), (v) => v.join() === '2000,2000,350,5000', '350, 2000, 2000, 5000');
 
+/* --------------------------------------- two olets on one point; a dimension by hand */
+
+// Two olets can leave one point of the header different ways: the second
+// is picked with the olet point selected, and cannot take a way already
+// taken. Each has its saddle, its list line and its header weld.
+await routeLine('4"\nSTD\nORIGIN 0 0 0\nE 4000\nN 2000');
+await page.locator('#canvas [data-run]').first().click({ force: true });
+await page.waitForTimeout(200);
+await page.locator('.tool[data-olet="BW"]').click();
+await page.waitForTimeout(300);
+await page.selectOption('.dialog [data-f="olet-dn"]', 'DN15');
+await page.click('.dialog [data-confirm]');
+await page.waitForTimeout(400);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
+const twinOlet = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).nodes.find((n) => n.olets).id);
+await tapNode(twinOlet);
+await page.locator('.tool[data-olet="BW"]').click();
+await page.waitForTimeout(300);
+check('a second olet on the point offers the ways left', await page.locator('.dialog [data-f="olet-dir"] option').allInnerTexts().then((v) => v.join(',')), (v) => v === 'North,South,Down', 'North, South, Down (Up is taken)');
+await page.selectOption('.dialog [data-f="olet-dn"]', 'DN25');
+await page.selectOption('.dialog [data-f="olet-dir"]', 'S');
+await page.click('.dialog [data-confirm]');
+await page.waitForTimeout(400);
+check('placed, the point carries two olets, two saddles, and the header is still two runs', `${await page.locator('#canvas .olet').count()} ${await runCount()}`, (v) => v === '2 3', '2 saddles, 3 runs (two header, one riser)');
+await page.click('#tabs button:has-text("Items")');
+await page.waitForTimeout(200);
+check('both are on the list, each with its own size', await page.locator('#tab-body').innerText(), (v) => /WELDOLET 4" x 1\/2"/.test(v) && /WELDOLET 4" x 1"/.test(v), 'WELDOLET 4" x 1/2" and 4" x 1"');
+await page.click('#tabs button:has-text("Welds")');
+await page.waitForTimeout(200);
+check('and each has its header weld', (await page.locator('#tab-body table tbody tr').allInnerTexts()).filter((r) => /HEADER \/ WELDOLET/.test(r)).length, (v) => v === 2, '2');
+await page.click('#tabs button:has-text("Route")');
+await page.waitForTimeout(200);
+await tapNode(twinOlet);
+check('its panel shows both, each with its size and way', await page.locator('#tab-body [data-olet-dn]').count(), (v) => v === 2, '2');
+
+// A dimension by hand: pick a point, Dimension, tap the other point. Its
+// figure is the straight distance; tapping it offers to take it off.
+const measureEnds = await page.evaluate(() => {
+  const d = JSON.parse(localStorage.getItem('iso-draw.drawing.v1'));
+  return [d.nodes.find((n) => n.pos.e === 0 && n.pos.n === 0).id, d.nodes.find((n) => n.pos.e === 4000 && n.pos.n === 2000).id];
+});
+await tapNode(measureEnds[0]);
+await page.locator('.tool[data-measure]').click();
+await page.waitForTimeout(200);
+check('Dimension picked with a point waits for the other', await page.locator('#hud').innerText(), (v) => /tap the other point/.test(v), 'tap the other point');
+await tapNode(measureEnds[1]);
+check('tapping it puts a dimension between the two, the straight distance', await page.locator('#canvas circle.hit-dot[data-dim^="meas:"]').count() + ' ' + (await page.locator('#canvas .dim-text').evaluateAll((els) => els.map((e) => e.textContent))).includes('4472'), (v) => v === '1 true', '1, reading 4472');
+const measureFig = await page.locator('#canvas circle.hit-dot[data-dim^="meas:"]').boundingBox();
+await page.mouse.click(measureFig.x + measureFig.width / 2, measureFig.y + measureFig.height / 2);
+await page.waitForTimeout(300);
+check('its keypad offers to take it off', await page.locator('button:has-text("Remove this dimension")').count(), (v) => v === 1, '1');
+await page.click('button:has-text("Remove this dimension")');
+await page.waitForTimeout(300);
+check('and it goes', await page.locator('#canvas circle.hit-dot[data-dim^="meas:"]').count(), (v) => v === 0, '0');
+
 /* ----------------------------------------------- an olet taken off again */
 
 // An olet placed and not drawn from comes off on its own: the two header
@@ -2522,7 +2578,7 @@ await page.waitForTimeout(400);
 await page.keyboard.press('Escape');
 await page.waitForTimeout(150);
 check('a sockolet placed on its own has one header weld and nothing else', await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).runs.length), (v) => v === 2, '2 header runs');
-const soNode = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).nodes.find((n) => n.olet).id);
+const soNode = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).nodes.find((n) => n.olets).id);
 await tapNode(soNode);
 check('the HUD offers to remove the olet, not the point', await page.locator('#hud-delete').innerText(), (v) => v === 'Remove olet', 'Remove olet');
 await page.click('#hud-delete');

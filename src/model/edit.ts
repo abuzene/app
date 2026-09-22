@@ -1,6 +1,6 @@
-import type { Axis, ComponentKind, Drawing, EndType, Equipment, FlangeKind, InlineComponent, IsoNode, Run, TerminalKind, Vec3 } from './types';
+import type { Axis, ComponentKind, Drawing, EndType, Equipment, FlangeKind, InlineComponent, IsoNode, Measure, Run, TerminalKind, Vec3 } from './types';
 import { add, axisBetween, direction, equals3, length3, scale3, step, sub } from './iso';
-import { chainStops, dimensionStops, fittingsTouchLength, isValve, itemAtEnd, terminalTakeoutOf, uid, type Analysis } from './drawing';
+import { chainStops, dimensionStops, fittingsTouchLength, isValve, itemAtEnd, oletMarks, terminalTakeoutOf, uid, type Analysis } from './drawing';
 import { componentTakeout } from './pipe-data';
 
 /** Finds an existing node at a position, so that routes join rather than overlap. */
@@ -586,7 +586,7 @@ export function joinThrough(drawing: Drawing, nodeId: string): boolean {
  */
 export function isPlainPoint(drawing: Drawing, nodeId: string): boolean {
   const node = drawing.nodes.find((n) => n.id === nodeId);
-  if (!node || node.flange || node.olet || (node.fittingOverride && node.fittingOverride !== 'NONE')) return false;
+  if (!node || node.flange || oletMarks(node).length > 0 || (node.fittingOverride && node.fittingOverride !== 'NONE')) return false;
   const runs = drawing.runs.filter((r) => r.from === nodeId || r.to === nodeId);
   if (runs.length !== 2) return false;
   const far = (run: Run) => drawing.nodes.find((n) => n.id === (run.from === nodeId ? run.to : run.from));
@@ -689,9 +689,25 @@ export function removeOlet(drawing: Drawing, nodeId: string): void {
   const node = drawing.nodes.find((n) => n.id === nodeId);
   if (!node) return;
   node.olet = undefined;
+  node.olets = undefined;
   if (node.fittingOverride === 'OLET') node.fittingOverride = undefined;
   node.joint = undefined;
   if (drawing.runs.filter((r) => r.from === nodeId || r.to === nodeId).length === 2) removeFlangeJoint(drawing, nodeId);
+}
+
+/** A dimension by hand between two points; the same pair is not measured twice. */
+export function addMeasure(drawing: Drawing, a: string, b: string): Measure | null {
+  if (a === b) return null;
+  const twice = (drawing.measures ?? []).find((m) => (m.a === a && m.b === b) || (m.a === b && m.b === a));
+  if (twice) return twice;
+  const measure: Measure = { id: uid('m'), a, b };
+  drawing.measures = [...(drawing.measures ?? []), measure];
+  return measure;
+}
+
+export function removeMeasure(drawing: Drawing, id: string): void {
+  drawing.measures = (drawing.measures ?? []).filter((m) => m.id !== id);
+  if (drawing.dimOverrides) delete drawing.dimOverrides[`meas:${id}`];
 }
 
 /** Puts an equipment box on a point, reaching away from the line that ends there. */

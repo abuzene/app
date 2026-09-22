@@ -119,6 +119,15 @@ export interface IsoNode {
    * branch run, once drawn, is what the analysis then goes by.
    */
   olet?: { dir: Axis; dn: string };
+  /** Several olets on one point, each with its own way and size. Read through `oletMarks`. */
+  olets?: { dir: Axis; dn: string }[];
+}
+
+/** A dimension put in by hand between two points of the drawing. */
+export interface Measure {
+  id: string;
+  a: string;
+  b: string;
 }
 
 /**
@@ -293,6 +302,8 @@ export interface Drawing {
   bomNames?: Record<string, string>;
   /** Equipment boxes drawn on the sheet. */
   equipment?: Equipment[];
+  /** Dimensions put in by hand between two points. */
+  measures?: Measure[];
   /**
    * Where each item balloon is, by list line key: on a chosen one of the
    * item's places on the drawing, or taken off altogether. Unset, it goes
