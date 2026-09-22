@@ -742,6 +742,30 @@ export function renderDrawing(state: RenderState): string {
     }
   }
 
+  // Every length of pipe carries its letter in a small box beside it, on the
+  // dimension side and close in, a third of the way along so it stays clear
+  // of the figure and the balloon leader at the middle. Dragged, it stays.
+  let letters = '';
+  for (const piece of analysis.pieces) {
+    const place = weldPlacement(drawing, analysis, piece.pos);
+    if (!place) continue;
+    const f = frameFor(place.a.x, place.a.y, place.b.x, place.b.y, place.t, size);
+    const inward = (centroid.x - f.cx) * f.nx + (centroid.y - f.cy) * f.ny >= 0 ? 1 : -1;
+    const placed = drawing.itemOverrides?.[`pc:${piece.key}`];
+    const reach = size * 1.6;
+    const x = placed ? f.cx + placed.dx : f.cx - f.nx * reach * inward;
+    const y = placed ? f.cy + placed.dy : f.cy - f.ny * reach * inward;
+    const boxW = Math.max(size * 1.7, piece.letter.length * size * 0.8 + size * 0.7);
+    const boxH = size * 1.5;
+    letters +=
+      `<g class="pipe-letter">` +
+      (placed ? `<line class="balloon-leader" x1="${f.cx.toFixed(2)}" y1="${f.cy.toFixed(2)}" x2="${x.toFixed(2)}" y2="${y.toFixed(2)}"/>` : '') +
+      `<rect class="pipe-letter-box" x="${(x - boxW / 2).toFixed(2)}" y="${(y - boxH / 2).toFixed(2)}" width="${boxW.toFixed(2)}" height="${boxH.toFixed(2)}"/>` +
+      `<text class="pipe-letter-text" x="${x.toFixed(2)}" y="${(y + size * 0.36).toFixed(2)}" text-anchor="middle">${escapeText(piece.letter)}</text></g>`;
+    weldHits += `<circle class="hit-dot" data-balloon="pc:${piece.key}" data-ax="${f.cx.toFixed(2)}" data-ay="${f.cy.toFixed(2)}" cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="${Math.max(boxH * 0.8, hitR * 0.55).toFixed(2)}"/>`;
+  }
+  balloons += letters;
+
   // An olet is drawn as the saddle on the header where the branch leaves it.
   let olets = '';
   for (const [nodeId, info] of analysis.nodeInfo) {

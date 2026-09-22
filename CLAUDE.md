@@ -133,7 +133,12 @@ ships, and the decisions already taken, so they are not re-litigated.
   in `analyse`; the header weld shows that whole length). Copy list carries
   the column. The printed sheet has the same as a **WELD LIST — PIPE CUT**
   table under the weld summary (`weldList` in sheet.ts), as many rows as the
-  column has room for, then "AND n MORE".
+  column has room for, then "AND n MORE". Every piece carries a **letter**
+  (`PipePiece.letter`, `pieceLetter`: A…Z, AA…) drawn in a small box beside
+  the pipe (`.pipe-letter`, a third of the way along, dimension side, close
+  in; draggable via `itemOverrides['pc:<piece.key>']`, a leader appears
+  once dragged); the Pipe net column reads "A 1257.5 / B 1211.5", and the
+  Items tab has a **Pipe cut list** by letter (`pipeCutList`).
 - Supports and the AG/UG mark are **notes, not material**: no BOM line, no
   welds. Supports are numbered along the line unless named.
 - Printing happens from the page itself (`#print-root`, `@page` size); a

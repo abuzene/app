@@ -1,6 +1,6 @@
 import type { ComponentKind, EndType, FittingKind, FlangeKind, JointType, TerminalKind } from '../model/types';
 import type { Host, TabId } from './types';
-import { COMPONENT_LABEL, DEFAULT_LOGO, ROOT_GAP, TERMINAL_LABEL, fittingLabel, isMark, isSupport, isValve, oletLabel, pipeNetAt, resolveEnds } from '../model/drawing';
+import { COMPONENT_LABEL, DEFAULT_LOGO, ROOT_GAP, TERMINAL_LABEL, fittingLabel, fmtMm, isMark, isSupport, isValve, oletLabel, pipeNetAt, resolveEnds } from '../model/drawing';
 import { COMMAND_HELP } from '../model/commands';
 import { DN_LIST, SIZE_LABELS, defaultValveEnds, schedulesFor, sizeLabel } from '../model/pipe-data';
 import { axisBetween } from '../model/iso';
@@ -340,7 +340,8 @@ function itemsTab(host: Host): string {
     <span>Items <strong>${Math.round(items)}</strong></span>
   </div>
   <div class="btn-row"><button class="btn-line" data-a="copy-bom">Copy list</button></div>
-</div>`;
+</div>
+${pipeCutList(host)}`;
 }
 
 /* ------------------------------------------------------------------ welds */
@@ -404,7 +405,7 @@ function weldsTab(host: Host): string {
     <thead><tr><th>No.</th><th>Size</th><th>Prep</th><th>Joins</th><th class="num">Pipe net</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>
-  <p class="empty-note">Pipe net: the pipe at the weld as it is cut — take-outs off, and a ${ROOT_GAP} mm root gap off for every fitting butt-welded to it. Pipe to pipe takes its gap off one of the two; an olet takes nothing off its header.</p>
+  <p class="empty-note">Pipe net: the pipe at the weld as it is cut, by its letter on the drawing — take-outs off, and a ${ROOT_GAP} mm root gap off for every fitting butt-welded to it. Pipe to pipe takes its gap off one of the two; an olet takes nothing off its header.</p>
   <div class="totals">
     ${Object.entries(byPrep)
       .map(([prep, n]) => `<span>${esc(prep)} <strong>${n}</strong></span>`)
@@ -414,6 +415,35 @@ function weldsTab(host: Host): string {
   <div class="btn-row">
     <button class="btn-line" data-a="copy-welds">Copy list</button>
   </div>
+</div>`;
+}
+
+/** Every length of pipe by its letter: what to cut, and what it runs between. */
+function pipeCutList(host: Host): string {
+  const { pieces, joints } = host.state.analysis;
+  if (pieces.length === 0) return '';
+  const nameOf = (key: string | undefined) => {
+    const j = key ? joints.find((x) => x.key === key) : undefined;
+    return j ? j.number || j.joins.replace(/^PIPE \/ /, '') : 'open end';
+  };
+  const rows = pieces
+    .map(
+      (p) => `<tr>
+  <td><strong>${esc(p.letter)}</strong></td>
+  <td>${esc(sizeLabel(p.dn))}</td>
+  <td>${esc(nameOf(p.ends[0].key))} – ${esc(nameOf(p.ends[1].key))}</td>
+  <td class="num">${esc(fmtMm(p.net))}</td>
+</tr>`,
+    )
+    .join('');
+  return `
+<div class="section">
+  <h3>Pipe cut list</h3>
+  <p class="empty-note">Each length of pipe by the letter it carries on the drawing, the welds it runs between, and its net length to cut.</p>
+  <table>
+    <thead><tr><th>Pipe</th><th>Size</th><th>Between</th><th class="num">Net mm</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
 </div>`;
 }
 

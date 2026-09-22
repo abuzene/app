@@ -82,6 +82,9 @@ export function contentCss({ k, u, symbol = 4, dark = false }: ContentStyleOptio
 .balloon-leader { stroke: ${dim}; stroke-width: ${w(0.7)}; fill: none; }
 .balloon-ring { fill: ${dark ? '#0d1117' : '#ffffff'}; stroke: ${dim}; stroke-width: ${w(0.7)}; }
 .balloon-no { fill: ${ink}; font-size: ${t(0.72)}px; font-weight: 600; }
+.pipe-letter { pointer-events: none; }
+.pipe-letter-box { fill: ${dark ? '#0d1117' : '#ffffff'}; stroke: ${ink}; stroke-width: ${w(0.8)}; }
+.pipe-letter-text { fill: ${ink}; font-size: ${t(1.0)}px; font-weight: 700; }
 .dim-line, .dim-ext, .dim-tick { stroke: ${dim}; stroke-width: ${w(0.9)}; fill: none; }
 .dim-ext { stroke-dasharray: ${w(3)} ${w(3)}; }
 .dim-text { fill: ${ink}; font-size: ${t(1.15)}px; text-anchor: middle; }

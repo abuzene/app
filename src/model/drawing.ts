@@ -118,6 +118,12 @@ export interface RunLengths {
  * to it. What the fitter marks on the pipe.
  */
 export interface PipePiece {
+  /** Its letter on the drawing and in the lists: A, B, C… along the route. */
+  letter: string;
+  /** For the letter's dragged position: "piece:<run>:<n>". */
+  key: string;
+  /** Where the letter is hung: a third of the way along the piece. */
+  pos: Vec3;
   /** The runs it lies along: two where it carries straight through an olet. */
   runIds: string[];
   dn: string;
@@ -816,21 +822,37 @@ export function analyse(drawing: Drawing): Analysis {
       const legs = oletLegs(info);
       return !!legs && legs.branch.id !== run.id;
     };
-    for (const [lo, hi] of spans) {
-      if (hi - lo < 0.5) continue;
+    const dir = direction(a.pos, b.pos) ?? { e: 0, n: 0, u: 0 };
+    spans.forEach(([lo, hi], n) => {
+      if (hi - lo < 0.5) return;
       const first = endFor(jointAt(idx, lo, lo < 0.5 ? run.from : null));
       const last = endFor(jointAt(idx, hi, hi > total - 0.5 ? run.to : null));
-      const piece: PipePiece = { runIds: [run.id], dn: run.dn, schedule: run.schedule, length: hi - lo, net: 0, ends: [first, last] };
+      // The letter hangs off the piece a third of the way along, clear of
+      // the dimension figure and the balloon leader at its middle.
+      const piece: PipePiece = {
+        letter: '',
+        key: `piece:${run.id}:${n}`,
+        pos: add(a.pos, scale3(dir, lo + (hi - lo) * 0.33)),
+        runIds: [run.id],
+        dn: run.dn,
+        schedule: run.schedule,
+        length: hi - lo,
+        net: 0,
+        ends: [first, last],
+      };
       pieces.push(piece);
       if (lo < 0.5 && headerOf(fromInfo)) atOlet.set(run.from, [...(atOlet.get(run.from) ?? []), { piece, far: last }]);
       if (hi > total - 0.5 && headerOf(toInfo)) atOlet.set(run.to, [...(atOlet.get(run.to) ?? []), { piece, far: first }]);
-    }
+    });
   }
   // A header carries straight on through its olet: its two pieces are one.
   for (const two of atOlet.values()) {
     if (two.length !== 2 || two[0].piece === two[1].piece) continue;
     const [p, q] = two;
     const merged: PipePiece = {
+      letter: '',
+      key: p.piece.key,
+      pos: p.piece.pos,
       runIds: [...p.piece.runIds, ...q.piece.runIds],
       dn: p.piece.dn,
       schedule: p.piece.schedule,
@@ -858,7 +880,10 @@ export function analyse(drawing: Drawing): Analysis {
     const at = pieces.flatMap((p) => p.ends.filter((e) => e.key === joint.key));
     if (at.length > 0) at[0].gap = ROOT_GAP;
   }
-  for (const piece of pieces) piece.net = Math.max(0, piece.length - piece.ends[0].gap - piece.ends[1].gap);
+  pieces.forEach((piece, i) => {
+    piece.net = Math.max(0, piece.length - piece.ends[0].gap - piece.ends[1].gap);
+    piece.letter = pieceLetter(i);
+  });
 
   // Material list, and the item number each thing on the drawing carries.
   //
@@ -1080,10 +1105,22 @@ export function analyse(drawing: Drawing): Analysis {
   };
 }
 
+/** A, B, … Z, then AA, AB, … : the letters the pipes are marked with. */
+export function pieceLetter(index: number): string {
+  let n = index;
+  let out = '';
+  do {
+    out = String.fromCharCode(65 + (n % 26)) + out;
+    n = Math.floor(n / 26) - 1;
+  } while (n >= 0);
+  return out;
+}
+
 /**
  * The cut length of the pipe at a weld, as text: what the fitter marks on
- * the pipe this weld joins. Pipe to pipe has one either side; an olet's
- * header weld shows the header whole, since it sits on it.
+ * the pipe this weld joins, with the pipe's letter. Pipe to pipe has one
+ * either side; an olet's header weld shows the header whole, since it sits
+ * on it.
  */
 export function pipeNetAt(analysis: Analysis, key: string): string {
   let at = analysis.pieces.filter((p) => p.ends.some((e) => e.key === key));
@@ -1094,7 +1131,7 @@ export function pipeNetAt(analysis: Analysis, key: string): string {
     if (legs) at = analysis.pieces.filter((p) => legs.header.every((r) => p.runIds.includes(r.id)));
   }
   if (at.length === 0) return '';
-  return at.map((p) => fmtMm(p.net)).join(' / ');
+  return at.map((p) => `${p.letter} ${fmtMm(p.net)}`).join(' / ');
 }
 
 /** Millimetres to the half, plainly: 2881 or 2878.5. */
