@@ -292,12 +292,13 @@ export function capSymbol(f: Frame, facing: Facing = 1): string {
  * A concentric reducer: both ends on the same centreline, the body tapering
  * between them. Filled, so the pipe does not show through the middle of it.
  */
-function concentricReducer(f: Frame, reach = f.s * 0.9): string {
+function concentricReducer(f: Frame, reach = f.s * 0.9, dir: 1 | -1 = 1): string {
   const s = f.s;
   const big = s * 0.85;
   const small = s * 0.42;
+  const r = reach * dir;
   return poly(
-    [pt(f, -reach, 0, -big), pt(f, -reach, 0, big), pt(f, reach, 0, small), pt(f, reach, 0, -small)],
+    [pt(f, -r, 0, -big), pt(f, -r, 0, big), pt(f, r, 0, small), pt(f, r, 0, -small)],
     'sym-fill',
   );
 }
@@ -308,12 +309,13 @@ function concentricReducer(f: Frame, reach = f.s * 0.9): string {
  * how it is fitted on a horizontal line to keep the invert level and let the
  * line drain.
  */
-function eccentricReducer(f: Frame, reach = f.s * 0.9): string {
+function eccentricReducer(f: Frame, reach = f.s * 0.9, dir: 1 | -1 = 1): string {
   const s = f.s;
   const big = s * 0.85;
   const small = s * 0.42;
+  const r = reach * dir;
   return poly(
-    [pt(f, -reach, 0, -big), pt(f, -reach, 0, big), pt(f, reach, 0, -big + small * 2), pt(f, reach, 0, -big)],
+    [pt(f, -r, 0, -big), pt(f, -r, 0, big), pt(f, r, 0, -big + small * 2), pt(f, r, 0, -big)],
     'sym-fill',
   );
 }
@@ -449,7 +451,7 @@ function handwheel(f: Frame, at = 1.5): string {
  * out to its real faces, so the flanges bolted to it sit hard against it and
  * the joint marks land on its ends, as they do on the sheets.
  */
-export function componentSymbol(kind: ComponentKind, f: Frame, reach?: number): string {
+export function componentSymbol(kind: ComponentKind, f: Frame, reach?: number, flip?: boolean): string {
   const s = f.s;
   if (isFlange(kind)) return flangePair(f, kind);
   const body = (cls?: string) => bowtie(f, cls, Math.max(s, reach ?? s));
@@ -532,10 +534,11 @@ export function componentSymbol(kind: ComponentKind, f: Frame, reach?: number): 
         line(f, [-s * 0.42, 0, 0], [s * 0.42, 0, 0], 'sym-line')
       );
     case 'RED_CONC':
-      // A set size, with the weld on each end sitting on its end.
-      return concentricReducer(f, s * 0.9);
+      // A set size, with the weld on each end sitting on its end; the large
+      // end on the run's start side unless turned round.
+      return concentricReducer(f, s * 0.9, flip ? -1 : 1);
     case 'RED_ECC':
-      return eccentricReducer(f, s * 0.9);
+      return eccentricReducer(f, s * 0.9, flip ? -1 : 1);
     case 'CAP':
       return capSymbol(f, 1);
     case 'UNION':

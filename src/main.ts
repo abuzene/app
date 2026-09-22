@@ -1,7 +1,7 @@
 import './styles.css';
 import type { Drawing, Run, Vec3 } from './model/types';
 import type { Preview, Selection } from './render/renderer';
-import type { AppState, Host } from './ui/types';
+import type { AppState, Host, ReducerAsk, ReducerChoice } from './ui/types';
 import { analyse, dimensionStops, emptyDrawing, uid } from './model/drawing';
 import { loadLibrary, removeDrawing, renumberProject, sheetNumber, upsertDrawing, worthKeeping } from './model/library';
 import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, noteRemovedFromLibrary, setDriveClientId, syncDrive } from './model/drive';
@@ -181,6 +181,14 @@ const host: Host = {
   },
   driveSync() {
     void runDriveSync();
+  },
+  reducerDialog(ask) {
+    return reducerDialog(ask);
+  },
+  setCurrentSize(dn) {
+    state.currentDn = dn;
+    if (!schedulesFor(dn).includes(state.currentSchedule)) state.currentSchedule = schedulesFor(dn)[0] ?? state.currentSchedule;
+    refreshSizeSelects();
   },
   driveSignOut() {
     driveSignOut();
@@ -1619,6 +1627,62 @@ function confirmDialog(title: string, message: string, confirmLabel: string): Pr
       if (event.target === backdrop) close(false);
     });
     backdrop.querySelector<HTMLButtonElement>('[data-confirm]')?.focus();
+  });
+}
+
+/**
+ * The box that opens when a reducer is picked: its large and small ends,
+ * which way round it goes, and whether to carry on drawing from it. What it
+ * says is what the item is called on the list: CON RED 4" X 2".
+ */
+function reducerDialog(ask: ReducerAsk): Promise<ReducerChoice | null> {
+  return new Promise((resolve) => {
+    const backdrop = document.createElement('div');
+    backdrop.className = 'dialog-backdrop';
+    const sizeOptions = (picked: string) => DN_LIST.map((dn) => `<option value="${dn}"${dn === picked ? ' selected' : ''}>${sizeLabel(dn)}</option>`).join('');
+    const name = (large: string, small: string) => `${ask.kind === 'RED_ECC' ? 'ECC RED' : 'CON RED'} ${sizeLabel(large)} X ${sizeLabel(small)}`;
+    backdrop.innerHTML = `
+<div class="dialog" role="dialog" aria-label="Reducer" data-editor="reducer">
+  <h3 data-red-name>${name(ask.large, ask.small)}</h3>
+  <div class="row"><label>Large end</label><select data-f="red-large">${sizeOptions(ask.large)}</select></div>
+  <div class="row"><label>Small end</label><select data-f="red-small">${sizeOptions(ask.small)}</select></div>
+  <div class="row"><label>Flow</label><select data-f="red-dir">
+    <option value="reduce">${ask.atEnd ? 'Reduces: the small end outward, where the line carries on' : 'Reduces along the run: large end first'}</option>
+    <option value="expand">${ask.atEnd ? 'Expands: the large end outward' : 'Expands along the run: small end first'}</option>
+  </select></div>
+  ${ask.atEnd ? '<div class="row"><label>Then</label><label class="check"><input type="checkbox" data-f="red-drawon" checked /> Carry on drawing from its far end, at that size</label></div>' : ''}
+  <p class="empty-note">The pipe either side takes the size of the end it meets. The sizes can be changed later in the item's panel.</p>
+  <div class="btn-row">
+    <button class="btn-line solid" data-confirm>Place reducer</button>
+    <button class="btn-line" data-cancel>Cancel</button>
+  </div>
+</div>`;
+    document.body.appendChild(backdrop);
+    const field = <T extends HTMLElement>(key: string) => backdrop.querySelector<T>(`[data-f="${key}"]`);
+    const large = field<HTMLSelectElement>('red-large')!;
+    const small = field<HTMLSelectElement>('red-small')!;
+    const rename = () => {
+      const heading = backdrop.querySelector('[data-red-name]');
+      if (heading) heading.textContent = name(large.value, small.value);
+    };
+    large.addEventListener('change', rename);
+    small.addEventListener('change', rename);
+    const close = (answer: ReducerChoice | null) => {
+      backdrop.remove();
+      resolve(answer);
+    };
+    backdrop.querySelector('[data-confirm]')?.addEventListener('click', () =>
+      close({
+        large: large.value,
+        small: small.value,
+        largeOutward: field<HTMLSelectElement>('red-dir')?.value === 'expand',
+        drawOn: ask.atEnd && (field<HTMLInputElement>('red-drawon')?.checked ?? false),
+      }),
+    );
+    backdrop.querySelector('[data-cancel]')?.addEventListener('click', () => close(null));
+    backdrop.addEventListener('click', (event) => {
+      if (event.target === backdrop) close(null);
+    });
   });
 }
 

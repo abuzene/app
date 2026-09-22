@@ -342,6 +342,7 @@ tr.selected { background: var(--accent-soft); }
 .sheet-preview { background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 8px; margin-bottom: 10px; }
 .sheet-preview svg { display: block; width: 100%; height: auto; }
 .dialog h3 { margin: 0 0 4px; font-size: 15px; }
+.dialog .row label.check { flex: 1 1 auto; color: var(--ink); font-size: 12.5px; }
 .dialog p { margin: 0 0 14px; font-size: 12.5px; color: var(--muted); line-height: 1.5; }
 
 @media (max-width: 1280px) {

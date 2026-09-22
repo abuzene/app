@@ -139,6 +139,24 @@ ships, and the decisions already taken, so they are not re-litigated.
   in; draggable via `itemOverrides['pc:<piece.key>']`, a leader appears
   once dragged); the Pipe net column reads "A 1257.5 / B 1211.5", and the
   Items tab has a **Pipe cut list** by letter (`pipeCutList`).
+- **Reducers** (`RED_CONC`/`RED_ECC`, inline): `comp.dn` = large end,
+  `comp.dn2` = small end, `comp.flip` = large end on the run's *end* side
+  (default: large on the start side). Named `CON RED 4" X 2"` / `ECC RED …`
+  (`reducerName`; `COMPONENT_LABEL` is 'CON RED'/'ECC RED'), on the list,
+  in the weld joins and the panel heading; each of its two welds carries
+  its own end's size. Picking one from the palette opens a **dialog**
+  (`reducerDialog` in main.ts: Large end, Small end, Flow reduce/expand,
+  "Carry on drawing from its far end" on an open end). On an open end it
+  sits with its far face on the end (`placeReducer` in tools.ts), the
+  pencil is armed there and `currentDn` becomes the outward size; along a
+  run it sits at the middle and the run is **split at its far face**.
+  `applyReducer` in edit.ts sets the sizes and makes the run each side the
+  size of the end it meets, on through degree-2 points up to a branch or
+  another reducer. `faceOnNode` in `analyse` suppresses the PIPE/PIPE joint
+  at a point an item's face sits on, and `jointAt` also matches joints by
+  position, so the piece beyond ends on the reducer's far weld. Turning the
+  line right at a reducer's face (an elbow on the reducer) is not handled:
+  the elbow's take-out wins and the reducer's welds get no pipe.
 - Supports and the AG/UG mark are **notes, not material**: no BOM line, no
   welds. Supports are numbered along the line unless named.
 - Printing happens from the page itself (`#print-root`, `@page` size); a

@@ -1,8 +1,8 @@
 import type { ComponentKind, FlangeKind, JointType, Run, TerminalKind } from '../model/types';
 import type { Host } from './types';
 import { COMPONENT_LABEL, dimensionStops, isValve } from '../model/drawing';
-import { addComponent, addFlangeJoint, runLength, splitRun } from '../model/edit';
-import { componentTakeout, fittingTakeout } from '../model/pipe-data';
+import { addComponent, addFlangeJoint, applyReducer, runLength, splitRun } from '../model/edit';
+import { DN_LIST, componentTakeout, fittingTakeout, sizeLabel } from '../model/pipe-data';
 import { isFlange } from '../render/symbols';
 import { componentSymbol, jointMark, oletSymbol, type Frame } from '../render/symbols';
 
@@ -176,6 +176,70 @@ function hasTarget(host: Host): boolean {
 }
 
 /**
+ * A reducer is asked about before it goes in: its two sizes and which way
+ * round. On an open end it sits with its far face on the end, and drawing
+ * can carry on from there at the new size; along a run it sits at the
+ * middle and the run is cut at its far face, so the pipe beyond is the new
+ * size. The pipe either side is made the size of the end it meets.
+ */
+async function placeReducer(host: Host, kind: 'RED_CONC' | 'RED_ECC'): Promise<void> {
+  const { selection, analysis } = host.state;
+  const info = selection?.kind === 'node' ? analysis.nodeInfo.get(selection.id) : undefined;
+  const endNode = info && info.degree === 1 ? info.node : null;
+  const run = endNode ? info!.runs[0] : targetRun(host);
+  if (!run) {
+    host.notify('Select the end of the line, or a run, first.');
+    return;
+  }
+  const large = run.dn;
+  const at = DN_LIST.indexOf(large);
+  const small = DN_LIST[Math.max(0, at - 1)] ?? large;
+  const choice = await host.reducerDialog({ kind, large, small, atEnd: !!endNode });
+  if (!choice) return;
+  const half = componentTakeout(kind, choice.large);
+  let addedId: string | null = null;
+  let continueAt: string | null = null;
+  host.edit(`Add ${kind === 'RED_ECC' ? 'ECC RED' : 'CON RED'}`, (d) => {
+    const target = d.runs.find((r) => r.id === run.id);
+    if (!target) return;
+    const total = runLength(d, target);
+    if (endNode) {
+      // Its far face on the open end; the large end inward unless expanding.
+      const atStart = target.from === endNode.id;
+      const offset = atStart ? half : total - half;
+      const comp = addComponent(d, target.id, kind, offset);
+      if (!comp) return;
+      addedId = comp.id;
+      // "Large outward" means the large end at the open end: on the run's
+      // start side when the open end is the start, else on its end side.
+      const flip = atStart ? !choice.largeOutward : choice.largeOutward;
+      applyReducer(d, comp.id, choice.large, choice.small, flip);
+      continueAt = endNode.id;
+      return;
+    }
+    const comp = addComponent(d, target.id, kind, total / 2);
+    if (!comp) return;
+    addedId = comp.id;
+    // The run is cut at the far face, so the pipe beyond is its own size.
+    const far = comp.offset + half;
+    if (far < total - 0.5) splitRun(d, target.id, far);
+    applyReducer(d, comp.id, choice.large, choice.small, choice.largeOutward);
+  });
+  if (!addedId) {
+    host.notify('The run is too short for a reducer.');
+    return;
+  }
+  const outward = choice.largeOutward ? choice.large : choice.small;
+  if (continueAt && choice.drawOn) {
+    host.continueFrom(continueAt);
+    host.setCurrentSize(outward);
+    host.notify(`Carry on drawing at ${sizeLabel(outward)} from the reducer.`);
+  } else {
+    host.select({ kind: 'component', id: addedId });
+  }
+}
+
+/**
  * Puts a picked item where it is meant to go.
  *
  * A flange or a cap picked with the end of the line selected terminates that
@@ -186,6 +250,11 @@ function hasTarget(host: Host): boolean {
 function place(host: Host, kind: ComponentKind): void {
   const { selection, analysis } = host.state;
   const label = COMPONENT_LABEL[kind] ?? kind;
+
+  if (kind === 'RED_CONC' || kind === 'RED_ECC') {
+    void placeReducer(host, kind);
+    return;
+  }
 
   if (selection?.kind === 'node') {
     const info = analysis.nodeInfo.get(selection.id);

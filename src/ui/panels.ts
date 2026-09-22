@@ -1,11 +1,11 @@
 import type { ComponentKind, EndType, FittingKind, FlangeKind, JointType, TerminalKind } from '../model/types';
 import type { Host, TabId } from './types';
-import { COMPONENT_LABEL, DEFAULT_LOGO, ROOT_GAP, TERMINAL_LABEL, fittingLabel, fmtMm, isMark, isSupport, isValve, oletLabel, pipeNetAt, resolveEnds } from '../model/drawing';
+import { COMPONENT_LABEL, DEFAULT_LOGO, ROOT_GAP, TERMINAL_LABEL, fittingLabel, fmtMm, isMark, isReducer, isSupport, isValve, oletLabel, pipeNetAt, reducerName, resolveEnds } from '../model/drawing';
 import { COMMAND_HELP } from '../model/commands';
 import { DN_LIST, SIZE_LABELS, defaultValveEnds, schedulesFor, sizeLabel } from '../model/pipe-data';
 import { axisBetween } from '../model/iso';
 import { projectsOf } from '../model/library';
-import { deleteNode, deleteRun, removeComponent, removeFlangeJoint, runLength, setRunDirect, setRunLength, splitRun } from '../model/edit';
+import { applyReducer, deleteNode, deleteRun, removeComponent, removeFlangeJoint, runLength, setRunDirect, setRunLength, splitRun } from '../model/edit';
 import { setDriveClientId } from '../model/drive';
 
 const TABS: { id: TabId; label: string }[] = [
@@ -186,18 +186,24 @@ function componentProperties(host: Host, compId: string): string {
   const comp = run?.inline.find((c) => c.id === compId);
   if (!run || !comp) return '';
   const total = runLength(drawing, run);
-  const isReducer = comp.kind === 'RED_CONC' || comp.kind === 'RED_ECC';
+  const reducer = isReducer(comp.kind);
   // A mark on the line has no size or ends of its own: it is where it is.
   const mark = isMark(comp.kind);
 
   return `
 <div class="section" data-editor="component" data-id="${comp.id}">
-  <h3>${esc(COMPONENT_LABEL[comp.kind] ?? comp.kind)}</h3>
+  <h3>${esc(reducer ? reducerName(comp, run.dn) : COMPONENT_LABEL[comp.kind] ?? comp.kind)}</h3>
   <div class="row"><label>Type</label><select data-f="kind">${options(COMPONENT_KINDS, comp.kind, COMPONENT_LABEL)}</select></div>
   <div class="row"><label>From start</label><input type="number" data-f="offset" step="1" min="0" max="${Math.round(total)}" value="${Math.round(comp.offset)}" /></div>
   <div class="row"><label>To end</label><input type="number" data-f="toend" step="1" min="0" max="${Math.round(total)}" value="${Math.round(total - comp.offset)}" /></div>
-  ${mark ? '' : `<div class="row"><label>Size</label><select data-f="dn">${options(DN_LIST, comp.dn ?? run.dn, SIZE_LABELS)}</select></div>`}
-  ${isReducer ? `<div class="row"><label>Reduces to</label><select data-f="dn2">${options(DN_LIST, comp.dn2 ?? run.dn, SIZE_LABELS)}</select></div>` : ''}
+  ${mark || reducer ? '' : `<div class="row"><label>Size</label><select data-f="dn">${options(DN_LIST, comp.dn ?? run.dn, SIZE_LABELS)}</select></div>`}
+  ${
+    reducer
+      ? `<div class="row"><label>Large end</label><select data-f="red-large">${options(DN_LIST, comp.dn ?? run.dn, SIZE_LABELS)}</select></div>
+         <div class="row"><label>Small end</label><select data-f="red-small">${options(DN_LIST, comp.dn2 ?? comp.dn ?? run.dn, SIZE_LABELS)}</select></div>
+         <div class="row"><label>Flow</label><select data-f="red-dir">${options(['reduce', 'expand'], comp.flip ? 'expand' : 'reduce', { reduce: 'Reduces along the run: large end first', expand: 'Expands along the run: small end first' })}</select></div>`
+      : ''
+  }
   ${
     comp.kind === 'TRANSITION'
       ? `<div class="row"><label>Steel side</label><select data-f="flip">${options(['end', 'start'], comp.flip ? 'start' : 'end', { end: 'Towards the end of the run', start: 'Towards the start of the run' })}</select></div>`
@@ -846,11 +852,14 @@ function wire(body: HTMLElement, host: Host): void {
         c.dn = (e.target as HTMLSelectElement).value;
       }),
     );
-    field('dn2')?.addEventListener('change', (e) =>
-      withComponent('Change reduced size', (c) => {
-        c.dn2 = (e.target as HTMLSelectElement).value;
-      }),
-    );
+    const reducerChange = () => {
+      const large = field('red-large')?.value;
+      const small = field('red-small')?.value;
+      const flip = field('red-dir')?.value === 'expand';
+      if (!large || !small) return;
+      host.edit('Set reducer', (d) => applyReducer(d, id, large, small, flip));
+    };
+    for (const key of ['red-large', 'red-small', 'red-dir']) field(key)?.addEventListener('change', reducerChange);
     field('flip')?.addEventListener('change', (e) =>
       withComponent('Turn item round', (c) => {
         c.flip = (e.target as HTMLSelectElement).value === 'start' ? true : undefined;

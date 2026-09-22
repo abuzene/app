@@ -12,7 +12,7 @@ import type {
   Weld,
   WeldReach,
 } from './types';
-import { add, angleBetween, direction, length3, scale3, sub } from './iso';
+import { add, angleBetween, direction, equals3, length3, scale3, sub } from './iso';
 import { componentTakeout, defaultValveEnds, fittingTakeout, oletTakeout, sizeLabel, valveFlangeKind } from './pipe-data';
 import { flangeJoint, isFlange } from '../render/symbols';
 import platinumLogo from '../assets/platinum-logo.png';
@@ -186,6 +186,27 @@ function inferFitting(legs: Vec3[], runs: Run[], override?: FittingKind): Fittin
   return 'CROSS';
 }
 
+export function isReducer(kind: string): boolean {
+  return kind === 'RED_CONC' || kind === 'RED_ECC';
+}
+
+/** What a reducer is called, by its two sizes: "CON RED 4" X 2"". */
+export function reducerName(comp: InlineComponent, runDn: string): string {
+  const large = comp.dn ?? runDn;
+  const small = comp.dn2 ?? large;
+  return `${comp.kind === 'RED_ECC' ? 'ECC RED' : 'CON RED'} ${sizeLabel(large)} X ${sizeLabel(small)}`;
+}
+
+/**
+ * The size either side of a reducer along its run: the large end is on the
+ * run's start side unless it is turned round.
+ */
+export function reducerSides(comp: InlineComponent, runDn: string): { start: string; end: string } {
+  const large = comp.dn ?? runDn;
+  const small = comp.dn2 ?? large;
+  return comp.flip ? { start: small, end: large } : { start: large, end: small };
+}
+
 /** What an olet is called, which follows how its branch is joined. */
 export function oletLabel(joint: JointType): string {
   if (joint === 'SW') return 'SOCKOLET';
@@ -275,8 +296,8 @@ export const COMPONENT_LABEL: Record<string, string> = {
   FLG_LAP: 'LAP JOINT FLANGE',
   FLG_BLIND: 'BLIND FLANGE',
   SPECTACLE: 'SPECTACLE BLIND',
-  RED_CONC: 'CONCENTRIC REDUCER',
-  RED_ECC: 'ECCENTRIC REDUCER',
+  RED_CONC: 'CON RED',
+  RED_ECC: 'ECC RED',
   CAP: 'CAP',
   UNION: 'UNION',
   TRANSITION: 'TRANSITION JOINT PE/CS',
@@ -529,6 +550,25 @@ export function analyse(drawing: Drawing): Analysis {
     });
   };
 
+  /** Whether an item along a run touching this point has a face right on it. */
+  const faceOnNode = (nodeId: string): boolean =>
+    drawing.runs.some((run) => {
+      if (run.from !== nodeId && run.to !== nodeId) return false;
+      const total = runLengthOf(run);
+      return run.inline.some((comp) => {
+        const dn = comp.dn ?? run.dn;
+        const ends = resolveEnds(comp.kind, dn, comp.ends, defaultJoint);
+        const half = componentTakeout(comp.kind, dn, ends === 'FLG' && valveFlangeKind(defaultJoint));
+        if (half <= 0) return false;
+        return (run.from === nodeId && Math.abs(comp.offset - half) < 0.5) || (run.to === nodeId && Math.abs(comp.offset + half - total) < 0.5);
+      });
+    });
+  const runLengthOf = (run: Run): number => {
+    const a = nodeById.get(run.from);
+    const b = nodeById.get(run.to);
+    return a && b ? length3(sub(b.pos, a.pos)) : 0;
+  };
+
   for (const run of drawing.runs) {
     const a = nodeById.get(run.from);
     const b = nodeById.get(run.to);
@@ -669,17 +709,22 @@ export function analyse(drawing: Drawing): Analysis {
           );
         }
       } else if (info.fitting === 'NONE') {
-        pushJoint(
-          `n:${node.id}`,
-          nodeJoint,
-          run.dn,
-          run.schedule,
-          'PIPE / PIPE',
-          node.pos,
-          facing,
-          idx,
-          distance,
-        );
+        // An item whose face sits right on the point — a reducer at the end
+        // of its run, say — is what the pipe beyond is welded to, so the
+        // point itself is no joint.
+        if (!faceOnNode(node.id)) {
+          pushJoint(
+            `n:${node.id}`,
+            nodeJoint,
+            run.dn,
+            run.schedule,
+            'PIPE / PIPE',
+            node.pos,
+            facing,
+            idx,
+            distance,
+          );
+        }
       } else {
         pushJoint(
           `n:${node.id}:${run.id}`,
@@ -704,8 +749,7 @@ export function analyse(drawing: Drawing): Analysis {
       const takeout = componentTakeout(comp.kind, dn, ends === 'FLG' && valveFlangeKind(defaultJoint));
       const faceHalf = componentTakeout(comp.kind, dn, false);
       const centre = add(a.pos, scale3(dir, comp.offset));
-      const isReducer = comp.kind === 'RED_CONC' || comp.kind === 'RED_ECC';
-      const reach: WeldReach = isReducer
+      const reach: WeldReach = isReducer(comp.kind)
         ? { kind: 'reducer' }
         : { kind: 'valve', trueHalf: faceHalf, flange: ends === 'FLG' && !isFlange(comp.kind) ? valveFlangeKind(defaultJoint) : undefined };
       // A flanged item is bolted to its flanges; what the pipe is welded to
@@ -713,16 +757,20 @@ export function analyse(drawing: Drawing): Analysis {
       const joinedTo =
         ends === 'FLG' && !isFlange(comp.kind)
           ? COMPONENT_LABEL[valveFlangeKind(defaultJoint)] ?? 'FLANGE'
-          : COMPONENT_LABEL[comp.kind] ?? comp.kind;
+          : isReducer(comp.kind)
+            ? reducerName(comp, run.dn)
+            : COMPONENT_LABEL[comp.kind] ?? comp.kind;
       for (const side of [0, 1] as const) {
         // A transition joint is welded on its steel side only; the plastic
         // side is fused, which is no weld of ours.
         if (comp.kind === 'TRANSITION' && side === (comp.flip ? 1 : 0)) continue;
         const distance = side === 0 ? comp.offset - takeout : comp.offset + takeout;
+        // A reducer's two welds are each the size of their own end.
+        const sideDn = isReducer(comp.kind) ? (side === 0 ? reducerSides(comp, run.dn).start : reducerSides(comp, run.dn).end) : dn;
         pushJoint(
           `c:${comp.id}:${side}`,
           joint,
-          dn,
+          sideDn,
           run.schedule,
           `PIPE / ${joinedTo}`,
           add(a.pos, scale3(dir, distance)),
@@ -773,12 +821,15 @@ export function analyse(drawing: Drawing): Analysis {
   // to pipe weld, off one of the two; the olet sitting on a header takes
   // none, and a header carries straight on through its olet as one length.
   const jointByKey = new Map(joints.map((j) => [j.key, j]));
-  const jointAt = (idx: number, distance: number, nodeId: string | null): Weld | undefined => {
+  const jointAt = (idx: number, distance: number, nodeId: string | null, at: Vec3): Weld | undefined => {
     for (let i = 0; i < ordered.length; i += 1) {
       const o = ordered[i];
       if (o.sortRun === idx && Math.abs(o.sortDist - distance) < 0.5) return joints[i];
     }
-    return nodeId ? jointByKey.get(`n:${nodeId}`) : undefined;
+    const onNode = nodeId ? jointByKey.get(`n:${nodeId}`) : undefined;
+    // The far weld of an item on the run before — a reducer's small end —
+    // sits on this piece's end though it belongs to that run.
+    return onNode ?? joints.find((j) => equals3(j.pos, at, 0.5));
   };
   const endFor = (weld: Weld | undefined): PieceEnd => {
     if (!weld) return { gap: 0 };
@@ -825,8 +876,8 @@ export function analyse(drawing: Drawing): Analysis {
     const dir = direction(a.pos, b.pos) ?? { e: 0, n: 0, u: 0 };
     spans.forEach(([lo, hi], n) => {
       if (hi - lo < 0.5) return;
-      const first = endFor(jointAt(idx, lo, lo < 0.5 ? run.from : null));
-      const last = endFor(jointAt(idx, hi, hi > total - 0.5 ? run.to : null));
+      const first = endFor(jointAt(idx, lo, lo < 0.5 ? run.from : null, add(a.pos, scale3(dir, lo))));
+      const last = endFor(jointAt(idx, hi, hi > total - 0.5 ? run.to : null, add(a.pos, scale3(dir, hi))));
       // The letter hangs off the piece a third of the way along, clear of
       // the dimension figure and the balloon leader at its middle.
       const piece: PipePiece = {
@@ -1035,10 +1086,7 @@ export function analyse(drawing: Drawing): Analysis {
       // the list: the sheets call a support out by name beside it.
       if (isMark(comp.kind)) continue;
       const dn = comp.dn ?? run.dn;
-      const isReducer = comp.kind === 'RED_CONC' || comp.kind === 'RED_ECC';
-      const description = isReducer
-        ? `${COMPONENT_LABEL[comp.kind]} ${sizeLabel(dn)} x ${sizeLabel(comp.dn2 ?? dn)}`
-        : COMPONENT_LABEL[comp.kind] ?? comp.kind;
+      const description = isReducer(comp.kind) ? reducerName(comp, run.dn) : COMPONENT_LABEL[comp.kind] ?? comp.kind;
       const at = a && dir ? add(a.pos, scale3(dir, comp.offset)) : (a?.pos ?? { e: 0, n: 0, u: 0 });
       instances.push({
         key: `comp:${comp.id}`,

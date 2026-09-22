@@ -565,6 +565,48 @@ export function removeFlangeJoint(drawing: Drawing, nodeId: string): boolean {
   return true;
 }
 
+/**
+ * Sets a reducer's two sizes and which way round it sits, and makes the
+ * pipe either side of it the size that side of it is: the run it sits in
+ * takes the size on the side the rest of that run lies, and a run carrying
+ * on from a face that sits on the run's end takes the other size.
+ */
+export function applyReducer(drawing: Drawing, compId: string, large: string, small: string, flip: boolean): void {
+  const run = drawing.runs.find((r) => r.inline.some((c) => c.id === compId));
+  const comp = run?.inline.find((c) => c.id === compId);
+  if (!run || !comp) return;
+  comp.dn = large;
+  comp.dn2 = small;
+  comp.flip = flip || undefined;
+  const startSide = flip ? small : large;
+  const endSide = flip ? large : small;
+  const half = componentTakeout(comp.kind, large);
+  const total = runLength(drawing, run);
+  const atStart = Math.abs(comp.offset - half) < 0.5;
+  const atEnd = Math.abs(comp.offset + half - total) < 0.5;
+  run.dn = atStart && !atEnd ? endSide : startSide;
+  // The line beyond a face is that size on through its elbows and joints,
+  // up to a branch point or another reducer, which have sizes of their own.
+  const beyond = (nodeId: string, size: string) => {
+    const seen = new Set<string>([run.id]);
+    const queue = [nodeId];
+    while (queue.length > 0) {
+      const at = queue.shift()!;
+      const touching = drawing.runs.filter((r) => r.from === at || r.to === at);
+      if (touching.length > 2) continue;
+      for (const other of touching) {
+        if (seen.has(other.id)) continue;
+        seen.add(other.id);
+        other.dn = size;
+        if (other.inline.some((c) => c.kind === 'RED_CONC' || c.kind === 'RED_ECC')) continue;
+        queue.push(other.from === at ? other.to : other.from);
+      }
+    }
+  };
+  if (atEnd) beyond(run.to, endSide);
+  if (atStart) beyond(run.from, startSide);
+}
+
 /** Whether pipe already leads from one point to the other, however far round. */
 export function samePiece(drawing: Drawing, a: string, b: string): boolean {
   const seen = new Set<string>([a]);

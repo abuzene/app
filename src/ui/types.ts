@@ -68,4 +68,27 @@ export interface Host {
   /** Moves the newer copy of every sheet each way between this device and Drive. */
   driveSync(): void;
   driveSignOut(): void;
+  /**
+   * Asks how a reducer goes in: its two sizes, which way round, and whether
+   * to carry on drawing from its far end. Null when the box is dismissed.
+   */
+  reducerDialog(ask: ReducerAsk): Promise<ReducerChoice | null>;
+  /** Makes this the size the next runs are drawn with. */
+  setCurrentSize(dn: string): void;
+}
+
+export interface ReducerAsk {
+  kind: 'RED_CONC' | 'RED_ECC';
+  large: string;
+  small: string;
+  /** Where it goes: on an open end (drawing can carry on from it), or along a run. */
+  atEnd: boolean;
+}
+
+export interface ReducerChoice {
+  large: string;
+  small: string;
+  /** The large end away from the open end, or towards the run's end. */
+  largeOutward: boolean;
+  drawOn: boolean;
 }

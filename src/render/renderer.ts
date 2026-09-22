@@ -445,7 +445,7 @@ export function renderDrawing(state: RenderState): string {
             ? groundSymbol(f, groundSide(comp.flip))
             : isSupport(comp.kind)
               ? supportSymbol(f, comp.kind as 'SUPPORT' | 'SUPPORT_L')
-              : componentSymbol(comp.kind, f, faceHalf);
+              : componentSymbol(comp.kind, f, faceHalf, comp.flip);
       if (isSupport(comp.kind)) {
         // The support's name, on a leader to it; dragged wherever it reads
         // best, like a balloon, and kept there with the drawing.
