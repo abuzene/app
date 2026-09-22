@@ -4,6 +4,7 @@ import type { Preview, Selection } from './render/renderer';
 import type { AppState, Host } from './ui/types';
 import { analyse, dimensionStops, emptyDrawing, uid } from './model/drawing';
 import { loadLibrary, removeDrawing, renumberProject, sheetNumber, upsertDrawing, worthKeeping } from './model/library';
+import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, noteRemovedFromLibrary, setDriveClientId, syncDrive } from './model/drive';
 import { add, length3, scale3, sub } from './model/iso';
 import { initialCommandState, runCommands } from './model/commands';
 import { applyDimension, connectNodes, deleteNode, deleteRun, ensureNode, removeComponent, route, setRunDirect, stretchRun } from './model/edit';
@@ -158,12 +159,33 @@ const host: Host = {
     ).then((ok) => {
       if (!ok) return;
       removeDrawing(id);
+      noteRemovedFromLibrary(id);
       if (id === state.drawing.id) state.drawing.id = uid('d');
       render();
     });
   },
   newSheetInProject() {
     newSheetInProject();
+  },
+  driveStatus() {
+    return driveStatus();
+  },
+  driveConnect(clientId) {
+    setDriveClientId(clientId);
+    if (!driveStatus().clientId) {
+      host.notify('Paste the OAuth client ID from Google Cloud first.');
+      return;
+    }
+    keepNow();
+    beginDriveSignIn();
+  },
+  driveSync() {
+    void runDriveSync();
+  },
+  driveSignOut() {
+    driveSignOut();
+    host.notify('Signed out of Google Drive on this device. The sheets stay here.');
+    render();
   },
   editDimension(runId, index) {
     // The figure has to be on the sheet to be typed over: find its target.
@@ -1684,6 +1706,48 @@ function triggerDownload(blob: Blob, filename: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+/* ---------------------------------------------------------------- drive */
+
+let driveBusy = false;
+
+/** Syncs the library with Google Drive and says what moved. */
+async function runDriveSync(): Promise<void> {
+  if (driveBusy) return;
+  if (!driveStatus().connected) {
+    host.notify('Sign in to Google Drive first.');
+    render();
+    return;
+  }
+  driveBusy = true;
+  keepNow();
+  hoverMessage = 'syncing with Google Drive…';
+  renderHud();
+  try {
+    const result = await syncDrive();
+    const parts = [
+      result.up ? `${result.up} up` : '',
+      result.down ? `${result.down} down` : '',
+      result.removed ? `${result.removed} removed` : '',
+    ].filter(Boolean);
+    host.notify(parts.length ? `Drive: ${parts.join(', ')}.` : 'Drive: everything was already the same.');
+    // The sheet on screen came back newer from Drive: show that one.
+    if (state.drawing.id && result.downloaded.includes(state.drawing.id)) {
+      const entry = loadLibrary().find((e) => e.id === state.drawing.id);
+      if (entry) {
+        undoStack.push(snapshot());
+        redoStack.length = 0;
+        takeUp(entry.drawing);
+      }
+    }
+  } catch (err) {
+    host.notify(err instanceof Error ? err.message : 'Google Drive could not be reached.');
+  } finally {
+    driveBusy = false;
+    hoverMessage = null;
+    render();
+  }
+}
+
 /* -------------------------------------------------------------- storage */
 
 function persist(): void {
@@ -1866,5 +1930,10 @@ document.addEventListener('click', (event) => {
 snapSelect.value = String(state.drawing.options.snap);
 jointSelect.value = state.drawing.options.joint ?? 'BW';
 refreshSizeSelects();
+// Back from Google's sign-in page: the token is in the address, so take
+// it and sync straight away, in the Projects tab where it was asked for.
+const signedIn = finishDriveSignIn();
+if (signedIn) state.tab = 'projects';
 render();
 fitView();
+if (signedIn || driveStatus().connected) void runDriveSync();

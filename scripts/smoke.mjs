@@ -9,6 +9,7 @@ import { mkdtemp, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fakeDrive } from './fake-drive.mjs';
 
 const APP = `file://${process.cwd()}/dist/index.html`;
 const out = await mkdtemp(join(tmpdir(), 'iso-smoke-'));
@@ -2025,6 +2026,68 @@ await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 2000\nD 900\nE 234\nEND TRANSITION');
 check('a run with no pipe left in it has one weld, fitting to fitting', await pipeNets(), (v) => v.length === 4 && v.some((r) => /^90 ELBOW LR \/ TRANSITION JOINT PE\/CS = $/.test(r)), '4 welds, the last elbow to transition');
 await page.keyboard.press('Escape');
 await page.waitForTimeout(150);
+
+/* ------------------------------------------------- sheets kept in Drive */
+
+// The iPad and the office PC share one folder in Google Drive. Google's
+// own pages are stood in for here: the sign-in page by a stub, and the
+// Drive files API by a small fake, enough to see every sheet move each way.
+const drive = fakeDrive(page);
+await page.route('https://accounts.google.com/**', (route) => route.fulfill({ status: 200, headers: { 'Content-Type': 'text/html' }, body: '<title>google-signin-stub</title>stub' }));
+await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 3000\nN 1000');
+await page.click('#tabs button:has-text("Title")');
+await page.fill('[data-meta="project"]', 'Drive Test');
+await page.dispatchEvent('[data-meta="project"]', 'change');
+await page.waitForTimeout(1200);
+await page.click('#tabs button:has-text("Projects")');
+await page.waitForTimeout(200);
+check('the Projects tab offers Google Drive, asking for a client ID first', await page.locator('[data-editor="drive"] [data-f="drive-client"]').count(), (v) => v === 1, '1');
+await page.fill('[data-f="drive-client"]', '123.apps.googleusercontent.com');
+await page.click('[data-a="drive-connect"]');
+await page.waitForURL(/accounts\.google\.com/, { timeout: 5000 });
+const signIn = new URL(page.url());
+check('signing in goes to Google for a token, back to this page', `${signIn.searchParams.get('client_id')} ${signIn.searchParams.get('response_type')} ${signIn.searchParams.get('scope')}`, (v) => v === '123.apps.googleusercontent.com token https://www.googleapis.com/auth/drive.file', 'client id, token, drive.file');
+check('and sends it back to the page itself', signIn.searchParams.get('redirect_uri'), (v) => v === `file://${process.cwd()}/dist/`, 'the app page without index.html');
+await page.goto(`${APP}#access_token=tok1&token_type=Bearer&expires_in=3600&state=${signIn.searchParams.get('state')}`);
+await page.waitForTimeout(1500);
+const keptCount = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.library.v1')).length);
+check('back with a token, the address is tidied and every kept sheet goes up', `${page.url().includes('access_token')} ${[...drive.files.values()].filter((f) => f.mimeType === 'application/json').length}`, (v) => v === `false ${keptCount}`, `no token in the address, ${keptCount} files in Drive`);
+check('in a folder of its own, named for the sheet', [...drive.files.values()].map((f) => f.name).join('|'), (v) => /Isometric Piping/.test(v) && /Drive Test - sheet 1 of 1 \[/.test(v), 'Isometric Piping, Drive Test - sheet 1 of 1 […]');
+check('and the tab says so', await page.locator('[data-editor="drive"]').innerText(), (v) => /Signed in/.test(v) && new RegExp(`${keptCount} up, 0 down`).test(v), `Signed in … ${keptCount} up, 0 down`);
+const kept = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.library.v1')));
+const fromPc = JSON.parse(JSON.stringify(kept[0].drawing));
+fromPc.id = 'dother';
+fromPc.meta.project = 'From PC';
+drive.seed(fromPc, Date.now());
+const edited = JSON.parse(JSON.stringify(kept[0].drawing));
+edited.meta.lineNumber = 'PC-EDIT';
+const myFile = [...drive.files.values()].find((f) => f.appProperties?.isoId === edited.id);
+myFile.appProperties.savedAt = String(Date.now() + 10000);
+myFile.content = JSON.stringify(edited);
+await page.click('[data-a="drive-sync"]');
+await page.waitForTimeout(1200);
+check('a sync brings down a sheet the other device made, and a newer copy of this one', await page.locator('#hud').innerText(), (v) => /Drive: 2 down/.test(v), 'Drive: 2 down.');
+check('the other sheet is in the projects list', await page.locator('#tab-body').innerText(), (v) => /From PC/.test(v), 'From PC');
+await page.click('#tabs button:has-text("Title")');
+check('and the sheet on screen took the newer copy', await page.inputValue('[data-meta="lineNumber"]'), (v) => v === 'PC-EDIT', 'PC-EDIT');
+await page.click('#tabs button:has-text("Projects")');
+await page.click('[data-remove-sheet="dother"]');
+await page.waitForTimeout(200);
+await page.click('.dialog-backdrop [data-confirm]');
+await page.waitForTimeout(300);
+await page.click('[data-a="drive-sync"]');
+await page.waitForTimeout(1000);
+check('a sheet forgotten here goes out of Drive, and nothing comes back down', `${[...drive.files.values()].some((f) => f.appProperties?.isoId === 'dother')} ${(await page.locator('#hud').innerText()).match(/Drive:[^\n]*/)?.[0]}`, (v) => v === 'false Drive: 1 removed.', 'dother gone, "Drive: 1 removed."');
+drive.state.deny401 = true;
+await page.click('[data-a="drive-sync"]');
+await page.waitForTimeout(800);
+check('a sign-in that has run out is said so, and offered again', `${(await page.locator('#hud').innerText()).match(/Google Drive[^\n]*/)?.[0]} | ${(await page.locator('[data-editor="drive"] .btn-row').innerText()).replace(/\n/g, ' ')}`, (v) => /asks for a sign-in again/.test(v) && /Sign in and sync/.test(v), 'asks for a sign-in again; Sign in and sync');
+drive.state.deny401 = false;
+// The 401 was asked for: the browser's own note of it is not an error of ours.
+for (let i = consoleErrors.length - 1; i >= 0; i -= 1) if (/401/.test(consoleErrors[i])) consoleErrors.splice(i, 1);
+await page.unroute('https://www.googleapis.com/**');
+await page.unroute('https://accounts.google.com/**');
+await page.evaluate(() => { for (const k of Object.keys(localStorage)) if (k.startsWith('iso-draw.drive.')) localStorage.removeItem(k); });
 
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 

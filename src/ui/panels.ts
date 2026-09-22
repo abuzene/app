@@ -6,6 +6,7 @@ import { DN_LIST, SIZE_LABELS, defaultValveEnds, schedulesFor, sizeLabel } from 
 import { axisBetween } from '../model/iso';
 import { projectsOf } from '../model/library';
 import { deleteNode, deleteRun, removeComponent, runLength, setRunDirect, setRunLength, splitRun } from '../model/edit';
+import { setDriveClientId } from '../model/drive';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'route', label: 'Route' },
@@ -546,6 +547,37 @@ function projectsTab(host: Host): string {
       ? `<div class="btn-row"><button class="btn-line" data-a="toggle-projects">${showAllProjects ? `Show the ${RECENT_PROJECTS} most recent` : `Show all ${projects.length} projects`}</button></div>`
       : ''
   }
+</div>
+${driveSection(host)}`;
+}
+
+/** Google Drive: one folder of sheets shared by every device signed in. */
+function driveSection(host: Host): string {
+  const status = host.driveStatus();
+  const when = (t: number) => {
+    const d = new Date(t);
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  };
+  const last = status.last
+    ? `Last sync ${when(status.last.at)}: ${status.last.up} up, ${status.last.down} down${status.last.removed ? `, ${status.last.removed} removed` : ''}.`
+    : '';
+  if (!status.clientId) {
+    return `
+<div class="section" data-editor="drive">
+  <h3>Google Drive</h3>
+  <p class="empty-note">Keep the sheets in a folder in your Google Drive, so the iPad and the office PC see the same ones. One-time setup: in Google Cloud make an OAuth client ID of type Web application, with <code>${esc(location.origin)}</code> as an authorised JavaScript origin and <code>${esc(location.origin + location.pathname.replace(/index\.html$/, ''))}</code> as an authorised redirect URI, and paste the client ID here.</p>
+  <div class="row"><label>Client ID</label><input type="text" data-f="drive-client" placeholder="….apps.googleusercontent.com" /></div>
+  <div class="btn-row"><button class="btn-line solid" data-a="drive-connect">Sign in to Google Drive</button></div>
+</div>`;
+  }
+  return `
+<div class="section" data-editor="drive">
+  <h3>Google Drive</h3>
+  <p class="empty-note">${status.connected ? 'Signed in.' : 'Signed out, or the sign-in has run out.'} The folder is <strong>Isometric Piping</strong>, one file per sheet; a sync moves the newer copy of each sheet each way. ${esc(last)}</p>
+  <div class="btn-row">
+    ${status.connected ? '<button class="btn-line solid" data-a="drive-sync">Sync now</button>' : '<button class="btn-line solid" data-a="drive-connect">Sign in and sync</button>'}
+    <button class="btn-line" data-a="drive-signout">${status.connected ? 'Sign out' : 'Forget the client ID'}</button>
+  </div>
 </div>`;
 }
 
@@ -554,6 +586,15 @@ function wire(body: HTMLElement, host: Host): void {
 
   // Projects.
   body.querySelector('[data-a="new-sheet"]')?.addEventListener('click', () => host.newSheetInProject());
+  body.querySelector('[data-a="drive-connect"]')?.addEventListener('click', () => {
+    const field = body.querySelector<HTMLInputElement>('[data-f="drive-client"]');
+    host.driveConnect(field ? field.value : host.driveStatus().clientId);
+  });
+  body.querySelector('[data-a="drive-sync"]')?.addEventListener('click', () => host.driveSync());
+  body.querySelector('[data-a="drive-signout"]')?.addEventListener('click', () => {
+    if (!host.driveStatus().connected) setDriveClientId('');
+    host.driveSignOut();
+  });
   body.querySelector('[data-a="toggle-projects"]')?.addEventListener('click', () => {
     host.state.showAllProjects = !host.state.showAllProjects;
     host.touch();

@@ -47,11 +47,21 @@ export function worthKeeping(drawing: Drawing): boolean {
   return drawing.runs.length > 0 || !!drawing.meta.project || !!drawing.meta.lineNumber || !!drawing.meta.drawingNo;
 }
 
-/** Puts this drawing in the library, in place of its earlier self. */
-export function upsertDrawing(drawing: Drawing): void {
+/**
+ * Puts this drawing in the library, in place of its earlier self. A copy
+ * taken from elsewhere keeps the time it was saved there, so the two sides
+ * can still be compared.
+ */
+export function upsertDrawing(drawing: Drawing, savedAt?: number): void {
   if (!drawing.id) return;
-  const entries = loadLibrary().filter((e) => e.id !== drawing.id);
-  entries.push({ id: drawing.id, savedAt: Date.now(), drawing: JSON.parse(JSON.stringify(drawing)) as Drawing });
+  const all = loadLibrary();
+  const json = JSON.stringify(drawing);
+  const before = all.find((e) => e.id === drawing.id);
+  // Kept again unchanged, it is not newer: the stamp stays, so a copy taken
+  // from Drive is not sent straight back as if it had been edited here.
+  const stamp = savedAt ?? (before && JSON.stringify(before.drawing) === json ? before.savedAt : Date.now());
+  const entries = all.filter((e) => e.id !== drawing.id);
+  entries.push({ id: drawing.id, savedAt: stamp, drawing: JSON.parse(json) as Drawing });
   entries.sort((a, b) => b.savedAt - a.savedAt);
   saveLibrary(entries.slice(0, LIMIT));
 }

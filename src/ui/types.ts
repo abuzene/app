@@ -3,6 +3,7 @@ import type { CommandState } from '../model/commands';
 import type { Drawing } from '../model/types';
 import type { Preview, Selection, ViewBox } from '../render/renderer';
 import type { LibraryEntry } from '../model/library';
+import type { DriveStatus } from '../model/drive';
 
 export type TabId = 'route' | 'command' | 'items' | 'welds' | 'title' | 'projects';
 
@@ -60,4 +61,11 @@ export interface Host {
    * as continuing on the new sheet, and the new sheet starts from it.
    */
   newSheetInProject(): void;
+  /** Google Drive: whether the app is signed in, and what the last sync moved. */
+  driveStatus(): DriveStatus;
+  /** Keeps the OAuth client id and goes to Google's sign-in page. */
+  driveConnect(clientId: string): void;
+  /** Moves the newer copy of every sheet each way between this device and Drive. */
+  driveSync(): void;
+  driveSignOut(): void;
 }
