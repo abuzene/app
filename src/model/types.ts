@@ -293,6 +293,12 @@ export interface Drawing {
   bomNames?: Record<string, string>;
   /** Equipment boxes drawn on the sheet. */
   equipment?: Equipment[];
+  /**
+   * Where each item balloon is, by list line key: on a chosen one of the
+   * item's places on the drawing, or taken off altogether. Unset, it goes
+   * where there is most room.
+   */
+  balloons?: Record<string, { at?: string; hidden?: boolean }>;
 }
 
 export interface DimOverride {

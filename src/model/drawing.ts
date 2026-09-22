@@ -90,6 +90,8 @@ export interface ItemInstance {
   key: string;
   number: number;
   pos: Vec3;
+  /** The list line it is counted on. */
+  line: string;
 }
 
 export interface BomLine {
@@ -1179,16 +1181,13 @@ export function analyse(drawing: Drawing): Analysis {
   bom.forEach((line, i) => {
     if (line.key) numberOf.set(line.key, i + 1);
   });
-  // One balloon per line of the list is enough: the first place each item
-  // number appears carries it, and the fitter reads the rest from the list.
-  const ballooned = new Set<number>();
+  // Every place an item is, in route order. One balloon per line of the
+  // list is enough — the fitter reads the rest from the list — and which
+  // place carries it is chosen where it is drawn: the one with most room,
+  // or the one picked by hand.
   const items: ItemInstance[] = instances
-    .map((inst) => ({ key: inst.key, number: numberOf.get(inst.bomKey) ?? 0, pos: inst.pos }))
-    .filter((inst) => {
-      if (inst.number <= 0 || ballooned.has(inst.number)) return false;
-      ballooned.add(inst.number);
-      return true;
-    });
+    .map((inst) => ({ key: inst.key, number: numberOf.get(inst.bomKey) ?? 0, pos: inst.pos, line: inst.bomKey }))
+    .filter((inst) => inst.number > 0);
 
   return {
     nodeInfo,

@@ -2421,6 +2421,43 @@ const corner = (await nodesAt()).find((p) => p[1] === 3000 && p[2] === 0)[0];
 await tapNode(corner);
 check('a corner is still deleted with its runs', await page.locator('#hud-delete').innerText(), (v) => v === 'Delete point', 'Delete point');
 
+/* ------------------------------------ an item's balloon: where there is room, or as picked */
+
+// One balloon per list line, on the place with most room round it rather
+// than always the first along the route; picked by hand in the Items tab
+// or on the fitting itself, or taken off and put back where wanted.
+await startNewDrawing();
+await page.click('[data-a="load-sample"]');
+await page.waitForTimeout(500);
+const balloonKeys = () => page.locator('#canvas circle.hit-dot[data-balloon]').evaluateAll((els) => els.map((e) => e.getAttribute('data-balloon')).filter((k) => !k.startsWith('pc:')));
+const elbowKeys = () => page.evaluate(() => {
+  const d = JSON.parse(localStorage.getItem('iso-draw.drawing.v1'));
+  const deg = {};
+  for (const r of d.runs) { deg[r.from] = (deg[r.from] ?? 0) + 1; deg[r.to] = (deg[r.to] ?? 0) + 1; }
+  return d.nodes.filter((n) => deg[n.id] === 2 && !n.flange && !n.fittingOverride).map((n) => `node:${n.id}`);
+});
+const elbows = await elbowKeys();
+check('the sample has two elbows and one balloon for them', `${elbows.length} ${(await balloonKeys()).filter((k) => elbows.includes(k)).length}`, (v) => v === '2 1', '2 1');
+await page.click('#tabs button:has-text("Items")');
+await page.waitForTimeout(200);
+const elbowSelect = page.locator('#tab-body select[data-balloon-at*="ELBOW"]');
+check('the Items tab offers each place the elbow is, or none', await elbowSelect.locator('option').count(), (v) => v === 4, 'room / place 1 / place 2 / none');
+await elbowSelect.selectOption({ index: 2 });
+await page.waitForTimeout(300);
+const pickedElbow = await page.evaluate(() => Object.values(JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).balloons)[0].at);
+check('picking a place puts the balloon there', (await balloonKeys()).includes(pickedElbow), (v) => v === true, 'balloon on the picked elbow');
+await elbowSelect.selectOption('none');
+await page.waitForTimeout(300);
+check('No balloon takes it off the drawing', (await balloonKeys()).filter((k) => elbows.includes(k)).length, (v) => v === 0, '0');
+await page.click('#tabs button:has-text("Route")');
+await page.waitForTimeout(200);
+await tapNode(elbows[0].slice(5));
+check('the picked elbow offers to carry the balloon', await page.locator('#tab-body [data-a="balloon-here"]').innerText(), (v) => /^Balloon \d+ here$/.test(v), 'Balloon n here');
+await page.click('#tab-body [data-a="balloon-here"]');
+await page.waitForTimeout(300);
+check('and then carries it', (await balloonKeys()).includes(elbows[0]), (v) => v === true, 'balloon back, on this elbow');
+check('offering to take it off again', await page.locator('#tab-body [data-a="balloon-off"]').count(), (v) => v === 1, '1');
+
 /* ----------------------------------------------- an olet taken off again */
 
 // An olet placed and not drawn from comes off on its own: the two header

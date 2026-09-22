@@ -739,7 +739,8 @@ export function renderDrawing(state: RenderState): string {
   };
 
   if (drawing.options.showItems !== false) {
-    const marks = analysis.items
+    const r = size * 1.05;
+    const candidates = analysis.items
       .map((item) => {
         const place = weldPlacement(drawing, analysis, item.pos);
         if (!place) return null;
@@ -752,6 +753,7 @@ export function renderDrawing(state: RenderState): string {
         const placed = drawing.itemOverrides?.[item.key];
         return {
           key: item.key,
+          line: item.line,
           number: item.number,
           fromX: f.cx,
           fromY: f.cy,
@@ -761,8 +763,35 @@ export function renderDrawing(state: RenderState): string {
         };
       })
       .filter((m): m is NonNullable<typeof m> => m !== null);
+    // One balloon per list line: on the place picked for it, else where
+    // there is most room — the place whose balloon lands farthest from
+    // the figures, weld tags and balloons already put down.
+    const crowd: Pt[] = [...figures, ...weldLabels];
+    const marks: typeof candidates = [];
+    const lines = [...new Set(candidates.map((c) => c.line))].sort((a, b) => (candidates.find((c) => c.line === a)?.number ?? 0) - (candidates.find((c) => c.line === b)?.number ?? 0));
+    for (const line of lines) {
+      const choice = drawing.balloons?.[line];
+      if (choice?.hidden) continue;
+      const own = candidates.filter((c) => c.line === line);
+      let pick = choice?.at ? own.find((c) => c.key === choice.at) : undefined;
+      if (!pick) {
+        let best = -1;
+        for (const c of own) {
+          const room = crowd.reduce((min, p) => Math.min(min, Math.hypot(p.x - c.x, p.y - c.y)), Infinity);
+          // Room beyond three balloons apart is room enough; the first place
+          // then wins, as it always did.
+          const score = Math.min(room, r * 6);
+          if (score > best + 0.01) {
+            best = score;
+            pick = c;
+          }
+        }
+      }
+      if (!pick) continue;
+      marks.push(pick);
+      crowd.push({ x: pick.x, y: pick.y });
+    }
 
-    const r = size * 1.05;
     const placedMarks = marks.filter((m) => m.placed);
     const spreadMarks = spreadLabels(marks.filter((m) => !m.placed), r * 2.9, [...figures, ...weldLabels, ...placedMarks]);
     for (const mark of [...placedMarks, ...spreadMarks]) {

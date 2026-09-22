@@ -634,6 +634,10 @@ const canvas = new Canvas(svg, {
     const apply = (d: Drawing) => {
       if (balloon) {
         d.itemOverrides = { ...d.itemOverrides, [balloon]: { dx: offset.dx, dy: offset.dy } };
+        // An item balloon dragged stays on the place it was dragged from,
+        // rather than moving to wherever has most room later.
+        const inst = state.analysis.items.find((i) => i.key === balloon);
+        if (inst) d.balloons = { ...d.balloons, [inst.line]: { ...d.balloons?.[inst.line], at: balloon, hidden: undefined } };
         return;
       }
       d.weldOverrides[key] = { ...d.weldOverrides[key], tag: { dx: offset.dx, dy: offset.dy } };

@@ -185,6 +185,7 @@ function nodeProperties(host: Host, nodeId: string): string {
   }</p>
   <div class="btn-row">
     <button class="btn-line solid" data-a="draw-from">${pendingOlet ? 'Draw the branch from here' : 'Draw from here'}</button>
+    ${balloonButtons(host, [`node:${nodeId}`, `term:${nodeId}`, ...drawing.runs.filter((r) => r.from === nodeId || r.to === nodeId).map((r) => `flg:${nodeId}:${r.id}`)])}
     ${node.flange ? '<button class="btn-line danger" data-a="remove-flanges">Remove both flanges — join the pipe straight</button>' : ''}
     ${pendingOlet ? '<button class="btn-line danger" data-a="remove-olet">Remove olet — the header runs on whole</button>' : isPlainPoint(drawing, nodeId) ? '<button class="btn-line danger" data-a="delete-node">Remove point — the pipe runs straight through</button>' : '<button class="btn-line danger" data-a="delete-node">Delete point and its runs</button>'}
   </div>
@@ -250,6 +251,7 @@ function componentProperties(host: Host, compId: string): string {
       : ''
   }</p>
   <div class="btn-row">
+    ${balloonButtons(host, [`comp:${comp.id}`])}
     <button class="btn-line danger" data-a="delete-component">Remove</button>
   </div>
 </div>`;
@@ -358,6 +360,37 @@ function commandTab(host: Host): string {
 
 /* ------------------------------------------------------------------ items */
 
+/** Where an item is on the drawing, in words: "E 3000 N 0 U 0". */
+function placeName(pos: { e: number; n: number; u: number }): string {
+  return `E ${Math.round(pos.e)} N ${Math.round(pos.n)} U ${Math.round(pos.u)}`;
+}
+
+/** The balloon control for a list line: where it is, or off. */
+function balloonSelect(host: Host, line: string): string {
+  const places = host.state.analysis.items.filter((i) => i.line === line);
+  if (places.length === 0) return '';
+  const choice = host.state.drawing.balloons?.[line];
+  const picked = choice?.hidden ? 'none' : choice?.at && places.some((p) => p.key === choice.at) ? choice.at : 'auto';
+  const opts = [
+    `<option value="auto"${picked === 'auto' ? ' selected' : ''}>Balloon where there is room</option>`,
+    ...places.map((p, i) => `<option value="${esc(p.key)}"${picked === p.key ? ' selected' : ''}>Balloon at ${i + 1}: ${placeName(p.pos)}</option>`),
+    `<option value="none"${picked === 'none' ? ' selected' : ''}>No balloon</option>`,
+  ];
+  return `<select class="balloon-at" data-balloon-at="${esc(line)}" title="Where this item's balloon is">${opts.join('')}</select>`;
+}
+
+/** The balloon buttons on a picked point or item: put the balloon here, or take it off. */
+function balloonButtons(host: Host, keys: string[]): string {
+  const inst = host.state.analysis.items.find((i) => keys.includes(i.key));
+  if (!inst) return '';
+  const choice = host.state.drawing.balloons?.[inst.line];
+  const here = choice?.at === inst.key && !choice.hidden;
+  return (
+    (here ? '' : `<button class="btn-line" data-a="balloon-here" data-line="${esc(inst.line)}" data-key="${esc(inst.key)}">Balloon ${inst.number} here</button>`) +
+    (choice?.hidden ? '' : `<button class="btn-line" data-a="balloon-off" data-line="${esc(inst.line)}">No balloon ${inst.number}</button>`)
+  );
+}
+
 function itemsTab(host: Host): string {
   const { bom } = host.state.analysis;
   if (bom.length === 0) {
@@ -372,6 +405,7 @@ function itemsTab(host: Host): string {
   <td>${esc(line.schedule)}</td>
   <td class="num">${line.unit === 'm' ? line.quantity.toFixed(2) : Math.round(line.quantity)}</td>
   <td>${line.unit}</td>
+  <td>${line.key ? balloonSelect(host, line.key) : ''}</td>
 </tr>`,
     )
     .join('');
@@ -381,14 +415,14 @@ function itemsTab(host: Host): string {
 <div class="section">
   <h3>Bill of materials</h3>
   <table>
-    <thead><tr><th class="num">#</th><th>Description</th><th>Size</th><th>Thk</th><th class="num">Qty</th><th>Unit</th></tr></thead>
+    <thead><tr><th class="num">#</th><th>Description</th><th>Size</th><th>Thk</th><th class="num">Qty</th><th>Unit</th><th>Balloon</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>
   <div class="totals">
     <span>Pipe <strong>${pipe.toFixed(2)} m</strong></span>
     <span>Items <strong>${Math.round(items)}</strong></span>
   </div>
-  <p class="empty-note">Names can be typed over; they go on the printed sheet as typed.</p>
+  <p class="empty-note">Names can be typed over; they go on the printed sheet as typed. Each line has one balloon on the drawing: where there is most room, at a place picked here, or none.</p>
   <div class="btn-row"><button class="btn-line" data-a="copy-bom">Copy list</button></div>
 </div>
 ${pipeCutList(host)}`;
@@ -1023,6 +1057,38 @@ function wire(body: HTMLElement, host: Host): void {
 
   body.querySelector('[data-a="copy-bom"]')?.addEventListener('click', () => {
     host.copy('Bill of materials', bomCsv());
+  });
+  // Where an item's balloon is: on a place picked, where there is room, or none.
+  body.querySelectorAll<HTMLSelectElement>('[data-balloon-at]').forEach((select) => {
+    select.addEventListener('change', () => {
+      const line = select.dataset.balloonAt!;
+      const value = select.value;
+      host.edit('Place balloon', (d) => {
+        const next = { ...d.balloons };
+        if (value === 'auto') delete next[line];
+        else if (value === 'none') next[line] = { hidden: true };
+        else next[line] = { at: value };
+        d.balloons = next;
+      });
+    });
+  });
+  body.querySelectorAll<HTMLElement>('[data-a="balloon-here"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const line = button.dataset.line!;
+      const key = button.dataset.key!;
+      host.edit('Place balloon', (d) => {
+        d.balloons = { ...d.balloons, [line]: { at: key } };
+        if (d.itemOverrides) delete d.itemOverrides[key];
+      });
+    });
+  });
+  body.querySelectorAll<HTMLElement>('[data-a="balloon-off"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const line = button.dataset.line!;
+      host.edit('Take balloon off', (d) => {
+        d.balloons = { ...d.balloons, [line]: { hidden: true } };
+      });
+    });
   });
   // A list line's name, typed over: kept with the drawing and printed as typed.
   body.querySelectorAll<HTMLElement>('[data-bom-name]').forEach((cell) => {

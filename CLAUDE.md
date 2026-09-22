@@ -84,7 +84,15 @@ ships, and the decisions already taken, so they are not re-litigated.
   lengths summed), leaving no joint; on a turn only the flanges go.
 - **One balloon per item number**; balloons and weld tags (rounded boxes)
   are on thin leaders and are **draggable** (`itemOverrides`,
-  `weldOverrides[key].tag`). Support callouts drag the same way
+  `weldOverrides[key].tag`). `analysis.items` holds **every** place an item
+  is (`ItemInstance.line` = list line key); the renderer picks one per
+  line: `drawing.balloons[line]` `{ at: instanceKey }` or `{ hidden }`,
+  else the place whose balloon lands farthest from figures, weld tags and
+  balloons already put down (capped at six radii, so the first place wins
+  when all have room). Dragging a balloon pins it to that place. Items tab:
+  a per-line select (`[data-balloon-at]`: room / each place "E N U" / none);
+  point and item panels: "Balloon n here" / "No balloon n" buttons
+  (`[data-a="balloon-here"]`, `[data-a="balloon-off"]`). Support callouts drag the same way
   (`itemOverrides['sup:<id>']`).
 - Weld numbers are editable (typed on the drawing or in the Welds tab). A
   joint can be marked **not welded** (`weldOverrides[key].skip`: hollow
