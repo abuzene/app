@@ -1,6 +1,6 @@
 import type { Axis, ComponentKind, Drawing, EndType, Equipment, FlangeKind, InlineComponent, IsoNode, Run, TerminalKind, Vec3 } from './types';
 import { add, axisBetween, direction, equals3, length3, scale3, step, sub } from './iso';
-import { dimensionStops, fittingsTouchLength, isValve, itemAtEnd, terminalTakeoutOf, uid, type Analysis } from './drawing';
+import { chainStops, dimensionStops, fittingsTouchLength, isValve, itemAtEnd, terminalTakeoutOf, uid, type Analysis } from './drawing';
 import { componentTakeout } from './pipe-data';
 
 /** Finds an existing node at a position, so that routes join rather than overlap. */
@@ -374,7 +374,7 @@ export function setRunLength(drawing: Drawing, runId: string, length: number): b
  * Sets a run's length by moving one of its ends along its own line — never
  * turning it. `end` says which end moves; the other stays put.
  */
-export function stretchRun(drawing: Drawing, runId: string, length: number, end: 'from' | 'to'): boolean {
+export function stretchRun(drawing: Drawing, runId: string, length: number, end: 'from' | 'to', moveEnd = false): boolean {
   const run = drawing.runs.find((r) => r.id === runId);
   if (!run || length <= 0) return false;
   const start = drawing.nodes.find((n) => n.id === run.from);
@@ -442,12 +442,14 @@ export function stretchRun(drawing: Drawing, runId: string, length: number, end:
     }
     return true;
   };
-  const onward = beyond(to.id, from.pos);
+  // Unless the end itself is to move — a header's far end, whatever the
+  // olets along it — a through point either side takes up the difference.
+  const onward = moveEnd ? undefined : beyond(to.id, from.pos);
   if (onward && slideThrough(to, onward, delta)) {
     settleInline();
     return true;
   }
-  const backward = beyond(from.id, to.pos);
+  const backward = moveEnd ? undefined : beyond(from.id, to.pos);
   if (backward && slideThrough(from, backward, scale3(delta, -1))) {
     settleInline();
     return true;
@@ -606,6 +608,77 @@ export function deletePoint(drawing: Drawing, nodeId: string): 'joined' | 'delet
   if (isPlainPoint(drawing, nodeId) && joinThrough(drawing, nodeId)) return 'joined';
   deleteNode(drawing, nodeId);
   return 'deleted';
+}
+
+/**
+ * Sets a dimension on a header chain — one that runs through olets. The
+ * end-to-end pieces work as a run's do: up to a valve face the valve slides,
+ * on the last piece the far end moves with everything beyond it. An olet's
+ * own dimension, from the chain's start, moves just the olet along the
+ * header: the header keeps its length, and what sits along it stays put.
+ */
+export function applyChainDimension(drawing: Drawing, analysis: Analysis, key: string, value: number): string | null {
+  if (!(value > 0)) return 'A dimension has to be more than nothing.';
+  const olet = key.match(/^olet:(.+)$/);
+  if (olet) {
+    const nodeId = olet[1];
+    const chain = analysis.chains.find((c) => c.olets.some((o) => o.nodeId === nodeId));
+    const node = drawing.nodes.find((n) => n.id === nodeId);
+    const start = chain ? drawing.nodes.find((n) => n.id === chain.from) : undefined;
+    const end = chain ? drawing.nodes.find((n) => n.id === chain.to) : undefined;
+    if (!chain || !node || !start || !end) return 'No such dimension.';
+    const stops = chainStops(drawing, chain);
+    const others = chain.olets.filter((o) => o.nodeId !== nodeId).map((o) => o.along);
+    const below = Math.max(...[...stops, ...others].filter((mm) => mm < value - 0.5 && mm < chain.total), 0);
+    const above = Math.min(...[...stops, ...others].filter((mm) => mm > value + 0.5), chain.total);
+    if (value <= below + 0.5 || value >= above - 0.5) return 'That would put the olet past the next thing on the header.';
+    const dir = direction(start.pos, end.pos);
+    if (!dir) return 'No such dimension.';
+    const was = chain.olets.find((o) => o.nodeId === nodeId)!.along;
+    const delta = value - was;
+    node.pos = add(start.pos, scale3(dir, value));
+    // What sits along the runs either side keeps its place on the header.
+    const before = chain.runs.find((leg) => (leg.forward ? leg.run.to : leg.run.from) === nodeId);
+    const after = chain.runs.find((leg) => (leg.forward ? leg.run.from : leg.run.to) === nodeId);
+    if (before && !before.forward) for (const c of before.run.inline) c.offset += delta;
+    if (after && after.forward) for (const c of after.run.inline) c.offset -= delta;
+    return null;
+  }
+  const piece = key.match(/^chain:(.+):(\d+)$/);
+  if (!piece) return 'No such dimension.';
+  const chain = analysis.chains.find((c) => c.id === piece[1]);
+  if (!chain) return 'No such dimension.';
+  const index = Number(piece[2]);
+  const stops = chainStops(drawing, chain);
+  if (index < 0 || index + 1 >= stops.length) return 'No such dimension.';
+  const from = stops[index];
+  const to = stops[index + 1];
+  // Up to a valve face: the valve slides so this piece is the value.
+  for (const leg of chain.runs) {
+    for (const comp of leg.run.inline) {
+      if (!isValve(comp.kind)) continue;
+      const half = componentTakeout(comp.kind, comp.dn ?? leg.run.dn, false);
+      const nearFace = leg.forward ? leg.start + comp.offset - half : leg.start + leg.length - comp.offset + half;
+      const farFace = leg.forward ? leg.start + comp.offset + half : leg.start + leg.length - comp.offset - half;
+      const lower = Math.min(nearFace, farFace);
+      if (Math.abs(lower - to) > 0.5) continue;
+      const centre = from + value + half;
+      const offset = leg.forward ? centre - leg.start : leg.start + leg.length - centre;
+      const total = leg.length;
+      if (offset - half < 0.5 || offset + half > total - 0.5) return 'That would push the valve off its run.';
+      comp.offset = offset;
+      leg.run.inline.sort((x, y) => x.offset - y.offset);
+      return null;
+    }
+  }
+  if (to >= chain.total - 0.5) {
+    // The last piece: the header's far end moves, with everything beyond.
+    const last = chain.runs[chain.runs.length - 1];
+    const length = last.length + (from + value - chain.total);
+    if (length <= 0.5) return 'The line cannot be made that length here.';
+    return stretchRun(drawing, last.run.id, length, last.forward ? 'to' : 'from', true) ? null : 'The line cannot be made that length here.';
+  }
+  return 'That dimension cannot be set directly.';
 }
 
 /**

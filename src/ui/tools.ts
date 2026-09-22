@@ -369,7 +369,7 @@ function place(host: Host, kind: ComponentKind): void {
         const face = comp.offset - componentTakeout(comp.kind, comp.dn ?? target.dn, false);
         const stops = dimensionStops(d, target);
         const index = stops.findIndex((mm, i) => i > 0 && Math.abs(mm - face) < 0.5) - 1;
-        host.editDimension(run.id, Math.max(0, index));
+        host.editDimension(`${run.id}:${Math.max(0, index)}`);
       }
     }
   }
@@ -532,10 +532,15 @@ function placeWeld(host: Host): void {
 }
 
 function openDimensionUpTo(host: Host, nodeId: string): void {
+  // An olet on a header is placed by its own dimension from the header's start.
+  if (host.state.analysis.chains.some((c) => c.olets.some((o) => o.nodeId === nodeId))) {
+    host.editDimension(`olet:${nodeId}`);
+    return;
+  }
   const before = host.state.drawing.runs.find((r) => r.to === nodeId);
   if (!before) return;
   const stops = dimensionStops(host.state.drawing, before);
-  host.editDimension(before.id, Math.max(0, stops.length - 2));
+  host.editDimension(`${before.id}:${Math.max(0, stops.length - 2)}`);
 }
 
 export function renderTools(container: HTMLElement, host: Host): void {

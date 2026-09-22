@@ -3,12 +3,12 @@ import type { Axis, Drawing, Run, Vec3 } from './model/types';
 import type { Preview, Selection } from './render/renderer';
 import type { AppState, Host, OletAsk, OletChoice, ReducerAsk, ReducerChoice } from './ui/types';
 import { reducerPreview } from './ui/reducer-preview';
-import { analyse, dimensionStops, emptyDrawing, uid } from './model/drawing';
+import { analyse, chainStops, dimensionStops, emptyDrawing, uid } from './model/drawing';
 import { loadLibrary, removeDrawing, renumberProject, sheetNumber, upsertDrawing, worthKeeping } from './model/library';
 import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, noteRemovedFromLibrary, setDriveClientId, syncDrive } from './model/drive';
 import { AXES, AXIS_VECTOR, add, length3, scale3, sub } from './model/iso';
 import { initialCommandState, runCommands } from './model/commands';
-import { applyDimension, connectNodes, deletePoint, deleteRun, ensureNode, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, setRunDirect, stretchRun } from './model/edit';
+import { applyChainDimension, applyDimension, connectNodes, deletePoint, deleteRun, ensureNode, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, setRunDirect, stretchRun } from './model/edit';
 import { DN_LIST, schedulesFor, sizeLabel } from './model/pipe-data';
 import { northArrow, paperOf, toPaper } from './render/renderer';
 import { renderSheet, type SheetSize } from './render/sheet';
@@ -206,16 +206,16 @@ const host: Host = {
     host.notify('Signed out of Google Drive on this device. The sheets stay here.');
     render();
   },
-  editDimension(runId, index) {
+  editDimension(key) {
     // The figure has to be on the sheet to be typed over: find its target.
     render();
-    const target = svg.querySelector<SVGCircleElement>(`[data-dim="${runId}:${index}"]`);
+    const target = svg.querySelector<SVGCircleElement>(`[data-dim="${key}"]`);
     if (!target) {
       host.notify('Turn dimensions on to type one.');
       return;
     }
     const box = target.getBoundingClientRect();
-    openDimensionEditor(runId, index, box.left + box.width / 2, box.top + box.height / 2);
+    openDimensionEditor(key, box.left + box.width / 2, box.top + box.height / 2);
   },
 };
 
@@ -228,13 +228,33 @@ let dimensionEditor: HTMLInputElement | null = null;
  * Up to a valve it moves the valve; on the last piece it moves the end. The
  * other side of whatever moved takes up the difference.
  */
-function openDimensionEditor(runId: string, index: number, clientX: number, clientY: number): void {
-  const run = state.drawing.runs.find((r) => r.id === runId);
-  if (!run) return;
-  const stops = dimensionStops(state.drawing, run);
-  if (index + 1 >= stops.length) return;
-  const current = Math.round(stops[index + 1] - stops[index]);
-  const key = `${runId}:${index}`;
+function openDimensionEditor(key: string, clientX: number, clientY: number): void {
+  // A header chain's pieces and its olets' distances have keys of their own.
+  const chained = key.startsWith('chain:') || key.startsWith('olet:');
+  let current: number;
+  if (chained) {
+    const olet = key.match(/^olet:(.+)$/);
+    const piece = key.match(/^chain:(.+):(\d+)$/);
+    const chain = olet
+      ? state.analysis.chains.find((c) => c.olets.some((o) => o.nodeId === olet[1]))
+      : state.analysis.chains.find((c) => c.id === piece?.[1]);
+    if (!chain) return;
+    if (olet) current = Math.round(chain.olets.find((o) => o.nodeId === olet[1])!.along);
+    else {
+      const stops = chainStops(state.drawing, chain);
+      const index = Number(piece![2]);
+      if (index + 1 >= stops.length) return;
+      current = Math.round(stops[index + 1] - stops[index]);
+    }
+  } else {
+    const [runId, indexText] = key.split(':');
+    const index = Number(indexText);
+    const run = state.drawing.runs.find((r) => r.id === runId);
+    if (!run) return;
+    const stops = dimensionStops(state.drawing, run);
+    if (index + 1 >= stops.length) return;
+    current = Math.round(stops[index + 1] - stops[index]);
+  }
   openInlineEditor(
     String(current),
     'numeric',
@@ -245,7 +265,11 @@ function openDimensionEditor(runId: string, index: number, clientX: number, clie
       if (!Number.isFinite(value) || value <= 0 || Math.round(value) === current) return;
       let refused: string | null = null;
       host.edit('Set dimension', (d) => {
-        refused = applyDimension(d, runId, index, Math.round(value));
+        if (chained) refused = applyChainDimension(d, state.analysis, key, Math.round(value));
+        else {
+          const [runId, indexText] = key.split(':');
+          refused = applyDimension(d, runId, Number(indexText), Math.round(value));
+        }
       });
       if (refused) {
         undoStack.pop();
@@ -538,8 +562,8 @@ const canvas = new Canvas(svg, {
     renderHud();
   },
 
-  onEditDimension(runId, index, clientX, clientY) {
-    openDimensionEditor(runId, index, clientX, clientY);
+  onEditDimension(key, clientX, clientY) {
+    openDimensionEditor(key, clientX, clientY);
   },
   /**
    * What a support is — "L50" — typed over right on the drawing. The number

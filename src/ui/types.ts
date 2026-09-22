@@ -47,7 +47,8 @@ export interface Host {
   /** Leaves the route ready to carry on from this point. */
   continueFrom(nodeId: string): void;
   /** Opens a dimension on the drawing for typing: the run and which piece of it. */
-  editDimension(runId: string, index: number): void;
+  /** Opens a dimension's figure to be typed over: "runId:index", "chain:runId:index" or "olet:nodeId". */
+  editDimension(key: string): void;
   /** Puts the pencil down: nothing is armed to draw from. */
   stopDrawing(): void;
   /** Every drawing kept on this device, newest first. */

@@ -19,7 +19,7 @@ export interface CanvasCallbacks {
   /** Slides a branch point along the line it sits in. */
   onSlideNode(nodeId: string, paper: { x: number; y: number }, commit: boolean): void;
   /** A dimension figure was tapped, to be typed over. */
-  onEditDimension(runId: string, index: number, clientX: number, clientY: number): void;
+  onEditDimension(key: string, clientX: number, clientY: number): void;
   /** A weld number was tapped, to be typed over. */
   onEditWeld(key: string, clientX: number, clientY: number): void;
   /** A support's name was tapped, to be typed over. */
@@ -292,8 +292,7 @@ export class Canvas {
         targetId: dimEl.getAttribute('data-dim')!,
         dim: { nx: num('data-nx'), ny: num('data-ny'), ux: num('data-ux'), uy: num('data-uy'), len: num('data-len'), off: num('data-off'), along: num('data-along') },
       };
-      const [runId, index] = dimEl.getAttribute('data-dim')!.split(':');
-      this.cb.onEditDimension(runId, Number(index), event.clientX, event.clientY);
+      this.cb.onEditDimension(dimEl.getAttribute('data-dim')!, event.clientX, event.clientY);
       return;
     }
 
@@ -688,8 +687,7 @@ export class Canvas {
     // A tap selects rather than pans; a tap on nothing puts the pencil down,
     // which is how drawing is stopped without a keyboard.
     if (drag.kind === 'pan' && !drag.moved && drag.tapDim) {
-      const [runId, index] = drag.tapDim.split(':');
-      this.cb.onEditDimension(runId, Number(index), event.clientX, event.clientY);
+      this.cb.onEditDimension(drag.tapDim, event.clientX, event.clientY);
       return;
     }
     if (drag.kind === 'pan' && !drag.moved && drag.tapSelect?.kind === 'weld') {

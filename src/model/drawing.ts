@@ -161,6 +161,9 @@ export interface Analysis {
   items: ItemInstance[];
   /** Node positions used for drawing, which differ from true positions in schematic mode. */
   display: Map<string, Vec3>;
+  /** Headers running straight through one or more olets, dimensioned as one. */
+  chains: HeaderChain[];
+  chainOfRun: Map<string, HeaderChain>;
   warnings: string[];
 }
 
@@ -502,6 +505,93 @@ function endTakeout(info: NodeInfo | undefined, run: Run): number {
   if (!legs) return 0;
   if (legs.branch?.id !== run.id) return 0;
   return oletTakeout(legs.header[0]?.dn ?? run.dn, run.dn);
+}
+
+/**
+ * A header that runs straight on through one or more olets. The olets only
+ * sit on it, so it is one length of pipe, dimensioned end to end as one,
+ * with each olet placed by its own dimension from the start.
+ */
+export interface HeaderChain {
+  /** The first run's id: what its dimensions are keyed by. */
+  id: string;
+  from: string;
+  to: string;
+  /** In order from `from` to `to`; `forward` when the run itself points that way. */
+  runs: { run: Run; forward: boolean; start: number; length: number }[];
+  total: number;
+  /** The olet points along it, with their distance from `from`. */
+  olets: { nodeId: string; along: number }[];
+}
+
+function headerChains(drawing: Drawing, nodeInfo: Map<string, NodeInfo>): HeaderChain[] {
+  const runLen = (run: Run) => {
+    const a = drawing.nodes.find((n) => n.id === run.from);
+    const b = drawing.nodes.find((n) => n.id === run.to);
+    return a && b ? length3(sub(b.pos, a.pos)) : 0;
+  };
+  /** The header run carrying on through the olet at `nodeId` from `run`, if it is one. */
+  const through = (nodeId: string, run: Run): Run | null => {
+    const info = nodeInfo.get(nodeId);
+    if (!info || info.fitting !== 'OLET') return null;
+    const legs = oletLegs(info);
+    if (!legs || legs.header.length !== 2 || !legs.header.some((r) => r.id === run.id)) return null;
+    return legs.header.find((r) => r.id !== run.id) ?? null;
+  };
+  const seen = new Set<string>();
+  const chains: HeaderChain[] = [];
+  for (const run of drawing.runs) {
+    if (seen.has(run.id)) continue;
+    // Walk back to the start of the header, then forward along it.
+    let first = run;
+    let node = run.from;
+    const back = new Set<string>([run.id]);
+    for (;;) {
+      const prev = through(node, first);
+      if (!prev || back.has(prev.id)) break;
+      back.add(prev.id);
+      node = prev.from === node ? prev.to : prev.from;
+      first = prev;
+    }
+    const legs: HeaderChain['runs'] = [];
+    const olets: HeaderChain['olets'] = [];
+    let at = node;
+    let cur: Run | null = first;
+    let along = 0;
+    while (cur && !legs.some((l) => l.run.id === cur!.id)) {
+      const forward = cur.from === at;
+      const length = runLen(cur);
+      legs.push({ run: cur, forward, start: along, length });
+      along += length;
+      at = forward ? cur.to : cur.from;
+      const next: Run | null = through(at, cur);
+      if (next) olets.push({ nodeId: at, along });
+      cur = next;
+    }
+    for (const leg of legs) seen.add(leg.run.id);
+    if (legs.length < 2) continue;
+    chains.push({ id: legs[0].run.id, from: node, to: at, runs: legs, total: along, olets });
+  }
+  return chains;
+}
+
+/** A point along a run, as a distance along its chain. */
+function chainCoord(leg: HeaderChain['runs'][number], offset: number): number {
+  return leg.forward ? leg.start + offset : leg.start + leg.length - offset;
+}
+
+/**
+ * Where a header chain's end-to-end dimension breaks, in mm from its start:
+ * at each valve face along it, never at the olets, which only sit on it.
+ */
+export function chainStops(drawing: Drawing, chain: HeaderChain): number[] {
+  const breaks: number[] = [];
+  for (const leg of chain.runs) {
+    const stops = dimensionStops(drawing, leg.run);
+    for (const mm of stops.slice(1, -1)) breaks.push(chainCoord(leg, mm));
+  }
+  const inside = breaks.filter((mm) => mm > 0.5 && mm < chain.total - 0.5).sort((x, y) => x - y);
+  return [0, ...inside, chain.total];
 }
 
 export function analyse(drawing: Drawing): Analysis {
@@ -958,10 +1048,14 @@ export function analyse(drawing: Drawing): Analysis {
     pieces.splice(pieces.indexOf(p.piece), 1, merged);
     pieces.splice(pieces.indexOf(q.piece), 1);
     // A header through more than one olet: the pieces waiting at the next
-    // olet now stand for the joined length, with its far end as their far end.
+    // olet now stand for the joined length, with its far end as their far
+    // end. The two just joined are noted first, since the entries here are
+    // among those rewritten (a later olet once merged a piece twice).
+    const first = p.piece;
+    const second = q.piece;
     for (const list of atOlet.values()) {
       for (const entry of list) {
-        if (entry.piece !== p.piece && entry.piece !== q.piece) continue;
+        if (entry.piece !== first && entry.piece !== second) continue;
         const here = entry.piece.ends[0] === entry.far ? entry.piece.ends[1] : entry.piece.ends[0];
         entry.far = merged.ends[0] === here ? merged.ends[1] : merged.ends[0];
         entry.piece = merged;
@@ -1189,6 +1283,10 @@ export function analyse(drawing: Drawing): Analysis {
     .map((inst) => ({ key: inst.key, number: numberOf.get(inst.bomKey) ?? 0, pos: inst.pos, line: inst.bomKey }))
     .filter((inst) => inst.number > 0);
 
+  const chains = headerChains(drawing, nodeInfo);
+  const chainOfRun = new Map<string, HeaderChain>();
+  for (const chain of chains) for (const leg of chain.runs) chainOfRun.set(leg.run.id, chain);
+
   return {
     nodeInfo,
     nodeById,
@@ -1199,6 +1297,8 @@ export function analyse(drawing: Drawing): Analysis {
     bom,
     items,
     display: layout(drawing, nodeById, adjacency),
+    chains,
+    chainOfRun,
     warnings,
   };
 }

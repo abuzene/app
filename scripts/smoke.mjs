@@ -2458,6 +2458,55 @@ await page.waitForTimeout(300);
 check('and then carries it', (await balloonKeys()).includes(elbows[0]), (v) => v === true, 'balloon back, on this elbow');
 check('offering to take it off again', await page.locator('#tab-body [data-a="balloon-off"]').count(), (v) => v === 1, '1');
 
+/* ------------------------------- a header through olets: one pipe, one dimension */
+
+// A header running through olets is one length of pipe, dimensioned end to
+// end as one, each olet placed by its own dimension from the start. Typing
+// an olet's dimension moves the olet alone: the header keeps its length.
+// (His complaint: the olet split the pipe into A and E, and the 4000 kept
+// changing when the olet was moved.)
+await routeLine('4"\nSTD\nORIGIN 0 0 0\nE 4000\nN 2000');
+const placeSmallOlet = async () => {
+  await page.locator('#canvas [data-run]').first().click({ force: true });
+  await page.waitForTimeout(200);
+  await page.locator('.tool[data-olet="BW"]').click();
+  await page.waitForTimeout(300);
+  await page.selectOption('.dialog [data-f="olet-dn"]', 'DN15');
+  await page.click('.dialog [data-confirm]');
+  await page.waitForTimeout(400);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(150);
+};
+await placeSmallOlet();
+await placeSmallOlet();
+const chainDimTexts = () => page.locator('#canvas .dim-text').evaluateAll((els) => els.map((e) => e.textContent).sort());
+check('two olets on a header: the header keeps one letter', await page.locator('#canvas .pipe-letter-text').evaluateAll((els) => els.map((e) => e.textContent).join()), (v) => v === 'A,B', 'A for the header, B for the riser');
+check('and is dimensioned end to end as one, with each olet placed from the start', await chainDimTexts(), (v) => v.join() === '1000,2000,2000,4000', '4000 whole, olets at 1000 and 2000, riser 2000');
+await page.click('#tabs button:has-text("Welds")');
+await page.waitForTimeout(200);
+const chainWelds = await page.locator('#tab-body table tbody tr').allInnerTexts();
+check('both header welds name the whole header as cut', chainWelds.filter((r) => /HEADER/.test(r)).map((r) => r.split('\t').pop()).join(), (v) => v === 'A 3845.5,A 3845.5', 'A 3845.5 twice');
+await page.click('#tabs button:has-text("Route")');
+await page.waitForTimeout(200);
+const firstOletDim = page.locator('#canvas circle.hit-dot[data-dim^="olet:"]').first();
+const fo = await firstOletDim.boundingBox();
+await page.mouse.click(fo.x + fo.width / 2, fo.y + fo.height / 2);
+await page.waitForTimeout(300);
+await page.keyboard.press('Control+A');
+await page.keyboard.type('350');
+await page.keyboard.press('Enter');
+await page.waitForTimeout(400);
+check('typing an olet\'s dimension moves the olet alone; the header stays 4000', await chainDimTexts(), (v) => v.join() === '2000,2000,350,4000', '350, 2000, 2000, 4000');
+const chainDim = page.locator('#canvas circle.hit-dot[data-dim^="chain:"]').first();
+const cd = await chainDim.boundingBox();
+await page.mouse.click(cd.x + cd.width / 2, cd.y + cd.height / 2);
+await page.waitForTimeout(300);
+await page.keyboard.press('Control+A');
+await page.keyboard.type('5000');
+await page.keyboard.press('Enter');
+await page.waitForTimeout(400);
+check('typing the header\'s dimension moves its far end, the olets staying put', await chainDimTexts(), (v) => v.join() === '2000,2000,350,5000', '350, 2000, 2000, 5000');
+
 /* ----------------------------------------------- an olet taken off again */
 
 // An olet placed and not drawn from comes off on its own: the two header

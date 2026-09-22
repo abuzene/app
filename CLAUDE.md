@@ -202,6 +202,24 @@ ships, and the decisions already taken, so they are not re-litigated.
   **Draw the branch from here** (`continueFrom` sets `currentDn` to the
   olet's size); HUD/panel **Remove olet** (`removeOlet` in edit.ts) joins
   the header back into one run. Never arm the pencil on placement.
+- **Header chains** (`HeaderChain`, `headerChains`, `chainStops` in
+  drawing.ts; `analysis.chains`/`chainOfRun`): runs collinear through olet
+  points are one header. The renderer dimensions the chain **end to end as
+  one** (keys `chain:<firstRunId>:<i>`, pieces broken at valve faces only)
+  from its first run, plus a **location dimension per olet** from the
+  chain's start (`olet:<nodeId>`, a row further out). `applyChainDimension`
+  in edit.ts: the olet's dimension moves the olet alone (inline items on
+  the runs either side keep their place on the header); the last piece
+  stretches the last run with `stretchRun(..., moveEnd = true)` — without
+  it `stretchRun` slides a through point (the olet) instead of moving the
+  end, which is its behaviour for plain points; up to a valve face slides
+  the valve. The chain total's figure sits in the widest gap between olets. Dimension
+  keys are now strings end to end (`editDimension(key)`,
+  `onEditDimension(key)`), so never split a key on ':' and take two parts.
+  His complaint: "the olet split the pipe into A and E and the 4000 kept
+  changing when I moved the olet". The A/E was a real bug too: merging
+  header pieces through a second olet compared against entries already
+  rewritten (fixed by noting the two pieces first).
 - **Deleting a plain point** (degree 2, collinear, no fitting/flange/olet;
   `isPlainPoint`, `deletePoint`, `joinThrough` in edit.ts — the merge that
   `removeFlangeJoint` also uses) removes only the point and joins the pipe

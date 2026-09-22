@@ -1,6 +1,6 @@
 import type { Analysis } from '../model/drawing';
 import type { Axis, DimOverride, Drawing, FlangeKind, Run, Vec3 } from '../model/types';
-import { COMPONENT_LABEL, TERMINAL_LABEL, dimensionStops, fittingLabel, isMark, isReducer, isSupport, isValve, itemAtEnd, oletLegs, resolveEnds } from '../model/drawing';
+import { COMPONENT_LABEL, TERMINAL_LABEL, chainStops, dimensionStops, fittingLabel, isMark, isReducer, isSupport, isValve, itemAtEnd, oletLegs, resolveEnds } from '../model/drawing';
 import { componentTakeout, sizeLabel, valveFlangeKind } from '../model/pipe-data';
 import { AXIS_VECTOR, axisBetween, axisScreenDir, project, scale3, add } from '../model/iso';
 import { componentSymbol, flangeHub, flangeSymbol, frameFor, gasketLine, groundSymbol, isFlange, jointMark, oletSymbol, supportCallout, supportSymbol, terminalSymbol, transitionSymbol, type Facing, type Frame } from './symbols';
@@ -397,7 +397,52 @@ export function renderDrawing(state: RenderState): string {
     // A run that is nothing but an item (a reducer between its two face
     // points) has no pipe to dimension; the item's length is on the list.
     const allItem = !!lengths && lengths.cut <= 0.5 && run.inline.length > 0 && !run.direct;
-    if (drawing.options.showDimensions && lengths && !run.noDim && !allItem) {
+    // A header running through olets is one length of pipe: it is
+    // dimensioned end to end as one, once, from its first run, and each
+    // olet by its distance from the start on a row further out.
+    const chain = analysis.chainOfRun.get(run.id);
+    if (chain && drawing.options.showDimensions && chain.id === run.id && !run.noDim) {
+      const ca = paper(chain.from);
+      const cb = paper(chain.to);
+      if (ca && cb) {
+        const at = (mm: number): Pt => {
+          const t = chain.total > 0 ? Math.max(0, Math.min(1, mm / chain.total)) : 0.5;
+          return { x: ca.x + (cb.x - ca.x) * t, y: ca.y + (cb.y - ca.y) * t };
+        };
+        const stops = chainStops(drawing, chain);
+        for (let i = 0; i + 1 < stops.length; i += 1) {
+          const span = stops[i + 1] - stops[i];
+          if (span < 0.5) continue;
+          const key = `chain:${chain.id}:${i}`;
+          const place = drawing.dimOverrides?.[key];
+          if (place?.hidden) continue;
+          // The figure sits in the widest gap between the olets on this
+          // piece, clear of their saddles and weld tags.
+          const marks = [stops[i], ...chain.olets.map((o) => o.along).filter((mm) => mm > stops[i] && mm < stops[i + 1]), stops[i + 1]];
+          let gapAt = 0.5;
+          let widest = 0;
+          for (let k = 0; k + 1 < marks.length; k += 1) {
+            if (marks[k + 1] - marks[k] > widest) {
+              widest = marks[k + 1] - marks[k];
+              gapAt = ((marks[k] + marks[k + 1]) / 2 - stops[i]) / span;
+            }
+          }
+          const dim = renderDimension(at(stops[i]), at(stops[i + 1]), centroid, formatMm(span), size, key, hitR, { along: gapAt, ...place });
+          dims += dim.svg;
+          dimHits += dim.hit;
+          figures.push(dim.at);
+        }
+        for (const olet of chain.olets) {
+          const key = `olet:${olet.nodeId}`;
+          const place = drawing.dimOverrides?.[key];
+          if (place?.hidden) continue;
+          const dim = renderDimension(at(0), at(olet.along), centroid, formatMm(olet.along), size, key, hitR, { offset: size * 5.2, ...place });
+          dims += dim.svg;
+          dimHits += dim.hit;
+          figures.push(dim.at);
+        }
+      }
+    } else if (drawing.options.showDimensions && lengths && !run.noDim && !allItem && !chain) {
       const stops = dimensionStops(drawing, run);
       // A dimension to a valve face ends where the face is drawn, which is
       // the symbol's face rather than the true one when the two differ.
