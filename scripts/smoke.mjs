@@ -376,6 +376,7 @@ await page.keyboard.press('Escape');
 await page.waitForTimeout(150);
 check('the header is still whole before the branch is drawn', await headerCut(), (v) => v === 4000, '4000');
 check('the olet is drawn on the header, facing the way its branch will go, with no branch yet', `${await page.locator('#canvas .olet').count()} ${await page.locator('#canvas .olet line').count()} ${await runCountNow()}`, (v) => v === '1 1 2', '1 saddle, 1 stub, 2 header runs');
+check('with no size note beside it: its sizes are on the list', await page.locator('#canvas .branch-note').count(), (v) => v === 0, '0');
 await page.click('#tabs button:has-text("Items")');
 await page.waitForTimeout(300);
 check('and is on the list already, with both sizes', await page.locator('#tab-body').innerText(), (v) => /WELDOLET 6" x 1"/.test(v), 'WELDOLET 6" x 1"');

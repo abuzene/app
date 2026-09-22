@@ -916,17 +916,15 @@ export function renderDrawing(state: RenderState): string {
     olets += `<g class="olet">${oletSymbol(f)}${stub}</g>`;
   }
 
-  // A branch of a different size is called out in words beside it — "6\"X2\" NS"
+  // A reducing tee's branch size is called out in words beside it — "6\"X2\" NS"
   // — rather than drawn as a special shape, which is how these sheets read.
+  // An olet gets no such note: its sizes are on the list, and he asked for
+  // the drawing to stay clear of it.
   let tees = '';
   for (const [nodeId, info] of analysis.nodeInfo) {
-    const isReducingTee = info.fitting === 'TEE_REDUCING';
-    const isOlet = info.fitting === 'OLET';
-    if (!isReducingTee && !isOlet) continue;
-    const header = isOlet ? oletLegs(info)?.header[0] : info.runs[0];
-    const branch = isOlet
-      ? oletLegs(info)?.branch ?? (info.node.olet ? { dn: info.node.olet.dn } : undefined)
-      : info.runs.find((r) => r.dn !== info.runs[0].dn);
+    if (info.fitting !== 'TEE_REDUCING') continue;
+    const header = info.runs[0];
+    const branch = info.runs.find((r) => r.dn !== info.runs[0].dn);
     if (!header || !branch || header.dn === branch.dn) continue;
     const at = paper(nodeId);
     if (!at) continue;

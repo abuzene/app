@@ -198,7 +198,8 @@ ships, and the decisions already taken, so they are not re-litigated.
   `node.olet = { dir, dn }`. `inferFitting`/`oletLegs` treat a 2-run
   collinear node with `node.olet` as an olet with `branch: null`: header
   weld, BOM line "WELDOLET 6" x 1"", balloon, saddle drawn facing `dir`
-  with a dashed stub. The node panel shows Branch size / Branch goes and
+  with a dashed stub, and **no "6"X1" NS" note** beside it (he asked: the
+  sizes are on the list; a reducing tee keeps its note, from his sheets). The node panel shows Branch size / Branch goes and
   **Draw the branch from here** (`continueFrom` sets `currentDn` to the
   olet's size); HUD/panel **Remove olet** (`removeOlet` in edit.ts) joins
   the header back into one run. Never arm the pencil on placement.
