@@ -1,6 +1,6 @@
-import type { Axis, ComponentKind, Drawing, EndType, FlangeKind, InlineComponent, IsoNode, Run, Vec3 } from './types';
-import { add, axisBetween, equals3, length3, scale3, step, sub } from './iso';
-import { dimensionStops, fittingsTouchLength, isValve, uid, type Analysis } from './drawing';
+import type { Axis, ComponentKind, Drawing, EndType, FlangeKind, InlineComponent, IsoNode, Run, TerminalKind, Vec3 } from './types';
+import { add, axisBetween, direction, equals3, length3, scale3, step, sub } from './iso';
+import { dimensionStops, fittingsTouchLength, isValve, itemAtEnd, terminalTakeoutOf, uid, type Analysis } from './drawing';
 import { componentTakeout } from './pipe-data';
 
 /** Finds an existing node at a position, so that routes join rather than overlap. */
@@ -362,7 +362,7 @@ export function setRunDirect(drawing: Drawing, analysis: Analysis, runId: string
   if (!run) return;
   run.direct = direct || undefined;
   if (!direct) return;
-  const touch = fittingsTouchLength(analysis, run);
+  const touch = fittingsTouchLength(drawing, analysis, run);
   if (touch > 0 && Math.abs(runLength(drawing, run) - touch) > 0.5) stretchRun(drawing, runId, touch, 'to');
 }
 
@@ -582,8 +582,11 @@ export function applyReducer(drawing: Drawing, compId: string, large: string, sm
   const endSide = flip ? large : small;
   const half = componentTakeout(comp.kind, large);
   const total = runLength(drawing, run);
-  const atStart = Math.abs(comp.offset - half) < 0.5;
-  const atEnd = Math.abs(comp.offset + half - total) < 0.5;
+  // A face on the run's end, or against the flange that ends the line there.
+  const backStart = terminalTakeoutOf(drawing.nodes.find((n) => n.id === run.from)?.terminal?.kind, startSide);
+  const backEnd = terminalTakeoutOf(drawing.nodes.find((n) => n.id === run.to)?.terminal?.kind, endSide);
+  const atStart = Math.abs(comp.offset - half - backStart) < 0.5;
+  const atEnd = Math.abs(comp.offset + half + backEnd - total) < 0.5;
   run.dn = atStart && !atEnd ? endSide : startSide;
   // The line beyond a face is that size on through its elbows and joints,
   // up to a branch point or another reducer, which have sizes of their own.
@@ -605,6 +608,33 @@ export function applyReducer(drawing: Drawing, compId: string, large: string, sm
   };
   if (atEnd) beyond(run.to, endSide);
   if (atStart) beyond(run.from, startSide);
+}
+
+/**
+ * Ends the line at a point with a flange, cap or transition — or takes it
+ * off again. An item whose face sits on the point (a reducer placed there)
+ * keeps its place against the new end piece: the point moves out by the
+ * piece's length, so the flange is welded straight to the item, with no
+ * pipe between; taken off, the point comes back in.
+ */
+export function setTerminal(drawing: Drawing, nodeId: string, kind: TerminalKind | undefined, note?: string): void {
+  const node = drawing.nodes.find((n) => n.id === nodeId);
+  if (!node) return;
+  const run = drawing.runs.find((r) => r.from === nodeId || r.to === nodeId);
+  const other = run ? drawing.nodes.find((n) => n.id === (run.from === nodeId ? run.to : run.from)) : undefined;
+  if (run && other) {
+    const atStart = run.from === nodeId;
+    const meets = itemAtEnd(drawing, run, atStart);
+    if (meets) {
+      const shift = terminalTakeoutOf(kind, meets.dn) - meets.face;
+      const out = direction(other.pos, node.pos);
+      if (Math.abs(shift) > 0.5 && out) {
+        node.pos = add(node.pos, scale3(out, shift));
+        if (atStart) for (const c of run.inline) c.offset += shift;
+      }
+    }
+  }
+  node.terminal = kind ? { kind, note: note ?? node.terminal?.note } : undefined;
 }
 
 /** Whether pipe already leads from one point to the other, however far round. */

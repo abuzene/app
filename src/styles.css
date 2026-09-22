@@ -297,6 +297,12 @@ input.cell {
   width: 62px; font: 12px var(--mono);
   border: 1px solid transparent; border-radius: 4px; padding: 3px 5px; background: transparent; color: var(--ink);
 }
+td.bom-name { border: 1px solid transparent; border-radius: 4px; cursor: text; }
+td.bom-name:hover { border-color: var(--line); background: #fff; }
+td.bom-name:focus { border-color: var(--accent); background: #fff; outline: none; }
+.red-row { align-items: center; gap: 10px; }
+.red-row [data-red-preview] { flex: 1 1 auto; color: var(--ink); min-width: 0; }
+.red-row svg.red-preview { width: 100%; max-width: 240px; height: auto; display: block; }
 input.cell:hover { border-color: var(--line); background: #fff; }
 input.cell:focus { border-color: var(--accent); background: #fff; outline: none; }
 tr.selected { background: var(--accent-soft); }

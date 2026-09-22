@@ -81,8 +81,12 @@ export interface ReducerAsk {
   kind: 'RED_CONC' | 'RED_ECC';
   large: string;
   small: string;
-  /** Where it goes: on an open end (drawing can carry on from it), or along a run. */
+  /** Where it goes: on the end of the line, or along a run. */
   atEnd: boolean;
+  /** Whether drawing can carry on from it: an open end, not one wearing a flange. */
+  drawOn: boolean;
+  /** The end piece it sits against, when the end wears one: "WELD NECK FLANGE". */
+  against?: string;
 }
 
 export interface ReducerChoice {

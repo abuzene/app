@@ -1,7 +1,7 @@
 import type { ComponentKind, FlangeKind, JointType, Run, TerminalKind } from '../model/types';
 import type { Host } from './types';
-import { COMPONENT_LABEL, dimensionStops, isValve } from '../model/drawing';
-import { addComponent, addFlangeJoint, applyReducer, runLength, splitRun } from '../model/edit';
+import { COMPONENT_LABEL, TERMINAL_LABEL, dimensionStops, isValve, terminalTakeoutOf } from '../model/drawing';
+import { addComponent, addFlangeJoint, applyReducer, runLength, setTerminal, splitRun } from '../model/edit';
 import { DN_LIST, componentTakeout, fittingTakeout, sizeLabel } from '../model/pipe-data';
 import { isFlange } from '../render/symbols';
 import { componentSymbol, jointMark, oletSymbol, type Frame } from '../render/symbols';
@@ -194,9 +194,13 @@ async function placeReducer(host: Host, kind: 'RED_CONC' | 'RED_ECC'): Promise<v
   const large = run.dn;
   const at = DN_LIST.indexOf(large);
   const small = DN_LIST[Math.max(0, at - 1)] ?? large;
-  const choice = await host.reducerDialog({ kind, large, small, atEnd: !!endNode });
+  // On an end that already wears a flange, the reducer sits against it.
+  const terminal = endNode?.terminal?.kind;
+  const against = terminal && terminal !== 'OPEN' && terminal !== 'CONTINUATION' && terminal !== 'EQUIPMENT' ? TERMINAL_LABEL[terminal] ?? terminal : undefined;
+  const choice = await host.reducerDialog({ kind, large, small, atEnd: !!endNode, drawOn: !!endNode && !against, against });
   if (!choice) return;
   const half = componentTakeout(kind, choice.large);
+  const outward = choice.largeOutward ? choice.large : choice.small;
   let addedId: string | null = null;
   let continueAt: string | null = null;
   host.edit(`Add ${kind === 'RED_ECC' ? 'ECC RED' : 'CON RED'}`, (d) => {
@@ -204,12 +208,18 @@ async function placeReducer(host: Host, kind: 'RED_CONC' | 'RED_ECC'): Promise<v
     if (!target) return;
     const total = runLength(d, target);
     if (endNode) {
-      // Its far face on the open end; the large end inward unless expanding.
+      // Its far face on the open end, or against the flange there; the large
+      // end inward unless expanding. Its near face is a point of its own, so
+      // the line can be picked up at either end of it.
       const atStart = target.from === endNode.id;
-      const offset = atStart ? half : total - half;
+      const back = terminalTakeoutOf(endNode.terminal?.kind, outward);
+      const near = back + half * 2;
+      if (near > total + 0.5) return;
+      const offset = atStart ? back + half : total - back - half;
       const comp = addComponent(d, target.id, kind, offset);
       if (!comp) return;
       addedId = comp.id;
+      if (near < total - 0.5) splitRun(d, target.id, atStart ? near : total - near);
       // "Large outward" means the large end at the open end: on the run's
       // start side when the open end is the start, else on its end side.
       const flip = atStart ? !choice.largeOutward : choice.largeOutward;
@@ -220,16 +230,18 @@ async function placeReducer(host: Host, kind: 'RED_CONC' | 'RED_ECC'): Promise<v
     const comp = addComponent(d, target.id, kind, total / 2);
     if (!comp) return;
     addedId = comp.id;
-    // The run is cut at the far face, so the pipe beyond is its own size.
+    // The run is cut at both faces: each is a point the line can be picked
+    // up at, and the pipe beyond the far one is its own size.
     const far = comp.offset + half;
+    const nearFace = comp.offset - half;
     if (far < total - 0.5) splitRun(d, target.id, far);
+    if (nearFace > 0.5) splitRun(d, target.id, nearFace);
     applyReducer(d, comp.id, choice.large, choice.small, choice.largeOutward);
   });
   if (!addedId) {
     host.notify('The run is too short for a reducer.');
     return;
   }
-  const outward = choice.largeOutward ? choice.large : choice.small;
   if (continueAt && choice.drawOn) {
     host.continueFrom(continueAt);
     host.setCurrentSize(outward);
@@ -261,10 +273,7 @@ function place(host: Host, kind: ComponentKind): void {
     const nodeId = selection.id;
 
     if (info && info.degree <= 1 && TERMINATING.includes(kind)) {
-      host.edit(`End with ${label}`, (d) => {
-        const node = d.nodes.find((n) => n.id === nodeId);
-        if (node) node.terminal = { kind: kind as TerminalKind, note: node.terminal?.note };
-      });
+      host.edit(`End with ${label}`, (d) => setTerminal(d, nodeId, kind as TerminalKind));
       // Ending with a flange ends the line: the pencil is put down, so the
       // next tap does not draw on from it. The line can still carry on later,
       // by drawing from the point again — another flange bolts to this one.

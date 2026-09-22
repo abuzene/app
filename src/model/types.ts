@@ -188,10 +188,8 @@ export type WeldReach =
   | { kind: 'olet' }
   /** A flange on a point: the end of its hub, plus half the gasket gap when paired. */
   | { kind: 'flange'; flange: FlangeKind; paired: boolean }
-  /** An in-line item: its face, plus a flange when it is flanged. */
-  | { kind: 'valve'; trueHalf: number; flange?: FlangeKind }
-  /** A reducer: a symbol length out from its centre. */
-  | { kind: 'reducer' }
+  /** An in-line item: its face, plus a flange when it is flanged. `comp` names it, so the mark sits where the item is drawn. */
+  | { kind: 'valve'; trueHalf: number; flange?: FlangeKind; comp?: string }
   /** A PE/steel transition on the end: the weld on its steel side. */
   | { kind: 'transition' };
 
@@ -269,6 +267,8 @@ export interface Drawing {
   itemOverrides?: Record<string, { dx: number; dy: number }>;
   /** Dimensions moved or hidden by hand, by "runId:piece". */
   dimOverrides?: Record<string, DimOverride>;
+  /** Names typed over the material list's own, by list line key. */
+  bomNames?: Record<string, string>;
 }
 
 export interface DimOverride {

@@ -1,6 +1,6 @@
 import type { Analysis } from '../model/drawing';
-import type { Axis, DimOverride, Drawing, Run, Vec3 } from '../model/types';
-import { COMPONENT_LABEL, TERMINAL_LABEL, dimensionStops, fittingLabel, isMark, isSupport, isValve, oletLegs, resolveEnds } from '../model/drawing';
+import type { Axis, DimOverride, Drawing, FlangeKind, Run, Vec3 } from '../model/types';
+import { COMPONENT_LABEL, TERMINAL_LABEL, dimensionStops, fittingLabel, isMark, isReducer, isSupport, isValve, itemAtEnd, oletLegs, resolveEnds } from '../model/drawing';
 import { componentTakeout, sizeLabel, valveFlangeKind } from '../model/pipe-data';
 import { AXIS_VECTOR, axisBetween, axisScreenDir, project, scale3, add } from '../model/iso';
 import { componentSymbol, flangeHub, flangeSymbol, frameFor, gasketLine, groundSymbol, isFlange, jointMark, oletSymbol, supportCallout, supportSymbol, terminalSymbol, transitionSymbol, type Facing, type Frame } from './symbols';
@@ -356,6 +356,8 @@ export function renderDrawing(state: RenderState): string {
   }
   let callouts = '';
   let calloutHits = '';
+  /** Where each in-line item is drawn, for the welds that belong to it. */
+  const compCentre = new Map<string, Pt>();
 
   for (const run of drawing.runs) {
     const a = paper(run.from);
@@ -391,13 +393,16 @@ export function renderDrawing(state: RenderState): string {
     // A valve is dimensioned to its faces, not through: the pipe either side
     // of it is its own piece, so the run's dimension breaks at each face and
     // the valve's face-to-face stands on its own between them.
-    if (drawing.options.showDimensions && lengths && !run.noDim) {
+    // A run that is nothing but an item (a reducer between its two face
+    // points) has no pipe to dimension; the item's length is on the list.
+    const allItem = !!lengths && lengths.cut <= 0.5 && run.inline.length > 0 && !run.direct;
+    if (drawing.options.showDimensions && lengths && !run.noDim && !allItem) {
       const stops = dimensionStops(drawing, run);
       // A dimension to a valve face ends where the face is drawn, which is
       // the symbol's face rather than the true one when the two differ.
       const facePaper = new Map<number, Pt>();
       for (const comp of run.inline) {
-        if (!isValve(comp.kind)) continue;
+        if (!isValve(comp.kind) && !isReducer(comp.kind)) continue;
         const half = componentTakeout(comp.kind, comp.dn ?? run.dn, false);
         const centre = along(comp.offset);
         const reach = faceReach(half, paperPerMm);
@@ -431,13 +436,29 @@ export function renderDrawing(state: RenderState): string {
     };
     for (const comp of run.inline) {
       const t = total > 0 ? Math.max(0, Math.min(1, comp.offset / total)) : 0.5;
-      const f = frameFor(a.x, a.y, b.x, b.y, t, size, plane?.across, plane?.up);
+      let f = frameFor(a.x, a.y, b.x, b.y, t, size, plane?.across, plane?.up);
       const selectedComp = sel?.kind === 'component' && sel.id === comp.id;
       const dn = comp.dn ?? run.dn;
-      comps += `<g class="component${selectedComp ? ' selected' : ''}" data-component="${comp.id}">`;
       // The body reaches its real faces, so what bolts or welds to it sits
       // against it rather than floating off along the pipe.
-      const faceHalf = isValve(comp.kind) ? faceReach(componentTakeout(comp.kind, dn, false), paperPerMm) : undefined;
+      const faceHalf = isValve(comp.kind) || isReducer(comp.kind) ? faceReach(componentTakeout(comp.kind, dn, false), paperPerMm) : undefined;
+      // An item welded straight to the flange on the line's end sits against
+      // the flange as drawn: its face on the hub, whatever the true lengths.
+      if (faceHalf !== undefined) {
+        for (const atStart of [true, false]) {
+          const endNode = analysis.nodeById.get(atStart ? run.from : run.to);
+          const kind = endNode?.terminal?.kind;
+          if (!kind || kind === 'OPEN' || itemAtEnd(drawing, run, atStart)?.comp.id !== comp.id) continue;
+          const hub = isFlange(kind) ? flangeHub(kind === 'FLG_BLIND' ? 'FLG_WN' : (kind as FlangeKind), size) : 0;
+          const p = atStart ? a : b;
+          const q = atStart ? b : a;
+          const len = Math.hypot(q.x - p.x, q.y - p.y) || 1;
+          const inward = { x: (q.x - p.x) / len, y: (q.y - p.y) / len };
+          f = { ...f, cx: p.x + inward.x * (hub + faceHalf), cy: p.y + inward.y * (hub + faceHalf) };
+        }
+      }
+      compCentre.set(comp.id, { x: f.cx, y: f.cy });
+      comps += `<g class="component${selectedComp ? ' selected' : ''}" data-component="${comp.id}">`;
       comps +=
         comp.kind === 'TRANSITION'
           ? transitionSymbol(f, comp.flip ? -1 : 1)
@@ -614,20 +635,20 @@ export function renderDrawing(state: RenderState): string {
     if (joint.anchor && joint.reach) {
       const at = weldPlacement(drawing, analysis, joint.anchor);
       if (at) {
-        const from = frameFor(at.a.x, at.a.y, at.b.x, at.b.y, at.t, size, at.plane?.across, at.plane?.up);
+        const r = joint.reach;
+        const drawnAt = r.kind === 'valve' && r.comp ? compCentre.get(r.comp) : undefined;
+        const fromFrame = frameFor(at.a.x, at.a.y, at.b.x, at.b.y, at.t, size, at.plane?.across, at.plane?.up);
+        const from = drawnAt ? { cx: drawnAt.x, cy: drawnAt.y } : { cx: fromFrame.cx, cy: fromFrame.cy };
         const dx = f.cx - from.cx;
         const dy = f.cy - from.cy;
         const len = Math.hypot(dx, dy) || 1;
-        const r = joint.reach;
         const out =
           r.kind === 'fitting'
             ? FITTING_REACH
             : r.kind === 'olet'
               ? size * 0.9
-              : r.kind === 'reducer'
-                ? size * 0.9
-                : r.kind === 'transition'
-                  ? 0
+              : r.kind === 'transition'
+                ? 0
                 : r.kind === 'flange'
                   ? flangeHub(r.flange, size) + (r.paired ? size * FLANGE_GAP : 0)
                   : faceReach(r.trueHalf, at.perMm) + (r.flange ? flangeHub(r.flange, size) : 0);

@@ -2,6 +2,7 @@ import './styles.css';
 import type { Drawing, Run, Vec3 } from './model/types';
 import type { Preview, Selection } from './render/renderer';
 import type { AppState, Host, ReducerAsk, ReducerChoice } from './ui/types';
+import { reducerPreview } from './ui/reducer-preview';
 import { analyse, dimensionStops, emptyDrawing, uid } from './model/drawing';
 import { loadLibrary, removeDrawing, renumberProject, sheetNumber, upsertDrawing, worthKeeping } from './model/library';
 import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, noteRemovedFromLibrary, setDriveClientId, syncDrive } from './model/drive';
@@ -1641,17 +1642,20 @@ function reducerDialog(ask: ReducerAsk): Promise<ReducerChoice | null> {
     backdrop.className = 'dialog-backdrop';
     const sizeOptions = (picked: string) => DN_LIST.map((dn) => `<option value="${dn}"${dn === picked ? ' selected' : ''}>${sizeLabel(dn)}</option>`).join('');
     const name = (large: string, small: string) => `${ask.kind === 'RED_ECC' ? 'ECC RED' : 'CON RED'} ${sizeLabel(large)} X ${sizeLabel(small)}`;
+    // The picture reads left to right: the line as drawn so far, then the
+    // reducer, then the open end (or the flange it sits against); along a
+    // run, the run's start then its end.
+    const leftSide = ask.atEnd ? 'LINE' : 'RUN START';
+    const rightSide = ask.atEnd ? ask.against ?? 'OPEN END' : 'RUN END';
+    let largeOutward = false;
     backdrop.innerHTML = `
 <div class="dialog" role="dialog" aria-label="Reducer" data-editor="reducer">
   <h3 data-red-name>${name(ask.large, ask.small)}</h3>
   <div class="row"><label>Large end</label><select data-f="red-large">${sizeOptions(ask.large)}</select></div>
   <div class="row"><label>Small end</label><select data-f="red-small">${sizeOptions(ask.small)}</select></div>
-  <div class="row"><label>Flow</label><select data-f="red-dir">
-    <option value="reduce">${ask.atEnd ? 'Reduces: the small end outward, where the line carries on' : 'Reduces along the run: large end first'}</option>
-    <option value="expand">${ask.atEnd ? 'Expands: the large end outward' : 'Expands along the run: small end first'}</option>
-  </select></div>
-  ${ask.atEnd ? '<div class="row"><label>Then</label><label class="check"><input type="checkbox" data-f="red-drawon" checked /> Carry on drawing from its far end, at that size</label></div>' : ''}
-  <p class="empty-note">The pipe either side takes the size of the end it meets. The sizes can be changed later in the item's panel.</p>
+  <div class="row red-row"><div data-red-preview></div><button class="btn-line" type="button" data-a="red-flip">Flip</button></div>
+  ${ask.drawOn ? '<div class="row"><label>Then</label><label class="check"><input type="checkbox" data-f="red-drawon" checked /> Carry on drawing from its far end, at that size</label></div>' : ''}
+  <p class="empty-note">${ask.against ? `Welded straight to the ${ask.against.toLowerCase()} on the end. ` : ''}The pipe either side takes the size of the end it meets; both ends are points the line can be picked up at.</p>
   <div class="btn-row">
     <button class="btn-line solid" data-confirm>Place reducer</button>
     <button class="btn-line" data-cancel>Cancel</button>
@@ -1661,12 +1665,19 @@ function reducerDialog(ask: ReducerAsk): Promise<ReducerChoice | null> {
     const field = <T extends HTMLElement>(key: string) => backdrop.querySelector<T>(`[data-f="${key}"]`);
     const large = field<HTMLSelectElement>('red-large')!;
     const small = field<HTMLSelectElement>('red-small')!;
-    const rename = () => {
+    const redraw = () => {
       const heading = backdrop.querySelector('[data-red-name]');
       if (heading) heading.textContent = name(large.value, small.value);
+      const preview = backdrop.querySelector('[data-red-preview]');
+      if (preview) preview.innerHTML = reducerPreview(ask.kind, large.value, small.value, !largeOutward, leftSide, rightSide);
     };
-    large.addEventListener('change', rename);
-    small.addEventListener('change', rename);
+    redraw();
+    large.addEventListener('change', redraw);
+    small.addEventListener('change', redraw);
+    backdrop.querySelector('[data-a="red-flip"]')?.addEventListener('click', () => {
+      largeOutward = !largeOutward;
+      redraw();
+    });
     const close = (answer: ReducerChoice | null) => {
       backdrop.remove();
       resolve(answer);
@@ -1675,8 +1686,8 @@ function reducerDialog(ask: ReducerAsk): Promise<ReducerChoice | null> {
       close({
         large: large.value,
         small: small.value,
-        largeOutward: field<HTMLSelectElement>('red-dir')?.value === 'expand',
-        drawOn: ask.atEnd && (field<HTMLInputElement>('red-drawon')?.checked ?? false),
+        largeOutward,
+        drawOn: ask.drawOn && (field<HTMLInputElement>('red-drawon')?.checked ?? false),
       }),
     );
     backdrop.querySelector('[data-cancel]')?.addEventListener('click', () => close(null));
@@ -1933,7 +1944,7 @@ function loadStored(): Drawing | null {
 
 window.addEventListener('keydown', (event) => {
   const target = event.target as HTMLElement | null;
-  const typing = target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName);
+  const typing = target && (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable);
 
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
     event.preventDefault();

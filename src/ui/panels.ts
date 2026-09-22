@@ -5,8 +5,9 @@ import { COMMAND_HELP } from '../model/commands';
 import { DN_LIST, SIZE_LABELS, defaultValveEnds, schedulesFor, sizeLabel } from '../model/pipe-data';
 import { axisBetween } from '../model/iso';
 import { projectsOf } from '../model/library';
-import { applyReducer, deleteNode, deleteRun, removeComponent, removeFlangeJoint, runLength, setRunDirect, setRunLength, splitRun } from '../model/edit';
+import { applyReducer, deleteNode, deleteRun, removeComponent, removeFlangeJoint, runLength, setRunDirect, setRunLength, setTerminal, splitRun } from '../model/edit';
 import { setDriveClientId } from '../model/drive';
+import { reducerPreview } from './reducer-preview';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'route', label: 'Route' },
@@ -201,7 +202,7 @@ function componentProperties(host: Host, compId: string): string {
     reducer
       ? `<div class="row"><label>Large end</label><select data-f="red-large">${options(DN_LIST, comp.dn ?? run.dn, SIZE_LABELS)}</select></div>
          <div class="row"><label>Small end</label><select data-f="red-small">${options(DN_LIST, comp.dn2 ?? comp.dn ?? run.dn, SIZE_LABELS)}</select></div>
-         <div class="row"><label>Flow</label><select data-f="red-dir">${options(['reduce', 'expand'], comp.flip ? 'expand' : 'reduce', { reduce: 'Reduces along the run: large end first', expand: 'Expands along the run: small end first' })}</select></div>`
+         <div class="row red-row"><div data-red-preview>${reducerPreview(comp.kind as 'RED_CONC' | 'RED_ECC', comp.dn ?? run.dn, comp.dn2 ?? comp.dn ?? run.dn, !comp.flip, 'RUN START', 'RUN END')}</div><button class="btn-line" type="button" data-a="red-flip" data-flip="${comp.flip ? '1' : ''}">Flip</button></div>`
       : ''
   }
   ${
@@ -324,7 +325,7 @@ function itemsTab(host: Host): string {
     .map(
       (line, i) => `<tr>
   <td class="num">${i + 1}</td>
-  <td>${esc(line.description)}</td>
+  <td${line.key ? ` class="bom-name" contenteditable="plaintext-only" spellcheck="false" data-bom-name="${esc(line.key)}" title="Type a name of your own; clear it for the list's own"` : ''}>${esc(line.description)}</td>
   <td>${esc(sizeLabel(line.dn))}</td>
   <td>${esc(line.schedule)}</td>
   <td class="num">${line.unit === 'm' ? line.quantity.toFixed(2) : Math.round(line.quantity)}</td>
@@ -345,6 +346,7 @@ function itemsTab(host: Host): string {
     <span>Pipe <strong>${pipe.toFixed(2)} m</strong></span>
     <span>Items <strong>${Math.round(items)}</strong></span>
   </div>
+  <p class="empty-note">Names can be typed over; they go on the printed sheet as typed.</p>
   <div class="btn-row"><button class="btn-line" data-a="copy-bom">Copy list</button></div>
 </div>
 ${pipeCutList(host)}`;
@@ -750,10 +752,7 @@ function wire(body: HTMLElement, host: Host): void {
     });
     field('terminal')?.addEventListener('change', (e) => {
       const value = (e.target as HTMLSelectElement).value as TerminalKind;
-      host.edit('Set end type', (d) => {
-        const node = d.nodes.find((n) => n.id === id);
-        if (node) node.terminal = { kind: value, note: node.terminal?.note };
-      });
+      host.edit('Set end type', (d) => setTerminal(d, id, value));
     });
     field('termnote')?.addEventListener('change', (e) => {
       const value = (e.target as HTMLInputElement).value;
@@ -852,14 +851,16 @@ function wire(body: HTMLElement, host: Host): void {
         c.dn = (e.target as HTMLSelectElement).value;
       }),
     );
-    const reducerChange = () => {
+    const reducerChange = (turn = false) => {
       const large = field('red-large')?.value;
       const small = field('red-small')?.value;
-      const flip = field('red-dir')?.value === 'expand';
       if (!large || !small) return;
-      host.edit('Set reducer', (d) => applyReducer(d, id, large, small, flip));
+      const flipNow = compEditor.querySelector<HTMLElement>('[data-a="red-flip"]')?.dataset.flip === '1';
+      const flip = turn ? !flipNow : flipNow;
+      host.edit(turn ? 'Turn reducer round' : 'Set reducer', (d) => applyReducer(d, id, large, small, flip));
     };
-    for (const key of ['red-large', 'red-small', 'red-dir']) field(key)?.addEventListener('change', reducerChange);
+    for (const key of ['red-large', 'red-small']) field(key)?.addEventListener('change', () => reducerChange());
+    compEditor.querySelector('[data-a="red-flip"]')?.addEventListener('click', () => reducerChange(true));
     field('flip')?.addEventListener('change', (e) =>
       withComponent('Turn item round', (c) => {
         c.flip = (e.target as HTMLSelectElement).value === 'start' ? true : undefined;
@@ -929,6 +930,27 @@ function wire(body: HTMLElement, host: Host): void {
 
   body.querySelector('[data-a="copy-bom"]')?.addEventListener('click', () => {
     host.copy('Bill of materials', bomCsv());
+  });
+  // A list line's name, typed over: kept with the drawing and printed as typed.
+  body.querySelectorAll<HTMLElement>('[data-bom-name]').forEach((cell) => {
+    const key = cell.dataset.bomName!;
+    const own = key.split('|')[1] ?? '';
+    const shown = cell.textContent ?? '';
+    const commit = () => {
+      const value = (cell.textContent ?? '').trim().toUpperCase();
+      if (value === shown.trim()) return;
+      host.edit('Rename list item', (d) => {
+        if (value && value !== own) d.bomNames = { ...d.bomNames, [key]: value };
+        else if (d.bomNames) delete d.bomNames[key];
+      });
+    };
+    cell.addEventListener('blur', commit);
+    cell.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        cell.blur();
+      }
+    });
   });
   // Weld numbers, typed either on the list or against the picked weld.
   const renumber = (key: string, value: string) => {

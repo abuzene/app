@@ -207,6 +207,50 @@ export function reducerSides(comp: InlineComponent, runDn: string): { start: str
   return comp.flip ? { start: small, end: large } : { start: large, end: small };
 }
 
+/** What an in-line item is called in a weld's name: a reducer by its sizes. */
+export function inlineLabel(comp: InlineComponent, runDn: string): string {
+  return isReducer(comp.kind) ? reducerName(comp, runDn) : COMPONENT_LABEL[comp.kind] ?? comp.kind;
+}
+
+/** What a line's end piece takes off the pipe: a flange's length, a transition's stub. */
+export function terminalTakeoutOf(kind: string | undefined, dn: string): number {
+  return kind === 'FLG_WN' || kind === 'FLG_SO' || kind === 'TRANSITION' ? componentTakeout(kind, dn) : 0;
+}
+
+/**
+ * The item whose face sits right on one end of a run: against the flange or
+ * cap there, with no pipe between, or on the open point itself. A reducer's
+ * size there is its own end's. `face` is how far the face is from the point.
+ */
+export function itemAtEnd(
+  drawing: Drawing,
+  run: Run,
+  atStart: boolean,
+): { comp: InlineComponent; dn: string; face: number } | null {
+  const a = drawing.nodes.find((n) => n.id === run.from);
+  const b = drawing.nodes.find((n) => n.id === run.to);
+  if (!a || !b) return null;
+  const node = atStart ? a : b;
+  const total = length3(sub(b.pos, a.pos));
+  const defaultJoint = drawing.options.joint ?? 'BW';
+  for (const comp of run.inline) {
+    const dn = comp.dn ?? run.dn;
+    const ends = resolveEnds(comp.kind, dn, comp.ends, defaultJoint);
+    const half = componentTakeout(comp.kind, dn, ends === 'FLG' && valveFlangeKind(defaultJoint));
+    if (half <= 0) continue;
+    const sides = reducerSides(comp, run.dn);
+    const sideDn = isReducer(comp.kind) ? (atStart ? sides.start : sides.end) : dn;
+    const face = atStart ? comp.offset - half : total - comp.offset - half;
+    if (Math.abs(face - terminalTakeoutOf(node.terminal?.kind, sideDn)) < 0.5) return { comp, dn: sideDn, face };
+  }
+  return null;
+}
+
+/** The size at a run's end: the item welded straight to the end piece there, else the run's. */
+export function endDn(drawing: Drawing, run: Run, atStart: boolean): string {
+  return itemAtEnd(drawing, run, atStart)?.dn ?? run.dn;
+}
+
 /** What an olet is called, which follows how its branch is joined. */
 export function oletLabel(joint: JointType): string {
   if (joint === 'SW') return 'SOCKOLET';
@@ -232,21 +276,20 @@ export function oletLegs(info: NodeInfo): { header: Run[]; branch: Run } | null 
  * The centre-to-centre length at which the fittings at a run's two ends
  * touch: the sum of their take-outs. Zero when neither end is a fitting.
  */
-export function fittingsTouchLength(analysis: Analysis, run: Run): number {
+export function fittingsTouchLength(drawing: Drawing, analysis: Analysis, run: Run): number {
   const a = analysis.nodeById.get(run.from);
   const b = analysis.nodeById.get(run.to);
   return (
     endTakeout(analysis.nodeInfo.get(run.from), run) +
     endTakeout(analysis.nodeInfo.get(run.to), run) +
-    (a ? terminalTakeout(a, run.dn) : 0) +
-    (b ? terminalTakeout(b, run.dn) : 0)
+    (a ? terminalTakeout(a, endDn(drawing, run, true)) : 0) +
+    (b ? terminalTakeout(b, endDn(drawing, run, false)) : 0)
   );
 }
 
 /** What a line's end piece takes off the pipe: a flange's length, a transition's stub. */
 function terminalTakeout(node: IsoNode, dn: string): number {
-  const kind = node.terminal?.kind;
-  return kind === 'FLG_WN' || kind === 'FLG_SO' || kind === 'TRANSITION' ? componentTakeout(kind, dn) : 0;
+  return terminalTakeoutOf(node.terminal?.kind, dn);
 }
 
 export function fittingLabel(kind: FittingKind): string {
@@ -495,11 +538,7 @@ export function analyse(drawing: Drawing): Analysis {
     let cut = centre - endTakeout(fromInfo, run) - endTakeout(toInfo, run);
     // Fittings joined to each other directly: there is no pipe to cut.
     if (run.direct) cut = -1;
-    for (const end of [a, b]) {
-      if (end.terminal && (end.terminal.kind === 'FLG_WN' || end.terminal.kind === 'FLG_SO' || end.terminal.kind === 'TRANSITION')) {
-        cut -= componentTakeout(end.terminal.kind, run.dn);
-      }
-    }
+    cut -= terminalTakeout(a, endDn(drawing, run, true)) + terminalTakeout(b, endDn(drawing, run, false));
     for (const comp of run.inline) {
       const dn = comp.dn ?? run.dn;
       const ends = resolveEnds(comp.kind, dn, comp.ends, drawing.options.joint ?? 'BW');
@@ -509,7 +548,7 @@ export function analyse(drawing: Drawing): Analysis {
     // Nothing left to cut between two fittings: they meet, and there is one
     // weld between them — whether the run was marked so or is simply that
     // short. Two welds on one spot, one to be struck off by hand, is no use.
-    const ends = endTakeout(fromInfo, run) + endTakeout(toInfo, run) + terminalTakeout(a, run.dn) + terminalTakeout(b, run.dn);
+    const ends = endTakeout(fromInfo, run) + endTakeout(toInfo, run) + terminalTakeout(a, endDn(drawing, run, true)) + terminalTakeout(b, endDn(drawing, run, false));
     if (run.direct || (run.inline.length === 0 && cut <= 0.5 && ends > 0.5)) touching.add(run.id);
     if (cut < 0) {
       warnings.push(`Run ${sizeLabel(run.dn)} of ${Math.round(centre)} mm is shorter than its fittings require.`);
@@ -552,22 +591,7 @@ export function analyse(drawing: Drawing): Analysis {
 
   /** Whether an item along a run touching this point has a face right on it. */
   const faceOnNode = (nodeId: string): boolean =>
-    drawing.runs.some((run) => {
-      if (run.from !== nodeId && run.to !== nodeId) return false;
-      const total = runLengthOf(run);
-      return run.inline.some((comp) => {
-        const dn = comp.dn ?? run.dn;
-        const ends = resolveEnds(comp.kind, dn, comp.ends, defaultJoint);
-        const half = componentTakeout(comp.kind, dn, ends === 'FLG' && valveFlangeKind(defaultJoint));
-        if (half <= 0) return false;
-        return (run.from === nodeId && Math.abs(comp.offset - half) < 0.5) || (run.to === nodeId && Math.abs(comp.offset + half - total) < 0.5);
-      });
-    });
-  const runLengthOf = (run: Run): number => {
-    const a = nodeById.get(run.from);
-    const b = nodeById.get(run.to);
-    return a && b ? length3(sub(b.pos, a.pos)) : 0;
-  };
+    drawing.runs.some((run) => (run.from === nodeId && !!itemAtEnd(drawing, run, true)) || (run.to === nodeId && !!itemAtEnd(drawing, run, false)));
 
   for (const run of drawing.runs) {
     const a = nodeById.get(run.from);
@@ -587,11 +611,17 @@ export function analyse(drawing: Drawing): Analysis {
         if (node.flange) return COMPONENT_LABEL[node.flange] ?? node.flange;
         const terminal = node.terminal?.kind;
         if (terminal && terminal !== 'OPEN' && terminal !== 'CONTINUATION' && terminal !== 'EQUIPMENT') return TERMINAL_LABEL[terminal] ?? terminal;
+        // A plain point with an item's face on it, from the run beyond.
+        for (const other of drawing.runs) {
+          if (other.id === run.id) continue;
+          const on = other.from === node.id ? itemAtEnd(drawing, other, true) : other.to === node.id ? itemAtEnd(drawing, other, false) : null;
+          if (on) return inlineLabel(on.comp, other.dn);
+        }
         return 'PIPE';
       };
       // The weld is where the two meet: the first one's take-out along the
       // run, or half way when that does not fall inside it.
-      const meet = endTakeout(nodeInfo.get(run.from), run) + terminalTakeout(a, run.dn);
+      const meet = endTakeout(nodeInfo.get(run.from), run) + terminalTakeout(a, endDn(drawing, run, true));
       const at = meet > 0.5 && meet < total - 0.5 ? meet : total / 2;
       pushJoint(
         `d:${run.id}`,
@@ -631,15 +661,19 @@ export function analyse(drawing: Drawing): Analysis {
         const joint = terminalJoint(terminal, nodeJoint);
         if (joint) {
           // The point is the flange face; the weld is a flange length back
-          // along the pipe, where the neck meets it.
-          const back = isFlange(terminal) || terminal === 'TRANSITION' ? componentTakeout(terminal, run.dn) : 0;
+          // along the pipe, where the neck meets it. An item sitting right
+          // against the flange is welded to it there, with no pipe between:
+          // one weld, named for the two, the size of the item's end.
+          const meets = itemAtEnd(drawing, run, atStart);
+          const dnAt = meets?.dn ?? run.dn;
+          const back = isFlange(terminal) || terminal === 'TRANSITION' ? componentTakeout(terminal, dnAt) : 0;
           const at = atStart ? back : total - back;
           pushJoint(
             `n:${node.id}:term`,
             joint,
-            run.dn,
+            dnAt,
             run.schedule,
-            `PIPE / ${TERMINAL_LABEL[terminal] ?? terminal}`,
+            `${meets ? inlineLabel(meets.comp, run.dn) : 'PIPE'} / ${TERMINAL_LABEL[terminal] ?? terminal}`,
             add(a.pos, scale3(dir, at)),
             facing,
             idx,
@@ -749,9 +783,14 @@ export function analyse(drawing: Drawing): Analysis {
       const takeout = componentTakeout(comp.kind, dn, ends === 'FLG' && valveFlangeKind(defaultJoint));
       const faceHalf = componentTakeout(comp.kind, dn, false);
       const centre = add(a.pos, scale3(dir, comp.offset));
-      const reach: WeldReach = isReducer(comp.kind)
-        ? { kind: 'reducer' }
-        : { kind: 'valve', trueHalf: faceHalf, flange: ends === 'FLG' && !isFlange(comp.kind) ? valveFlangeKind(defaultJoint) : undefined };
+      const reach: WeldReach = { kind: 'valve', trueHalf: faceHalf, flange: ends === 'FLG' && !isFlange(comp.kind) ? valveFlangeKind(defaultJoint) : undefined, comp: comp.id };
+      // Against the line's end piece, the weld to it is that piece's own.
+      const onTerminal = (atStart: boolean): boolean => {
+        const end = atStart ? a : b;
+        const kind = end.terminal?.kind;
+        if (!kind || !terminalJoint(kind, end.joint ?? defaultJoint)) return false;
+        return itemAtEnd(drawing, run, atStart)?.comp.id === comp.id;
+      };
       // A flanged item is bolted to its flanges; what the pipe is welded to
       // is the flange, and that is what the weld list should say.
       const joinedTo =
@@ -764,6 +803,7 @@ export function analyse(drawing: Drawing): Analysis {
         // A transition joint is welded on its steel side only; the plastic
         // side is fused, which is no weld of ours.
         if (comp.kind === 'TRANSITION' && side === (comp.flip ? 1 : 0)) continue;
+        if (onTerminal(side === 0)) continue;
         const distance = side === 0 ? comp.offset - takeout : comp.offset + takeout;
         // A reducer's two welds are each the size of their own end.
         const sideDn = isReducer(comp.kind) ? (side === 0 ? reducerSides(comp, run.dn).start : reducerSides(comp, run.dn).end) : dn;
@@ -845,10 +885,7 @@ export function analyse(drawing: Drawing): Analysis {
     if (!a || !b || touching.has(run.id)) continue;
     const idx = runIndex.get(run.id) ?? 0;
     const total = length3(sub(b.pos, a.pos));
-    const terminalBack = (node: IsoNode) =>
-      node.terminal && (node.terminal.kind === 'FLG_WN' || node.terminal.kind === 'FLG_SO' || node.terminal.kind === 'TRANSITION')
-        ? componentTakeout(node.terminal.kind, run.dn)
-        : 0;
+    const terminalBack = (node: IsoNode) => terminalTakeout(node, endDn(drawing, run, node.id === run.from));
     const fromInfo = nodeInfo.get(run.from);
     const toInfo = nodeInfo.get(run.to);
     const start = endTakeout(fromInfo, run) + terminalBack(a);
@@ -967,6 +1004,8 @@ export function analyse(drawing: Drawing): Analysis {
     }
   }
   for (const [key, mm] of pipeTotals) {
+    // A size with no pipe cut in it (a run that is all reducer) has no line.
+    if (mm <= 0.5) continue;
     const [dn, schedule] = key.split('|');
     const metres = mm / 1000;
     bom.push({
@@ -1048,7 +1087,8 @@ export function analyse(drawing: Drawing): Analysis {
     }
     if (info.degree === 1 && info.node.terminal && info.node.terminal.kind !== 'OPEN') {
       const kind = info.node.terminal.kind;
-      const dn = info.runs[0]?.dn ?? 'DN80';
+      const endRun = info.runs[0];
+      const dn = endRun ? endDn(drawing, endRun, endRun.from === info.node.id) : 'DN80';
       if (kind !== 'CONTINUATION' && kind !== 'EQUIPMENT') {
         instances.push({
           key: `term:${info.node.id}`,
@@ -1120,8 +1160,14 @@ export function analyse(drawing: Drawing): Analysis {
 
   for (const { line, quantity } of counts.values()) bom.push({ ...line, quantity } as BomLine);
 
+  // The list keeps its own order, by the names it gave the lines, so item
+  // numbers stay put when a line is renamed by hand.
   const order: Record<BomLine['category'], number> = { PIPE: 0, FITTING: 1, FLANGE: 2, VALVE: 3, ITEM: 4 };
   bom.sort((x, y) => order[x.category] - order[y.category] || x.description.localeCompare(y.description));
+  for (const line of bom) {
+    const given = line.key ? drawing.bomNames?.[line.key]?.trim() : undefined;
+    if (given) line.description = given;
+  }
 
   // The list is now in its final order, so the item numbers follow from it.
   const numberOf = new Map<string, number>();

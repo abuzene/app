@@ -2171,11 +2171,13 @@ await page.waitForTimeout(150);
 
 /* ------------------------------------------- a reducer asked about first */
 
-// A reducer picked opens a box: its two sizes, which way round, and whether
-// to carry on drawing from it. Named by its sizes: CON RED 4" X 2". On an
-// open end its far face sits on the end and the line carries on at the new
-// size; along a run the run is cut at its far face and the pipe beyond is
-// the new size, on through the elbows.
+// A reducer picked opens a box: its two sizes, a picture of which way round
+// it goes with a Flip button, and whether to carry on drawing from it. Named
+// by its sizes: CON RED 4" X 2". Both its faces are points of their own, so
+// the line can be picked up at either; on an open end its far face sits on
+// the end and the line carries on at the new size; along a run the run is
+// cut at both faces and the pipe beyond is the new size, on through the
+// elbows.
 const sizesNow = () => page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).runs.map((r) => r.dn));
 await routeLine('4"\nSTD\nORIGIN 0 0 0\nE 3000');
 const openEnd = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).nodes.find((n) => n.pos.e === 3000).id);
@@ -2186,21 +2188,64 @@ check('picking a reducer on an open end asks about it first', await page.locator
 check('offering to carry on drawing from it', await page.locator('.dialog [data-f="red-drawon"]').isChecked(), (v) => v === true, 'checked');
 await page.selectOption('.dialog [data-f="red-small"]', 'DN50');
 check('and naming it by its sizes as they are picked', await page.locator('.dialog [data-red-name]').innerText(), (v) => v === 'CON RED 4" X 2"', 'CON RED 4" X 2"');
+const previewSizes = () => page.locator('.dialog [data-red-preview] text').evaluateAll((els) => els.map((e) => e.textContent).slice(0, 2).join(' '));
+check('a picture shows the large end on the line, the small end outward', await previewSizes(), (v) => v === '4" 2"', '4" 2"');
+await page.click('.dialog [data-a="red-flip"]');
+await page.waitForTimeout(100);
+check('and Flip turns it round in the picture', await previewSizes(), (v) => v === '2" 4"', '2" 4"');
+await page.click('.dialog [data-a="red-flip"]');
+await page.waitForTimeout(100);
 await page.click('.dialog [data-confirm]');
 await page.waitForTimeout(400);
 check('placed, the next runs are drawn at the small size', await page.inputValue('#dn'), (v) => v === 'DN50', 'DN50');
 const redEndBox = await page.locator(`#canvas circle.hit-dot[data-node="${openEnd}"]`).boundingBox();
 await penTap(redEndBox.x + redEndBox.width / 2 + 180, redEndBox.y + redEndBox.height / 2 + 104);
-check('and the line carries on from its far face, straight, at 2"', await sizesNow(), (v) => v.join(',') === 'DN100,DN50', 'DN100,DN50');
+check('and the line carries on from its far face, straight, at 2"', await sizesNow(), (v) => v.join(',') === 'DN100,DN100,DN50', 'DN100,DN100,DN50');
+check('the reducer sits in a run of its own, its near face a point too', (await nodesAt()).length, (v) => v === 4, '4');
 await page.click('#tabs button:has-text("Welds")');
 await page.waitForTimeout(200);
 const reducerList = await page.locator('#tab-body table tbody tr').allInnerTexts();
 check('its two welds are named for it, each the size of its own end', reducerList.filter((r) => /CON RED 4" X 2"/.test(r)).map((r) => r.split('\t')[1]).join(','), (v) => v === '4",2"', '4",2"');
 check('with no pipe-to-pipe weld on top of its face', reducerList.some((r) => /PIPE \/ PIPE/.test(r)), (v) => v === false, 'none');
 check('and the pipe either side cut to it', reducerList.filter((r) => /CON RED/.test(r)).map((r) => r.split('\t').pop()).join(' | '), (v) => /^A [\d.]+ \| B [\d.]+$/.test(v), 'A … | B …');
+check('the weld marks sit on its faces, a symbol length from its centre', await page.evaluate(() => {
+  const comp = document.querySelector('#canvas circle.hit-dot[data-component]');
+  const cx = +comp.getAttribute('cx');
+  const cy = +comp.getAttribute('cy');
+  return [...document.querySelectorAll('#canvas .joint-bw')].map((el) => {
+    const b = el.getBBox();
+    return Math.hypot(b.x + b.width / 2 - cx, b.y + b.height / 2 - cy);
+  }).filter((d) => d < 6).map((d) => Math.round(d * 10) / 10);
+}), (v) => v.length >= 2 && Math.abs(v[0] - v[1]) < 0.3 && v[0] > 1.5, 'two marks, equal distances either side, well out');
 await page.click('#tabs button:has-text("Items")');
 await page.waitForTimeout(200);
 check('the list carries it by that name', await page.locator('#tab-body').innerText(), (v) => /CON RED 4" X 2"/.test(v), 'CON RED 4" X 2"');
+check('and no empty pipe line for the run that is all reducer', await page.locator('#tab-body').innerText(), (v) => !/0\.00\s+m/.test(v), 'no 0.00 m line');
+
+// The list's names can be typed over, and go on the sheet as typed.
+const typeName = async (text) => {
+  await page.click('#tab-body [data-bom-name*="CON RED"]');
+  await page.keyboard.press('Control+A');
+  await page.keyboard.press('Backspace');
+  if (text) await page.keyboard.type(text);
+  await page.keyboard.press('Enter');
+};
+await typeName('con red 4x2 sch40 a234');
+await page.waitForTimeout(300);
+check('a list name typed over is kept, in capitals', await page.locator('#tab-body').innerText(), (v) => /CON RED 4X2 SCH40 A234/.test(v) && !/CON RED 4" X 2"/.test(v), 'the typed name, not the old one');
+await page.click('#print');
+await page.waitForTimeout(300);
+await page.click('[data-x="preview"]');
+await page.waitForTimeout(500);
+check('and printed that way', await page.locator('.sheet-preview').innerText(), (v) => /CON RED 4X2 SCH40 A234/.test(v), 'the typed name on the sheet');
+await page.click('.dialog [data-close]');
+await page.waitForTimeout(200);
+await page.click('#tabs button:has-text("Items")');
+await page.waitForTimeout(200);
+await typeName('');
+await page.waitForTimeout(300);
+check('cleared, the list has its own name back', await page.locator('#tab-body').innerText(), (v) => /CON RED 4" X 2"/.test(v), 'CON RED 4" X 2"');
+
 await page.click('#tabs button:has-text("Route")');
 await page.keyboard.press('Escape');
 await page.waitForTimeout(150);
@@ -2212,17 +2257,84 @@ await page.waitForTimeout(300);
 await page.selectOption('.dialog [data-f="red-small"]', 'DN80');
 await page.click('.dialog [data-confirm]');
 await page.waitForTimeout(400);
-check('along a run, the run is cut at its far face and the line beyond is the small size', await sizesNow(), (v) => v.join(',') === 'DN100,DN80,DN80', 'DN100,DN80,DN80');
+check('along a run, the run is cut at both faces and the line beyond is the small size', await sizesNow(), (v) => v.join(',') === 'DN100,DN100,DN80,DN80', 'DN100,DN100,DN80,DN80');
 const compEl = page.locator('#canvas [data-component]').first();
 const compBox = await compEl.boundingBox();
 await compEl.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, clientX: compBox.x + compBox.width / 2, clientY: compBox.y + compBox.height / 2, isPrimary: true });
 await page.waitForTimeout(80);
 await compEl.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
 await page.waitForTimeout(300);
-check('its panel is headed by its name and offers the two ends and the flow', `${await page.locator('#tab-body h3').first().innerText()} ${await page.locator('#tab-body [data-f="red-dir"]').count()}`, (v) => /ECC RED 4" X 3" 1/i.test(v), 'ECC RED 4" X 3", a flow select');
-await page.selectOption('#tab-body [data-f="red-dir"]', 'expand');
+check('its panel is headed by its name and offers the two ends and a Flip', `${await page.locator('#tab-body h3').first().innerText()} ${await page.locator('#tab-body [data-a="red-flip"]').count()}`, (v) => /ECC RED 4" X 3" 1/i.test(v), 'ECC RED 4" X 3", a Flip button');
+await page.click('#tab-body [data-a="red-flip"]');
 await page.waitForTimeout(300);
-check('turned round, the sizes either side swap', await sizesNow(), (v) => v.join(',') === 'DN80,DN100,DN100', 'DN80,DN100,DN100');
+check('turned round, the sizes either side swap', await sizesNow(), (v) => v.join(',') === 'DN80,DN80,DN100,DN100', 'DN80,DN80,DN100,DN100');
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
+
+/* ---------------------------------------- a reducer straight on a flange */
+
+// A reducer put on an end that wears a flange sits against the flange: one
+// weld between the two, named for both and the size of the reducer's end,
+// and the flange takes that size. The other way round — a flange put on
+// the reducer's far face — the point moves out by the flange's length, so
+// the flange is welded straight to the reducer, with no pipe between.
+await routeLine('4"\nSTD\nORIGIN 0 0 0\nE 1500');
+const flgStart = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).nodes.find((n) => n.pos.e === 0).id);
+await tapNode(flgStart);
+await page.locator('.tool[data-kind="FLG_WN"]').click();
+await page.waitForTimeout(300);
+await tapNode(flgStart);
+await page.locator('.tool[data-kind="RED_CONC"]').click();
+await page.waitForTimeout(300);
+check('against a flange, the box says so and does not offer to draw on', `${await page.locator('.dialog').innerText()} ${await page.locator('.dialog [data-f="red-drawon"]').count()}`, (v) => /WELD NECK FLANGE/.test(v) && / 0$/.test(v), 'names the flange; no draw-on box');
+await page.selectOption('.dialog [data-f="red-small"]', 'DN50');
+await page.click('.dialog [data-confirm]');
+await page.waitForTimeout(400);
+await page.click('#tabs button:has-text("Welds")');
+await page.waitForTimeout(200);
+const onFlange = await page.locator('#tab-body table tbody tr').allInnerTexts();
+check('the reducer is welded straight to the flange: one weld, named for both, at the small size', onFlange.filter((r) => /CON RED 4" X 2" \/ WELD NECK FLANGE/.test(r)).map((r) => r.split('\t')[1]).join(','), (v) => v === '2"', '2"');
+check('with no pipe weld at the flange and one pipe weld at its far face', `${onFlange.some((r) => /PIPE \/ WELD NECK FLANGE/.test(r))} ${onFlange.filter((r) => /PIPE \/ CON RED/.test(r)).length} ${onFlange.length} [${onFlange.join(' | ')}]`, (v) => v.startsWith('false 1 2 '), 'false 1 2');
+check('the weld marks are on the reducer\'s faces, not inside it', await page.evaluate(() => {
+  const comp = document.querySelector('#canvas circle.hit-dot[data-component]');
+  const cx = +comp.getAttribute('cx');
+  const cy = +comp.getAttribute('cy');
+  return [...document.querySelectorAll('#canvas .joint-bw')].map((el) => {
+    const b = el.getBBox();
+    return Math.round(Math.hypot(b.x + b.width / 2 - cx, b.y + b.height / 2 - cy) * 10) / 10;
+  }).filter((d) => d < 6).sort();
+}), (v) => v.length === 2 && v[0] > 1.5, 'two marks, both well out from the centre');
+await page.click('#tabs button:has-text("Items")');
+await page.waitForTimeout(200);
+check('and the flange on the list is the small size', await page.locator('#tab-body table tbody tr').allInnerTexts().then((rows) => rows.find((r) => /WELD NECK FLANGE/.test(r))?.split('\t')[2]), (v) => v === '2"', '2"');
+
+await page.click('#tabs button:has-text("Route")');
+await routeLine('4"\nSTD\nORIGIN 0 0 0\nE 1500');
+const redFirst = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).nodes.find((n) => n.pos.e === 0).id);
+await tapNode(redFirst);
+await page.locator('.tool[data-kind="RED_CONC"]').click();
+await page.waitForTimeout(300);
+await page.selectOption('.dialog [data-f="red-small"]', 'DN50');
+await page.locator('.dialog [data-f="red-drawon"]').uncheck();
+await page.click('.dialog [data-confirm]');
+await page.waitForTimeout(400);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
+await tapNode(redFirst);
+check('the reducer\'s far face is a point that can be picked', await page.locator('#tab-body [data-a="draw-from"]').count(), (v) => v === 1, 'Draw from here offered');
+await page.locator('.tool[data-kind="FLG_WN"]').click();
+await page.waitForTimeout(300);
+const movedOut = await page.evaluate(() => Math.min(...JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).nodes.map((n) => n.pos.e)));
+check('a flange put on that face moves the point out by the flange\'s length', movedOut, (v) => v < -20 && v > -120, 'a flange length before the origin');
+await page.click('#tabs button:has-text("Welds")');
+await page.waitForTimeout(200);
+const flangeAfter = await page.locator('#tab-body table tbody tr').allInnerTexts();
+check('and is welded straight to the reducer', flangeAfter.filter((r) => /CON RED 4" X 2" \/ WELD NECK FLANGE/.test(r)).length + ':' + flangeAfter.length, (v) => v === '1:2', '1:2');
+await page.click('#tabs button:has-text("Route")');
+await tapNode(redFirst);
+await page.selectOption('#tab-body [data-f="terminal"]', 'OPEN');
+await page.waitForTimeout(300);
+check('taken off again, the point comes back in', await page.evaluate(() => Math.min(...JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).nodes.map((n) => n.pos.e))), (v) => Math.abs(v) < 0.5, '0');
 await page.keyboard.press('Escape');
 await page.waitForTimeout(150);
 

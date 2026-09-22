@@ -145,18 +145,40 @@ ships, and the decisions already taken, so they are not re-litigated.
   (`reducerName`; `COMPONENT_LABEL` is 'CON RED'/'ECC RED'), on the list,
   in the weld joins and the panel heading; each of its two welds carries
   its own end's size. Picking one from the palette opens a **dialog**
-  (`reducerDialog` in main.ts: Large end, Small end, Flow reduce/expand,
-  "Carry on drawing from its far end" on an open end). On an open end it
-  sits with its far face on the end (`placeReducer` in tools.ts), the
-  pencil is armed there and `currentDn` becomes the outward size; along a
-  run it sits at the middle and the run is **split at its far face**.
-  `applyReducer` in edit.ts sets the sizes and makes the run each side the
-  size of the end it meets, on through degree-2 points up to a branch or
-  another reducer. `faceOnNode` in `analyse` suppresses the PIPE/PIPE joint
-  at a point an item's face sits on, and `jointAt` also matches joints by
-  position, so the piece beyond ends on the reducer's far weld. Turning the
-  line right at a reducer's face (an elbow on the reducer) is not handled:
-  the elbow's take-out wins and the reducer's welds get no pipe.
+  (`reducerDialog` in main.ts: Large end, Small end, a **picture with a
+  Flip button** (`reducerPreview` in `src/ui/reducer-preview.ts`, sizes
+  over the ends, LINE / OPEN END or RUN START / RUN END under them; he
+  asked for "something simple like FLIP" instead of a flow select), and
+  "Carry on drawing from its far end" on an open end). The panel has the
+  same picture and Flip (`[data-a="red-flip"]`). A reducer always sits in
+  **a run of its own** (`placeReducer` in tools.ts splits at both faces),
+  so **both faces are points** he can tap: draw on from, or put a flange
+  on. On an open end its far face is on the end, the pencil is armed there
+  and `currentDn` becomes the outward size. `applyReducer` in edit.ts sets
+  the sizes and makes the run each side the size of the end it meets, on
+  through degree-2 points up to a branch or another reducer. The symbol
+  reaches its faces like a valve (`faceReach`), and its weld marks sit on
+  those faces (`WeldReach.comp` → `compCentre` in the renderer), never
+  inside the body (his complaint, 2026-09-22). `faceOnNode` in `analyse`
+  suppresses the PIPE/PIPE joint at a point an item's face sits on, and
+  `jointAt` also matches joints by position. Turning the line right at a
+  reducer's face (an elbow on the reducer) is not handled: the elbow's
+  take-out wins and the reducer's welds get no pipe.
+- **An item straight on a flange** (`itemAtEnd`/`endDn` in drawing.ts): a
+  reducer placed on an end that wears a flange/cap/transition sits against
+  it (offset = flange length at the outward size + half), and a flange
+  put on a reducer's far face point **moves the point out** by the
+  flange's length (`setTerminal` in edit.ts; taken off, the point comes
+  back in). Then there is **one weld** between them, keyed as the
+  terminal's (`n:<node>:term`), named `CON RED 4" X 2" / WELD NECK FLANGE`,
+  the size of the reducer's end; the item's own weld on that side is
+  dropped, the flange takes that size on the list (`endDn`), and the
+  symbol is drawn with its face on the flange hub. A pipe size with
+  nothing cut in it (the reducer's own run) gets no list line.
+- **List names typed over** (Items tab, `[data-bom-name]` inputs;
+  `drawing.bomNames[lineKey]`, applied at the end of `analyse` after the
+  sort, so item numbers stay put): capitalised, printed on the sheet's
+  BILL OF MATERIALS as typed, cleared to get the list's own name back.
 - Supports and the AG/UG mark are **notes, not material**: no BOM line, no
   welds. Supports are numbered along the line unless named.
 - Printing happens from the page itself (`#print-root`, `@page` size); a
