@@ -16,6 +16,8 @@ const SHEETS: Record<SheetSize, { w: number; h: number }> = {
 // Tight: the frame sits 5 mm in from the paper edge, which is as close as
 // most printers will put ink.
 const MARGIN = 5;
+/** Symbol half-size on the printed sheet, in mm: a third up on the screen's, as he asked. */
+const SHEET_SYMBOL_MM = SYMBOL_MM * 1.35;
 
 function text(
   x: number,
@@ -291,7 +293,7 @@ export function renderSheet(drawing: Drawing, analysis: Analysis, size: SheetSiz
   const contentW = Math.max(bounds.maxX - bounds.minX, 1);
   const contentH = Math.max(bounds.maxY - bounds.minY, 1);
   const k = Math.min((areaW - pad * 2) / contentW, (areaH - pad * 2) / contentH);
-  const symbol = SYMBOL_MM / k;
+  const symbol = SHEET_SYMBOL_MM / k;
   const scaleR = Math.round(1 / drawing.options.scale / k);
   const tx = areaX + areaW / 2 - ((bounds.minX + bounds.maxX) / 2) * k;
   const ty = areaY + areaH / 2 - ((bounds.minY + bounds.maxY) / 2) * k;

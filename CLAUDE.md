@@ -64,8 +64,9 @@ ships, and the decisions already taken, so they are not re-litigated.
   (`sheetScale` option, default 1:15; `symbolSizeFor`, `SYMBOL_MM` = 2.4 mm
   half-size). They do not scale with pipe length or zoom. Valves too
   (`faceReach` is capped). The **printed sheet always fits** the drawing to
-  its area (`renderSheet`: `k` from the fit, `symbol = SYMBOL_MM / k` passed
-  as `RenderState.symbol`), so symbols are the same size on paper for a
+  its area (`renderSheet`: `k` from the fit, `symbol = SHEET_SYMBOL_MM / k`
+  passed as `RenderState.symbol`; `SHEET_SYMBOL_MM` = 1.35 × `SYMBOL_MM`,
+  ≈3.2 mm, since he asked for bigger fittings on the PDF), so symbols are the same size on paper for a
   short line and a long one, and the note reads "SCALE 1:R (FITTED TO
   SHEET)". The dialog's scale ("On-screen scale") sizes symbols against
   the pipe on screen only. He asked for this after a long line printed
