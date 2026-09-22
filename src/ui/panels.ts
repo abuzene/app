@@ -5,7 +5,7 @@ import { COMMAND_HELP } from '../model/commands';
 import { DN_LIST, SIZE_LABELS, defaultValveEnds, schedulesFor, sizeLabel } from '../model/pipe-data';
 import { axisBetween } from '../model/iso';
 import { projectsOf } from '../model/library';
-import { deleteNode, deleteRun, removeComponent, runLength, setRunDirect, setRunLength, splitRun } from '../model/edit';
+import { deleteNode, deleteRun, removeComponent, removeFlangeJoint, runLength, setRunDirect, setRunLength, splitRun } from '../model/edit';
 import { setDriveClientId } from '../model/drive';
 
 const TABS: { id: TabId; label: string }[] = [
@@ -174,6 +174,7 @@ function nodeProperties(host: Host, nodeId: string): string {
   }</p>
   <div class="btn-row">
     <button class="btn-line solid" data-a="draw-from">Draw from here</button>
+    ${node.flange ? '<button class="btn-line danger" data-a="remove-flanges">Remove both flanges — join the pipe straight</button>' : ''}
     <button class="btn-line danger" data-a="delete-node">Delete point and its runs</button>
   </div>
 </div>`;
@@ -759,6 +760,11 @@ function wire(body: HTMLElement, host: Host): void {
     // so picking the route back up is a button too.
     nodeEditor.querySelector('[data-a="draw-from"]')?.addEventListener('click', () => {
       host.continueFrom(id);
+    });
+    nodeEditor.querySelector('[data-a="remove-flanges"]')?.addEventListener('click', () => {
+      host.edit('Remove flanges', (d) => removeFlangeJoint(d, id));
+      host.select(null);
+      host.notify('Flanges removed; the pipe runs straight through.');
     });
     nodeEditor.querySelector('[data-a="delete-node"]')?.addEventListener('click', () => {
       host.edit('Delete point', (d) => deleteNode(d, id));

@@ -1,6 +1,6 @@
 import { pipeNetAt, type Analysis, type BomLine } from '../model/drawing';
 import type { Drawing } from '../model/types';
-import { contentBounds, drawingScale, escapeText, renderDrawing, sheetScale, symbolSizeFor } from './renderer';
+import { SYMBOL_MM, contentBounds, escapeText, renderDrawing } from './renderer';
 import { sizeLabel } from '../model/pipe-data';
 import { axisScreenDir } from '../model/iso';
 import { contentCss } from './style';
@@ -283,19 +283,16 @@ export function renderSheet(drawing: Drawing, analysis: Analysis, size: SheetSiz
   const areaW = dividerX - MARGIN - 5;
   const areaH = H - MARGIN * 2;
 
-  // Fit the drawing into the available area.
+  // The drawing fills the sheet's drawing area, whatever its scale on
+  // screen, and the symbols are a set size on the paper — the way his own
+  // sheets are drawn. The scale is worked out from the fit and noted.
   const bounds = contentBounds(drawing, analysis);
-  const pad = 14;
+  const pad = 18;
   const contentW = Math.max(bounds.maxX - bounds.minX, 1);
   const contentH = Math.max(bounds.maxY - bounds.minY, 1);
-  // At the drawing's chosen scale, unless that does not fit the sheet, in
-  // which case it is brought down to fit and the note says so.
-  const fitK = sheetScale(contentW, contentH, areaW, areaH, pad);
-  const wantK = drawingScale(drawing, analysis);
-  const k = Math.min(wantK, (areaW - pad * 2) / contentW, (areaH - pad * 2) / contentH);
-  const reduced = k < wantK - 1e-9;
+  const k = Math.min((areaW - pad * 2) / contentW, (areaH - pad * 2) / contentH);
+  const symbol = SYMBOL_MM / k;
   const scaleR = Math.round(1 / drawing.options.scale / k);
-  void fitK;
   const tx = areaX + areaW / 2 - ((bounds.minX + bounds.maxX) / 2) * k;
   const ty = areaY + areaH / 2 - ((bounds.minY + bounds.maxY) / 2) * k;
 
@@ -311,6 +308,7 @@ export function renderSheet(drawing: Drawing, analysis: Analysis, size: SheetSiz
     analysis,
     view,
     selection: null,
+    symbol,
   });
 
   // Right hand column: bill of materials, weld summary, title block.
@@ -324,7 +322,7 @@ export function renderSheet(drawing: Drawing, analysis: Analysis, size: SheetSiz
 
   const notes = [
     'ALL DIMENSIONS IN MILLIMETRES.',
-    drawing.options.schematic ? 'DRAWING NOT TO SCALE.' : `SCALE 1:${scaleR}${reduced ? ' (REDUCED TO FIT)' : ''}, DIMENSIONS GOVERN.`,
+    drawing.options.schematic ? 'DRAWING NOT TO SCALE.' : `SCALE 1:${scaleR} (FITTED TO SHEET), DIMENSIONS GOVERN.`,
     'DIMENSIONS ARE CENTRE TO CENTRE UNLESS NOTED.',
   ];
 
@@ -359,7 +357,7 @@ text { font-family: "Helvetica Neue", Arial, sans-serif; }
 .compass-ring { fill: none; stroke: #12161c; stroke-width: 0.25; }
 .compass-needle { fill: #12161c; }
 .compass-label { font-size: 3px; font-weight: 700; }
-${contentCss({ k, u: 0.24, symbol: symbolSizeFor(drawing, analysis) })}
+${contentCss({ k, u: 0.24, symbol })}
 </style>
 <rect class="sheet-bg" x="0" y="0" width="${W}" height="${H}"/>
 ${rect(MARGIN, MARGIN, W - MARGIN * 2, H - MARGIN * 2, 'frame')}

@@ -59,7 +59,9 @@ export function upsertDrawing(drawing: Drawing, savedAt?: number): void {
   const before = all.find((e) => e.id === drawing.id);
   // Kept again unchanged, it is not newer: the stamp stays, so a copy taken
   // from Drive is not sent straight back as if it had been edited here.
-  const stamp = savedAt ?? (before && JSON.stringify(before.drawing) === json ? before.savedAt : Date.now());
+  // An edit is always newer than the copy it was made from, even where that
+  // copy came from a device whose clock runs ahead of this one.
+  const stamp = savedAt ?? (before && JSON.stringify(before.drawing) === json ? before.savedAt : Math.max(Date.now(), (before?.savedAt ?? 0) + 1));
   const entries = all.filter((e) => e.id !== drawing.id);
   entries.push({ id: drawing.id, savedAt: stamp, drawing: JSON.parse(json) as Drawing });
   entries.sort((a, b) => b.savedAt - a.savedAt);

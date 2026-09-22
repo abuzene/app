@@ -1374,7 +1374,7 @@ const coarser = await tagBox();
 check('a coarser scale makes the symbols bigger against the pipe', coarser / smallSymbol, (v) => Math.abs(v - 50 / 15) < 0.05, `${(50 / 15).toFixed(2)}x`);
 await page.click('[data-x="preview"]');
 await page.waitForTimeout(600);
-check('and the sheet says which scale it is at', await page.locator('.sheet-preview').innerText(), (v) => /SCALE 1:50/.test(v), 'SCALE 1:50');
+check('while the sheet is fitted to the page whatever the on-screen scale', await page.locator('.sheet-preview').innerText(), (v) => /SCALE 1:\d+ \(FITTED TO SHEET\)/.test(v) && !/SCALE 1:50/.test(v), 'SCALE 1:n (FITTED TO SHEET), not 1:50');
 await page.click('.dialog [data-close]');
 await page.waitForTimeout(200);
 await page.click('#print');
@@ -2078,6 +2078,18 @@ await page.waitForTimeout(300);
 await page.click('[data-a="drive-sync"]');
 await page.waitForTimeout(1000);
 check('a sheet forgotten here goes out of Drive, and nothing comes back down', `${[...drive.files.values()].some((f) => f.appProperties?.isoId === 'dother')} ${(await page.locator('#hud').innerText()).match(/Drive:[^\n]*/)?.[0]}`, (v) => v === 'false Drive: 1 removed.', 'dother gone, "Drive: 1 removed."');
+// Save, with Drive set up, saves there rather than to a file on this device.
+const uploadsBefore = drive.state.calls.filter((c) => /upload/.test(c)).length;
+await page.click('#tabs button:has-text("Title")');
+await page.fill('[data-meta="lineNumber"]', 'SAVED-1');
+await page.dispatchEvent('[data-meta="lineNumber"]', 'change');
+await page.waitForTimeout(200);
+await page.click('#save');
+await page.waitForTimeout(1200);
+check('Save puts the sheet in Drive once Drive is set up', `${drive.state.calls.filter((c) => /upload/.test(c)).length > uploadsBefore} ${(await page.locator('#hud').innerText()).includes('Saved to Google Drive')}`, (v) => v === 'true true', 'an upload, and "Saved to Google Drive."');
+check('and Drive has the edit', [...drive.files.values()].some((f) => /SAVED-1/.test(f.content ?? '')), (v) => v === true, 'SAVED-1 in a file');
+await page.click('#tabs button:has-text("Projects")');
+await page.waitForTimeout(200);
 drive.state.deny401 = true;
 await page.click('[data-a="drive-sync"]');
 await page.waitForTimeout(800);
@@ -2088,6 +2100,57 @@ for (let i = consoleErrors.length - 1; i >= 0; i -= 1) if (/401/.test(consoleErr
 await page.unroute('https://www.googleapis.com/**');
 await page.unroute('https://accounts.google.com/**');
 await page.evaluate(() => { for (const k of Object.keys(localStorage)) if (k.startsWith('iso-draw.drive.')) localStorage.removeItem(k); });
+
+/* -------------------------- the sheet fits, symbols a set size on paper */
+
+// The printed sheet fills its drawing area whatever the on-screen scale, and
+// the symbols are the same size on paper for a short line and a long one.
+const sheetSymbol = async () => {
+  await page.click('#print');
+  await page.waitForTimeout(250);
+  await page.click('[data-x="preview"]');
+  await page.waitForTimeout(600);
+  const out = await page.evaluate(() => {
+    const svg = document.querySelector('.sheet-preview svg');
+    const g = [...svg.querySelectorAll('g[transform]')].find((el) => /scale\(/.test(el.getAttribute('transform')));
+    const k = Number(g.getAttribute('transform').match(/scale\(([\d.]+)\)/)[1]);
+    const dot = svg.querySelector('circle.joint-bw');
+    const note = [...svg.querySelectorAll('text')].map((t) => t.textContent).find((t) => /SCALE/.test(t));
+    return { k, r: Number(dot?.getAttribute('r') ?? 0), note };
+  });
+  await page.click('.dialog [data-close]');
+  await page.waitForTimeout(300);
+  return out;
+};
+await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 600\nN 400');
+const shortSheet = await sheetSymbol();
+await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 30000\nN 12000\nE 20000');
+const longSheet = await sheetSymbol();
+check('a long line is fitted to the sheet, and says so', longSheet.note, (v) => /FITTED TO SHEET/.test(v), 'SCALE 1:n (FITTED TO SHEET)');
+check('and its weld dots are the same size on paper as a short line\'s', Math.abs(longSheet.r * longSheet.k - shortSheet.r * shortSheet.k) / (shortSheet.r * shortSheet.k), (v) => v < 0.02, 'within 2%');
+check('though the drawings are at very different scales', shortSheet.k / longSheet.k, (v) => v > 10, 'more than 10×');
+
+/* ----------------------------- a pair of flanges taken out of the line */
+
+// Two flanges bolted in a straight line come out again as a pair, and the
+// pipe runs straight through where they were: one run, no joint left.
+await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 3000\n+FLG 1200\nN 1000');
+const flangedNode = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).nodes.find((n) => n.flange)?.id ?? '');
+check('a flange put along a run makes a flanged joint', flangedNode !== '', (v) => v === true, 'a point with a flange');
+await tapNode(flangedNode);
+check('picked, the Delete button offers to remove the flanges', await page.locator('#hud-delete').innerText(), (v) => /Remove flanges/.test(v), 'Remove flanges');
+check('and the panel too', await page.locator('#tab-body [data-a="remove-flanges"]').count(), (v) => v === 1, '1');
+await page.click('#hud-delete');
+await page.waitForTimeout(400);
+const afterFlanges = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')));
+check('the pipe runs straight through: two runs, three points, no flange', `${afterFlanges.runs.length} ${afterFlanges.nodes.length} ${afterFlanges.nodes.some((n) => n.flange)}`, (v) => v === '2 3 false', '2 3 false');
+check('and the first run is its full length again', await page.locator('#tab-body .run-list input[data-run-len]').first().inputValue(), (v) => v === '3000', '3000');
+await page.click('#tabs button:has-text("Welds")');
+await page.waitForTimeout(200);
+check('with no weld left where they were', await page.locator('#tab-body').innerText(), (v) => !/FLANGE/.test(v) && /Total 2/.test(v), 'no flange welds, Total 2 (the elbow)');
+await page.click('#tabs button:has-text("Route")');
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
 
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 

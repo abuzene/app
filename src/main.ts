@@ -7,7 +7,7 @@ import { loadLibrary, removeDrawing, renumberProject, sheetNumber, upsertDrawing
 import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, noteRemovedFromLibrary, setDriveClientId, syncDrive } from './model/drive';
 import { add, length3, scale3, sub } from './model/iso';
 import { initialCommandState, runCommands } from './model/commands';
-import { applyDimension, connectNodes, deleteNode, deleteRun, ensureNode, removeComponent, route, setRunDirect, stretchRun } from './model/edit';
+import { applyDimension, connectNodes, deleteNode, deleteRun, ensureNode, removeComponent, removeFlangeJoint, route, setRunDirect, stretchRun } from './model/edit';
 import { DN_LIST, schedulesFor, sizeLabel } from './model/pipe-data';
 import { northArrow, paperOf, toPaper } from './render/renderer';
 import { renderSheet, type SheetSize } from './render/sheet';
@@ -876,8 +876,9 @@ function renderHud(): void {
     if (run) parts.push(`<button class="hud-stop" id="hud-direct" type="button">${run.direct ? 'Pipe here after all' : 'No pipe — fittings touch'}</button>`);
   }
   if (sel && sel.kind !== 'weld') {
-    const what = sel.kind === 'run' ? 'run' : sel.kind === 'node' ? 'point' : 'item';
-    parts.push(`<button class="hud-stop hud-delete" id="hud-delete" type="button">Delete ${what}</button>`);
+    const flanged = sel.kind === 'node' && !!state.drawing.nodes.find((n) => n.id === sel.id)?.flange;
+    const what = sel.kind === 'run' ? 'run' : sel.kind === 'node' ? (flanged ? 'flanges' : 'point') : 'item';
+    parts.push(`<button class="hud-stop hud-delete" id="hud-delete" type="button">${flanged ? 'Remove flanges' : `Delete ${what}`}</button>`);
   }
   parts.push(`<span>snap ${state.drawing.options.snap} mm</span>`);
   if (state.drawing.options.schematic) parts.push('<span>not to scale</span>');
@@ -1196,7 +1197,19 @@ $('new').addEventListener('click', async () => {
   fitView();
 });
 
+// Save: into the Drive folder once Drive is set up, so the other device
+// has it; a file on this device only where Drive is not in use.
 $('save').addEventListener('click', () => {
+  const drive = driveStatus();
+  if (drive.clientId) {
+    keepNow();
+    if (drive.connected) {
+      void runDriveSync().then(() => host.notify('Saved to Google Drive.'));
+    } else {
+      beginDriveSignIn();
+    }
+    return;
+  }
   host.download(`${fileStem(host)}.iso.json`, JSON.stringify(state.drawing, null, 2), 'application/json');
 });
 
@@ -1311,12 +1324,12 @@ function openPrintDialog(): void {
     <option value="upright"${tabletPrinter ? ' selected' : ''}>Upright — the sheet is turned to fill it</option>
   </select></div>
   <p class="empty-note">A tablet prints on upright paper unless told otherwise, so the sheet is turned to lie along it; a printer fed landscape paper takes the sheet as it is.</p>
-  <div class="row"><label>Drawing scale</label><select id="sheet-scale">
+  <div class="row"><label>On-screen scale</label><select id="sheet-scale">
     ${[0, 5, 10, 15, 20, 25, 33, 40, 50, 75, 100]
       .map((r) => `<option value="${r}"${(state.drawing.options.sheetScale ?? 15) === r ? ' selected' : ''}>${r === 0 ? 'Fit to the sheet' : `1:${r}`}</option>`)
       .join('')}
   </select></div>
-  <p class="empty-note">Symbols, tags and lettering are a set size on the sheet, so the scale decides how big the drawing is against them. A scale the drawing does not fit at is brought down to fit, and the sheet says so.</p>
+  <p class="empty-note">The sheet always fits the drawing to the page, with symbols, tags and lettering a set size on the paper. This scale sizes the symbols against the pipe on screen only.</p>
   <div class="btn-row">
     <button class="btn-line${tabletPrinter ? ' solid' : ''}" data-x="pdf">PDF sheet</button>
     <button class="btn-line${tabletPrinter ? '' : ' solid'}" data-x="print">Print / Save as PDF</button>
@@ -1887,11 +1900,16 @@ window.addEventListener('keydown', (event) => {
 function deleteSelection(): void {
   const sel = state.selection;
   if (!sel || sel.kind === 'weld') return;
-  host.edit('Delete', (d) => {
+  // A flanged joint: the pair of flanges goes and the pipe is joined
+  // straight through, rather than the point and its runs.
+  const flanged = sel.kind === 'node' && !!state.drawing.nodes.find((n) => n.id === sel.id)?.flange;
+  host.edit(flanged ? 'Remove flanges' : 'Delete', (d) => {
     if (sel.kind === 'run') deleteRun(d, sel.id);
+    else if (sel.kind === 'node' && flanged) removeFlangeJoint(d, sel.id);
     else if (sel.kind === 'node') deleteNode(d, sel.id);
     else removeComponent(d, sel.id);
   });
+  if (flanged) host.notify('Flanges removed; the pipe runs straight through.');
   if (sel.kind === 'node') canvas.setAnchor(null);
   state.preview = null;
   host.select(null);

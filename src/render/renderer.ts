@@ -27,7 +27,7 @@ export type Selection =
  * print this drawing at. A big drawing prints small, so its symbols are small
  * against it; a small drawing is never blown up to fill the page.
  */
-const SYMBOL_MM = 2.4;
+export const SYMBOL_MM = 2.4;
 /** The drawing area of an A3 sheet, in mm, that the symbol size is judged against. */
 const SHEET_AREA = { w: 270, h: 265 };
 /** Sheet mm per paper unit at most: a small drawing sits at this scale rather than filling the page. */
@@ -72,6 +72,8 @@ export interface RenderState {
   preview?: Preview | null;
   /** Radius of the invisible touch targets, in paper units: kept constant on screen. */
   hitSize?: number;
+  /** Symbol half-size in paper units, when the sheet sets it rather than the drawing's scale. */
+  symbol?: number;
 }
 
 export interface Pt {
@@ -297,7 +299,7 @@ function renderDimension(
 
 export function renderDrawing(state: RenderState): string {
   const { drawing, analysis, view, selection } = state;
-  const size = symbolSizeFor(drawing, analysis);
+  const size = state.symbol ?? symbolSizeFor(drawing, analysis);
   const hitR = state.hitSize ?? size * 1.2;
   const sel = selection;
 

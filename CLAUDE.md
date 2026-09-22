@@ -61,13 +61,24 @@ ships, and the decisions already taken, so they are not re-litigated.
 ## Decisions already taken (do not undo)
 
 - Symbols, tags, balloons and lettering are a **set size on the sheet**
-  (`sheetScale` option, default 1:15; `symbolSizeFor`, `SYMBOL_MM`). They do
-  not scale with pipe length or zoom. Valves too (`faceReach` is capped).
+  (`sheetScale` option, default 1:15; `symbolSizeFor`, `SYMBOL_MM` = 2.4 mm
+  half-size). They do not scale with pipe length or zoom. Valves too
+  (`faceReach` is capped). The **printed sheet always fits** the drawing to
+  its area (`renderSheet`: `k` from the fit, `symbol = SYMBOL_MM / k` passed
+  as `RenderState.symbol`), so symbols are the same size on paper for a
+  short line and a long one, and the note reads "SCALE 1:R (FITTED TO
+  SHEET)". The dialog's scale ("On-screen scale") sizes symbols against
+  the pipe on screen only. He asked for this after a long line printed
+  with tiny symbols.
 - Fitting reach is fixed (`FITTING_REACH`); weld marks sit on the symbol's
   end and are part of it — no line between dot and symbol.
 - A flange **breaks the line** (`node.flange`, flanged joint). Continuing
   past a flange goes straight only. Ending a run with a flange draws that
   flange alone; a dashed mating flange appears only for a blind/equipment.
+  A flanged joint picked shows **Remove flanges** on the HUD Delete button
+  and in the panel: `removeFlangeJoint` in edit.ts takes the pair out and
+  merges the two collinear runs into one (inline items re-offset, visual
+  lengths summed), leaving no joint; on a turn only the flanges go.
 - **One balloon per item number**; balloons and weld tags (rounded boxes)
   are on thin leaders and are **draggable** (`itemOverrides`,
   `weldOverrides[key].tag`). Support callouts drag the same way
@@ -226,14 +237,20 @@ can land on a weld tag or on a handle a redraw replaced.
   redirect URI `https://abuzene.github.io/app/`, `driveRedirectUri()` strips
   `index.html`). One folder "Isometric Piping", one file per sheet named
   `<project> - <line> - sheet k of n [<id>].iso.json`, `appProperties`
-  `{isoId, savedAt}`. `syncDrive` merges by `savedAt` with 2 s slack:
-  newer copy each way, missing goes over, a sheet removed here (tombstones
+  `{isoId, savedAt}`. `syncDrive` merges by `savedAt` exactly (stamps are
+  carried across verbatim, so equal means the same copy; a slack once
+  swallowed a save made within 2 s of a sync): newer copy each way, missing goes over, a sheet removed here (tombstones
   `iso-draw.drive.removed`) is deleted there. `upsertDrawing` keeps the old
   stamp when the content is unchanged, so a copy taken from Drive is not
-  bounced back. Syncs at start when the token is still good and on "Sync
+  bounced back, and stamps an edit at least 1 ms past the copy it was made
+  from, so a device whose clock runs behind still wins with its edit. Syncs at start when the token is still good and on "Sync
   now"; the on-screen sheet is replaced if a newer copy came down. The
   smoke stands in for Google with `scripts/fake-drive.mjs` (page.route on
-  googleapis.com) and a stub for accounts.google.com.
+  googleapis.com) and a stub for accounts.google.com. **Save** goes to
+  Drive once a client ID is set (connected: sync + "Saved to Google
+  Drive."; expired: the sign-in page); a `.iso.json` download only where
+  Drive is not set up. He set his own Google Cloud project up on
+  2026-09-22 and is signed in on the PC.
 
 ## Ideas not yet done
 

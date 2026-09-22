@@ -523,6 +523,48 @@ export function applyDimension(drawing: Drawing, runId: string, index: number, v
   return 'That dimension cannot be set directly.';
 }
 
+/**
+ * Takes a pair of bolted flanges out of a line and joins the pipe straight
+ * through where they were: the two runs either side become one, with what
+ * sat along them kept in place. On a point that is not a flanged joint, or
+ * where the line turns, only the flanges go and the point stays as a joint.
+ */
+export function removeFlangeJoint(drawing: Drawing, nodeId: string): boolean {
+  const node = drawing.nodes.find((n) => n.id === nodeId);
+  if (!node) return false;
+  node.flange = undefined;
+  const runs = drawing.runs.filter((r) => r.from === nodeId || r.to === nodeId);
+  if (runs.length !== 2) return true;
+  const [a, b] = runs;
+  const farA = drawing.nodes.find((n) => n.id === (a.from === nodeId ? a.to : a.from));
+  const farB = drawing.nodes.find((n) => n.id === (b.from === nodeId ? b.to : b.from));
+  if (!farA || !farB) return true;
+  const inA = axisBetween(farA.pos, node.pos);
+  const outB = axisBetween(node.pos, farB.pos);
+  if (!inA || inA !== outB) return true;
+  // Turn each run so that a ends on the point and b starts from it.
+  const turn = (run: Run) => {
+    const len = runLength(drawing, run);
+    [run.from, run.to] = [run.to, run.from];
+    for (const comp of run.inline) comp.offset = len - comp.offset;
+    run.inline.sort((x, y) => x.offset - y.offset);
+  };
+  if (a.to !== nodeId) turn(a);
+  if (b.from !== nodeId) turn(b);
+  const lenA = runLength(drawing, a);
+  a.to = b.to;
+  a.inline.push(...b.inline.map((c) => ({ ...c, offset: c.offset + lenA })));
+  a.inline.sort((x, y) => x.offset - y.offset);
+  if (a.visual !== undefined || b.visual !== undefined) {
+    a.visual = (a.visual ?? drawing.options.schematicLength) + (b.visual ?? drawing.options.schematicLength);
+  }
+  a.direct = undefined;
+  drawing.runs = drawing.runs.filter((r) => r.id !== b.id);
+  drawing.nodes = drawing.nodes.filter((n) => n.id !== nodeId);
+  if (drawing.dimOverrides) delete drawing.dimOverrides[a.id + ':0'];
+  return true;
+}
+
 /** Whether pipe already leads from one point to the other, however far round. */
 export function samePiece(drawing: Drawing, a: string, b: string): boolean {
   const seen = new Set<string>([a]);

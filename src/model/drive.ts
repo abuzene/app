@@ -201,16 +201,16 @@ export async function syncDrive(): Promise<SyncResult> {
   const removed = new Set(read<string[]>(KEY_REMOVED) ?? []);
   const local = new Map(loadLibrary().map((e) => [e.id, e]));
   const result: SyncResult = { up: 0, down: 0, removed: 0, downloaded: [] };
-  // Two clocks: only a clear difference counts as newer.
-  const SLACK = 2000;
-
+  // A stamp is set where the sheet was edited and carried across as it
+  // is, so the same stamp on both sides means the same copy; any newer
+  // stamp means an edit, however soon after the last sync.
   for (const [id, entry] of local) {
     const file = remote.get(id);
     const remoteAt = Number(file?.appProperties?.savedAt ?? 0);
-    if (!file || entry.savedAt > remoteAt + SLACK) {
+    if (!file || entry.savedAt > remoteAt) {
       await upload(token, folder, entry, file?.id ?? null);
       result.up += 1;
-    } else if (remoteAt > entry.savedAt + SLACK) {
+    } else if (remoteAt > entry.savedAt) {
       const drawing = await call<Drawing>(token, `${API}/files/${file.id}?alt=media`);
       upsertDrawing(drawing, remoteAt);
       result.down += 1;
