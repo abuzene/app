@@ -39,13 +39,21 @@ await page.waitForTimeout(400);
 
 /** Clears the drawing, answering the in-page confirmation if it appears. */
 async function startNewDrawing() {
+  await page.keyboard.press('Escape');
   await page.click('#new');
-  await page.waitForTimeout(250);
   const confirmButton = page.locator('.dialog-backdrop [data-confirm]');
-  if (await confirmButton.count()) {
+  try {
+    await confirmButton.waitFor({ state: 'visible', timeout: 1500 });
     await confirmButton.click();
+  } catch {
+    // Nothing to confirm on an empty drawing.
   }
-  await page.waitForTimeout(400);
+  // The route must be gone before anything is drawn on the fresh sheet; a
+  // fixed wait once let a new line land on top of the old one.
+  await page
+    .waitForFunction(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1') ?? '{"runs":[]}').runs.length === 0, null, { timeout: 4000 })
+    .catch(() => console.log('WARN  the drawing was not cleared'));
+  await page.waitForTimeout(300);
 }
 
 check('empty hint shown on a blank drawing', await page.locator('#empty-hint').isVisible(), (v) => v === true, 'true');
@@ -2364,6 +2372,54 @@ await page.waitForTimeout(300);
 check('taken off again, the point comes back in', await page.evaluate(() => Math.min(...JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).nodes.map((n) => n.pos.e))), (v) => Math.abs(v) < 0.5, '0');
 await page.keyboard.press('Escape');
 await page.waitForTimeout(150);
+
+/* ------------------------------------------ a plain point removed, the pipe joined */
+
+// A plain point along a line — a weld put in, the face a reducer was drawn
+// from — comes out on its own and the pipe runs straight through, as a
+// pair of flanges does; it does not take the runs either side with it.
+await routeLine('4"\nSTD\nORIGIN 0 0 0\nE 3000');
+await page.locator('#canvas [data-run]').first().click({ force: true });
+await page.waitForTimeout(200);
+await page.locator('.tool[data-weld="BW"]').click();
+await page.waitForTimeout(400);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
+check('a weld put in cuts the run in two', await runCount(), (v) => v === 2, '2');
+const weldPoint = (await nodesAt()).find((p) => p[1] === 1500)[0];
+await tapNode(weldPoint);
+check('picked, the HUD offers to remove the point, not the line', await page.locator('#hud-delete').innerText(), (v) => v === 'Remove point', 'Remove point');
+await page.click('#hud-delete');
+await page.waitForTimeout(300);
+check('removed, the pipe runs straight through as one run', `${await runCount()} ${(await nodesAt()).length}`, (v) => v === '1 2', '1 run, 2 points');
+
+await routeLine('4"\nSTD\nORIGIN 0 0 0\nE 3000');
+const redOpen = (await nodesAt()).find((p) => p[1] === 3000)[0];
+await tapNode(redOpen);
+await page.locator('.tool[data-kind="RED_CONC"]').click();
+await page.waitForTimeout(300);
+await page.selectOption('.dialog [data-f="red-small"]', 'DN50');
+await page.locator('.dialog [data-f="red-drawon"]').uncheck();
+await page.click('.dialog [data-confirm]');
+await page.waitForTimeout(400);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
+const facePoint = (await nodesAt()).find((p) => p[1] > 0 && p[1] < 3000)[0];
+await tapNode(facePoint);
+await page.click('#tab-body [data-a="delete-node"]');
+await page.waitForTimeout(300);
+check('the face point of a reducer removed, the reducer stays in the one run', `${await runCount()} ${await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).runs[0].inline.length)}`, (v) => v === '1 1', '1 run, the reducer in it');
+await page.click('#tabs button:has-text("Welds")');
+await page.waitForTimeout(200);
+check('with both its welds', (await page.locator('#tab-body table tbody tr').allInnerTexts()).filter((r) => /CON RED/.test(r)).length, (v) => v === 2, '2');
+await page.click('#tabs button:has-text("Route")');
+await page.waitForTimeout(150);
+
+// A corner has nothing to join: deleting it still takes its runs away.
+await routeLine('4"\nSTD\nORIGIN 0 0 0\nE 3000\nN 2000');
+const corner = (await nodesAt()).find((p) => p[1] === 3000 && p[2] === 0)[0];
+await tapNode(corner);
+check('a corner is still deleted with its runs', await page.locator('#hud-delete').innerText(), (v) => v === 'Delete point', 'Delete point');
 
 /* ----------------------------------------------- an olet taken off again */
 

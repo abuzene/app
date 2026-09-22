@@ -194,6 +194,12 @@ ships, and the decisions already taken, so they are not re-litigated.
   **Draw the branch from here** (`continueFrom` sets `currentDn` to the
   olet's size); HUD/panel **Remove olet** (`removeOlet` in edit.ts) joins
   the header back into one run. Never arm the pencil on placement.
+- **Deleting a plain point** (degree 2, collinear, no fitting/flange/olet;
+  `isPlainPoint`, `deletePoint`, `joinThrough` in edit.ts — the merge that
+  `removeFlangeJoint` also uses) removes only the point and joins the pipe
+  through, as with a flange pair (his complaint: deleting the white face
+  point of a reducer took the whole line). HUD/panel say "Remove point".
+  A corner, branch or end still goes with its runs (`deleteNode`).
 - **Leaders on pipe numbers and letters** end at the nearest point of the
   pipe (`nearestOnRuns` in the renderer), so a dragged balloon/letter keeps
   a short leader; fitting balloons still point at the fitting.

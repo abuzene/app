@@ -8,7 +8,7 @@ import { loadLibrary, removeDrawing, renumberProject, sheetNumber, upsertDrawing
 import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, noteRemovedFromLibrary, setDriveClientId, syncDrive } from './model/drive';
 import { AXES, AXIS_VECTOR, add, length3, scale3, sub } from './model/iso';
 import { initialCommandState, runCommands } from './model/commands';
-import { applyDimension, connectNodes, deleteNode, deleteRun, ensureNode, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, setRunDirect, stretchRun } from './model/edit';
+import { applyDimension, connectNodes, deletePoint, deleteRun, ensureNode, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, setRunDirect, stretchRun } from './model/edit';
 import { DN_LIST, schedulesFor, sizeLabel } from './model/pipe-data';
 import { northArrow, paperOf, toPaper } from './render/renderer';
 import { renderSheet, type SheetSize } from './render/sheet';
@@ -897,8 +897,9 @@ function renderHud(): void {
   if (sel && sel.kind !== 'weld') {
     const flanged = sel.kind === 'node' && !!state.drawing.nodes.find((n) => n.id === sel.id)?.flange;
     const olet = sel.kind === 'node' && !!state.drawing.nodes.find((n) => n.id === sel.id)?.olet && state.analysis.nodeInfo.get(sel.id)?.degree === 2;
+    const plain = sel.kind === 'node' && isPlainPoint(state.drawing, sel.id);
     const what = sel.kind === 'run' ? 'run' : sel.kind === 'node' ? (flanged ? 'flanges' : 'point') : sel.kind === 'equipment' ? 'equipment' : 'item';
-    parts.push(`<button class="hud-stop hud-delete" id="hud-delete" type="button">${flanged ? 'Remove flanges' : olet ? 'Remove olet' : `Delete ${what}`}</button>`);
+    parts.push(`<button class="hud-stop hud-delete" id="hud-delete" type="button">${flanged ? 'Remove flanges' : olet ? 'Remove olet' : plain ? 'Remove point' : `Delete ${what}`}</button>`);
   }
   parts.push(`<span>snap ${state.drawing.options.snap} mm</span>`);
   if (state.drawing.options.schematic) parts.push('<span>not to scale</span>');
@@ -2033,16 +2034,19 @@ function deleteSelection(): void {
   const flanged = sel.kind === 'node' && !!state.drawing.nodes.find((n) => n.id === sel.id)?.flange;
   // An olet with no branch: only the olet goes, and the header runs on whole.
   const olet = sel.kind === 'node' && !!state.drawing.nodes.find((n) => n.id === sel.id)?.olet && state.analysis.nodeInfo.get(sel.id)?.degree === 2;
-  host.edit(flanged ? 'Remove flanges' : olet ? 'Remove olet' : 'Delete', (d) => {
+  // A plain point along a line just goes, and the pipe runs on through.
+  const plain = sel.kind === 'node' && isPlainPoint(state.drawing, sel.id);
+  host.edit(flanged ? 'Remove flanges' : olet ? 'Remove olet' : plain ? 'Remove point' : 'Delete', (d) => {
     if (sel.kind === 'run') deleteRun(d, sel.id);
     else if (sel.kind === 'equipment') removeEquipment(d, sel.id);
     else if (sel.kind === 'node' && flanged) removeFlangeJoint(d, sel.id);
     else if (sel.kind === 'node' && olet) removeOlet(d, sel.id);
-    else if (sel.kind === 'node') deleteNode(d, sel.id);
+    else if (sel.kind === 'node') deletePoint(d, sel.id);
     else removeComponent(d, sel.id);
   });
   if (flanged) host.notify('Flanges removed; the pipe runs straight through.');
   if (olet) host.notify('Olet removed; the header runs on whole.');
+  if (plain) host.notify('Point removed; the pipe runs straight through.');
   if (sel.kind === 'node') canvas.setAnchor(null);
   state.preview = null;
   host.select(null);

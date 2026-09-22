@@ -533,15 +533,27 @@ export function removeFlangeJoint(drawing: Drawing, nodeId: string): boolean {
   const node = drawing.nodes.find((n) => n.id === nodeId);
   if (!node) return false;
   node.flange = undefined;
+  joinThrough(drawing, nodeId);
+  return true;
+}
+
+/**
+ * Joins the two runs meeting at a point into one, when they lie on a line:
+ * the point goes and the pipe runs straight through, with what sat along
+ * either run kept in place. Nothing happens at a corner, a branch or an end.
+ */
+export function joinThrough(drawing: Drawing, nodeId: string): boolean {
+  const node = drawing.nodes.find((n) => n.id === nodeId);
+  if (!node) return false;
   const runs = drawing.runs.filter((r) => r.from === nodeId || r.to === nodeId);
-  if (runs.length !== 2) return true;
+  if (runs.length !== 2) return false;
   const [a, b] = runs;
   const farA = drawing.nodes.find((n) => n.id === (a.from === nodeId ? a.to : a.from));
   const farB = drawing.nodes.find((n) => n.id === (b.from === nodeId ? b.to : b.from));
-  if (!farA || !farB) return true;
+  if (!farA || !farB) return false;
   const inA = axisBetween(farA.pos, node.pos);
   const outB = axisBetween(node.pos, farB.pos);
-  if (!inA || inA !== outB) return true;
+  if (!inA || inA !== outB) return false;
   // Turn each run so that a ends on the point and b starts from it.
   const turn = (run: Run) => {
     const len = runLength(drawing, run);
@@ -563,6 +575,37 @@ export function removeFlangeJoint(drawing: Drawing, nodeId: string): boolean {
   drawing.nodes = drawing.nodes.filter((n) => n.id !== nodeId);
   if (drawing.dimOverrides) delete drawing.dimOverrides[a.id + ':0'];
   return true;
+}
+
+/**
+ * Whether a point is only a point: the pipe runs straight through it with
+ * no fitting, flange, olet or end there, so deleting it can leave the line
+ * whole rather than take its runs away.
+ */
+export function isPlainPoint(drawing: Drawing, nodeId: string): boolean {
+  const node = drawing.nodes.find((n) => n.id === nodeId);
+  if (!node || node.flange || node.olet || (node.fittingOverride && node.fittingOverride !== 'NONE')) return false;
+  const runs = drawing.runs.filter((r) => r.from === nodeId || r.to === nodeId);
+  if (runs.length !== 2) return false;
+  const far = (run: Run) => drawing.nodes.find((n) => n.id === (run.from === nodeId ? run.to : run.from));
+  const a = far(runs[0]);
+  const b = far(runs[1]);
+  if (!a || !b) return false;
+  const inA = axisBetween(a.pos, node.pos);
+  const outB = axisBetween(node.pos, b.pos);
+  return !!inA && inA === outB;
+}
+
+/**
+ * Deletes a point. A plain point along a line (a weld put in, a face a
+ * reducer was drawn from) just goes, and the pipe runs straight through —
+ * as a pair of flanges comes out. A corner, branch or end takes its runs
+ * with it, since there is nothing to join.
+ */
+export function deletePoint(drawing: Drawing, nodeId: string): 'joined' | 'deleted' {
+  if (isPlainPoint(drawing, nodeId) && joinThrough(drawing, nodeId)) return 'joined';
+  deleteNode(drawing, nodeId);
+  return 'deleted';
 }
 
 /**

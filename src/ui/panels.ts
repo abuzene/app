@@ -5,7 +5,7 @@ import { COMMAND_HELP } from '../model/commands';
 import { DN_LIST, SIZE_LABELS, defaultValveEnds, schedulesFor, sizeLabel } from '../model/pipe-data';
 import { AXES, AXIS_VECTOR, axisBetween } from '../model/iso';
 import { projectsOf } from '../model/library';
-import { applyReducer, deleteNode, deleteRun, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, runLength, setRunDirect, setRunLength, setTerminal, splitRun } from '../model/edit';
+import { applyReducer, deletePoint, deleteRun, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, runLength, setRunDirect, setRunLength, setTerminal, splitRun } from '../model/edit';
 import { setDriveClientId } from '../model/drive';
 import { reducerPreview } from './reducer-preview';
 
@@ -186,7 +186,7 @@ function nodeProperties(host: Host, nodeId: string): string {
   <div class="btn-row">
     <button class="btn-line solid" data-a="draw-from">${pendingOlet ? 'Draw the branch from here' : 'Draw from here'}</button>
     ${node.flange ? '<button class="btn-line danger" data-a="remove-flanges">Remove both flanges — join the pipe straight</button>' : ''}
-    ${pendingOlet ? '<button class="btn-line danger" data-a="remove-olet">Remove olet — the header runs on whole</button>' : '<button class="btn-line danger" data-a="delete-node">Delete point and its runs</button>'}
+    ${pendingOlet ? '<button class="btn-line danger" data-a="remove-olet">Remove olet — the header runs on whole</button>' : isPlainPoint(drawing, nodeId) ? '<button class="btn-line danger" data-a="delete-node">Remove point — the pipe runs straight through</button>' : '<button class="btn-line danger" data-a="delete-node">Delete point and its runs</button>'}
   </div>
 </div>`;
 }
@@ -860,7 +860,7 @@ function wire(body: HTMLElement, host: Host): void {
       host.notify('Flanges removed; the pipe runs straight through.');
     });
     nodeEditor.querySelector('[data-a="delete-node"]')?.addEventListener('click', () => {
-      host.edit('Delete point', (d) => deleteNode(d, id));
+      host.edit('Delete point', (d) => deletePoint(d, id));
       host.select(null);
     });
   }
