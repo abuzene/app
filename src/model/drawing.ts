@@ -554,7 +554,9 @@ export function drawnLength(drawing: Drawing, run: Run, trueLength: number): num
   const cap = drawing.options.schematicLength;
   // A drawn length under the floor is a leftover (a run split down to its
   // reducer, a stub dragged in), not a choice: drawn as if never set.
-  const chosen = run.visual !== undefined && run.visual >= minDrawn ? run.visual : undefined;
+  // A hair under the floor is the floor: a drag clamped to it once came
+  // back 1e-13 short and the run was drawn at its whole length instead.
+  const chosen = run.visual !== undefined && run.visual >= minDrawn - 0.5 ? run.visual : undefined;
   return Math.max(minDrawn, chosen ?? Math.min(trueLength, cap));
 }
 

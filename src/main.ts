@@ -924,10 +924,12 @@ function slideDrawnTo(nodeId: string, paper: { x: number; y: number }): ((d: Dra
   if (total < floor * 2) return null;
   const t = ((paper.x - pa.x) * vx + (paper.y - pa.y) * vy) / lenSq;
   const snap = dragSnap();
-  const first = Math.max(floor, Math.min(total - floor, Math.round((t * total) / snap) * snap));
+  // Kept to a tenth of a millimetre, so the two always add up to the total.
+  const tenth = (v: number) => Math.round(v * 10) / 10;
+  const first = tenth(Math.max(floor, Math.min(total - floor, Math.round((t * total) / snap) * snap)));
   const lengths: [string, number][] = [
     [through[0].id, first],
-    [through[1].id, total - first],
+    [through[1].id, tenth(total - first)],
   ];
   return (d) => {
     for (const [runId, visual] of lengths) {

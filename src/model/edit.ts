@@ -317,6 +317,30 @@ export function mergeNodes(drawing: Drawing, keeper: string, loser: string): voi
   drawing.nodes = drawing.nodes.filter((n) => n.id !== loser);
 }
 
+/**
+ * Not to scale: a pipe drawn at its own length again — the drawn lengths
+ * set by hand or left by a stretch are cleared. A header through olets is
+ * drawn at its whole length (capped as any run is) and shared among its
+ * runs in proportion, so each olet stays where it is along it. (His
+ * complaint, 2026-09-24: a header stretched by the old olet drag.)
+ */
+export function resetDrawnLength(drawing: Drawing, analysis: Analysis, runId: string): void {
+  const ids = runGroupIds(analysis, runId);
+  const runs = ids.map((id) => drawing.runs.find((r) => r.id === id)).filter((r): r is Run => !!r);
+  if (runs.length === 1) {
+    delete runs[0].visual;
+    return;
+  }
+  const lengths = runs.map((r) => runLength(drawing, r));
+  const total = lengths.reduce((a, b) => a + b, 0);
+  if (total <= 0) return;
+  const floor = minDrawnLength(drawing);
+  const drawn = Math.min(total, drawing.options.schematicLength);
+  runs.forEach((run, i) => {
+    run.visual = Math.max(floor, (drawn * lengths[i]) / total);
+  });
+}
+
 /** Splits a run at a distance from its start, returning the new middle node. */
 export function splitRun(drawing: Drawing, runId: string, distance: number): string | null {
   const run = drawing.runs.find((r) => r.id === runId);

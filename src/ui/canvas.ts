@@ -236,9 +236,9 @@ export class Canvas {
     }
 
     const target = event.target as Element | null;
-    const nodeEl = target?.closest('[data-node]');
+    let nodeEl = target?.closest('[data-node]');
     const runEl = target?.closest('[data-run]');
-    const compEl = target?.closest('[data-component]');
+    let compEl = target?.closest('[data-component]');
     const weldEl = target?.closest('[data-weld]');
     const tagEl = target?.closest('[data-weld-tag]');
     const balloonEl = target?.closest('[data-balloon]');
@@ -247,7 +247,20 @@ export class Canvas {
     // the pipe and its points keep their taps.
     const overFigure = !!(tagEl || balloonEl || equipmentEl || weldEl) && !nodeEl;
     const dimEl = target?.closest('[data-dim]') ?? (overFigure ? this.buriedFigure(event.clientX, event.clientY, tagEl ?? balloonEl ?? equipmentEl ?? weldEl ?? null) : null);
-    const handleEl = target?.closest('[data-run-end]');
+    let handleEl = target?.closest('[data-run-end]');
+    // Points lie on top of one another near a line's end: the stretch
+    // handle of a picked pipe covered an olet beside it, and dragging "the
+    // olet" stretched the pipe instead (his complaint, 2026-09-24). The
+    // point whose centre is nearest the pen is the one meant.
+    const touched = handleEl ?? nodeEl ?? compEl;
+    if (touched) {
+      const nearest = this.nearestPoint(event.clientX, event.clientY, touched);
+      if (nearest !== touched) {
+        handleEl = nearest.matches('[data-run-end]') ? nearest : null;
+        nodeEl = nearest.matches('[data-node]') ? nearest : null;
+        compEl = nearest.matches('[data-component]') ? nearest : null;
+      }
+    }
 
     const startView = { ...this.view };
     // A right click while drawing puts the pencil down, as Escape does.
@@ -651,6 +664,28 @@ export class Canvas {
       }
     }
     return false;
+  }
+
+  /**
+   * Of the points, items and handles under the pointer, the one whose centre
+   * is nearest it; the one touched first unless another is clearly nearer.
+   */
+  private nearestPoint(clientX: number, clientY: number, touched: Element): Element {
+    const centre = (el: Element) => {
+      const r = el.getBoundingClientRect();
+      return Math.hypot(r.left + r.width / 2 - clientX, r.top + r.height / 2 - clientY);
+    };
+    let best = touched;
+    let bestD = centre(touched) - 2;
+    for (const el of document.elementsFromPoint(clientX, clientY)) {
+      if (el === touched || !el.matches('circle.hit-dot[data-node], circle.hit-dot[data-component], circle.hit-dot[data-run-end]')) continue;
+      const d = centre(el);
+      if (d < bestD) {
+        best = el;
+        bestD = d;
+      }
+    }
+    return best;
   }
 
   /** The one run a free end belongs to, and which end of it this is. */

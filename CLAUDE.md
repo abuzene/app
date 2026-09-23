@@ -183,6 +183,20 @@ ships, and the decisions already taken, so they are not re-litigated.
   a long run no longer draws it twice as long. The chain's dimensions
   are placed along the chain run by run as drawn, so an olet's location
   dimension ends on the olet not to scale too.
+  **Still stretched, one way, a few times** (2026-09-24, second round), for
+  two reasons, both fixed: at its limit the short side came back
+  1e-13 under the floor and `drawnLength` drew it at its whole length
+  (now a visual within 0.5 mm of the floor counts, and `slideDrawnTo`
+  keeps both sides to 0.1 mm); and with the header picked, the stretch
+  handle on its end lay over an olet beside it, so "dragging the olet"
+  stretched the pipe — `nearestPoint` in canvas.ts now gives a pointerdown
+  to whichever node/item/handle hit-dot under the pen has its centre
+  nearest (the one touched unless another is 2 px nearer). A header
+  stretched before the fix is drawn at its own length again with the run
+  panel's **Redraw at its own length** (`[data-a="drawn-reset"]`, not to
+  scale, when a run of the group has a `visual`; `resetDrawnLength` in
+  edit.ts: one run loses its `visual`, a header group gets its capped
+  total shared in proportion to the true lengths).
 - Lines never overlap (`overlapsExisting`); crossings gap the rear line.
 - Toolbar Joint select (BW/SW/THD) sets the picked point's joint, else the
   drawing default. SW marks' lips point back over the pipe. In SW/THD mode

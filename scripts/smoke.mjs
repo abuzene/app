@@ -3354,6 +3354,57 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
     return Math.abs(t - 0.5) < 0.1 ? 'half way to the olet' : `at ${t.toFixed(2)} of the way`;
   }, [olet, startId]);
   check('and its dimension ends on it where it is drawn', oletDim, (v) => v === 'half way to the olet', 'half way to the olet');
+  // "Still stretches, one way, a few times, then stops" (2026-09-24): at
+  // its limit the short side came back a hair under the floor and was
+  // drawn at its whole length. Pushed to either end again and again, the
+  // two sides still add up to what the header was drawn.
+  const drawnSum = async () => {
+    const dr = await drawingNow();
+    return dr.runs.filter((r) => r.from === olet || r.to === olet).reduce((sum, r) => sum + (r.visual ?? 0), 0);
+  };
+  const sumBefore = await drawnSum();
+  for (const toward of [endId, endId, endId, startId, startId, startId, endId]) await dragNodeTo(olet, toward, 0.95);
+  check('pushed to either end again and again, it never stretches', Math.round((await drawnSum()) * 10) / 10, (v) => v === Math.round(sumBefore * 10) / 10, `${Math.round(sumBefore * 10) / 10}`);
+  // Zoomed out, the handle on the picked header's end lies over an olet
+  // beside it: the olet is what the pen meant, not the handle.
+  for (let i = 0; i < 12; i += 1) {
+    const [o, e] = [await page.locator(`#canvas circle.hit-dot[data-node="${olet}"]`).boundingBox(), await page.locator(`#canvas circle.hit-dot[data-node="${endId}"]`).boundingBox()];
+    if (Math.hypot(o.x - e.x, o.y - e.y) < 14) break;
+    const c = await page.locator('#canvas').boundingBox();
+    await page.mouse.move(e.x + e.width / 2, e.y + e.height / 2);
+    await page.mouse.wheel(0, 240);
+    await page.waitForTimeout(120);
+    if (c.width < 0) break;
+  }
+  const headerRun = (await drawingNow()).runs.find((r) => r.from === olet || r.to === olet).id;
+  const headerEl = page.locator(`#canvas [data-run="${headerRun}"]`).first();
+  await headerEl.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await headerEl.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await page.waitForTimeout(300);
+  const handles = await page.locator('#canvas circle.hit-dot[data-run-end]').count();
+  const sumPicked = await drawnSum();
+  await dragNodeTo(olet, startId, 0.5);
+  check('with the header picked and its handle over the olet, dragging the olet does not stretch it', `${handles > 0} ${Math.round((await drawnSum()) * 10) / 10}`, (v) => v === `true ${Math.round(sumPicked * 10) / 10}`, `true ${Math.round(sumPicked * 10) / 10}`);
+  await page.click('#fit');
+  await page.waitForTimeout(300);
+  // A header stretched before this was fixed is drawn at its own length
+  // again from its panel, the olet keeping its share of it.
+  await page.evaluate(([runId]) => {
+    const d = JSON.parse(localStorage.getItem('iso-draw.drawing.v1'));
+    d.runs.find((r) => r.id === runId).visual = 9000;
+    localStorage.setItem('iso-draw.drawing.v1', JSON.stringify(d));
+  }, [headerRun]);
+  await page.reload();
+  await page.waitForTimeout(600);
+  const stretched = page.locator(`#canvas [data-run="${headerRun}"]`).first();
+  await stretched.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await stretched.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await page.waitForTimeout(300);
+  check('a stretched header offers to be drawn at its own length', await page.locator('#tab-body [data-a="drawn-reset"]').count(), (v) => v === 1, '1');
+  await page.click('#tab-body [data-a="drawn-reset"]');
+  await page.waitForTimeout(300);
+  const reset = await drawingNow();
+  check('and is: 3000 drawn 1500, shared as the olet shares the true length', reset.runs.filter((r) => r.from === olet || r.to === olet).map((r) => Math.round(r.visual)).join(' + '), (v) => v === '750 + 750', '750 + 750');
   await page.click('#opt-schematic');
   await page.waitForTimeout(300);
 

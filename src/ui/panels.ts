@@ -5,7 +5,7 @@ import { COMMAND_HELP } from '../model/commands';
 import { DN_LIST, SIZE_LABELS, defaultValveEnds, schedulesFor, sizeLabel } from '../model/pipe-data';
 import { AXES, AXIS_VECTOR, axisBetween } from '../model/iso';
 import { projectsOf } from '../model/library';
-import { applyReducer, deletePoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, runLength, setGroupLength, setLastFlange, deleteRunGroup, DASHED_NOTE, setRunDashed, setRunDirect, setRunLength, setTerminal, splitRun } from '../model/edit';
+import { applyReducer, resetDrawnLength, deletePoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, runLength, setGroupLength, setLastFlange, deleteRunGroup, DASHED_NOTE, setRunDashed, setRunDirect, setRunLength, setTerminal, splitRun } from '../model/edit';
 import { setDriveClientId } from '../model/drive';
 import { reducerPreview } from './reducer-preview';
 
@@ -91,6 +91,7 @@ function runProperties(host: Host, runId: string): string {
   <p class="empty-note">Cut length after take-outs: <strong>${mm(cut)} mm</strong>${header ? '. The olets ride on it: place each by its own dimension from the header\'s start, or a hand dimension from the olet to any point on the header.' : ''}</p>
   <div class="btn-row">
     ${header ? '' : '<button class="btn-line" data-a="split">Split in half</button>'}
+    ${drawing.options.schematic && group.some((id) => drawing.runs.find((r) => r.id === id)?.visual !== undefined) ? '<button class="btn-line" data-a="drawn-reset" title="Not to scale: clear the drawn length set by hand or left by a stretch">Redraw at its own length</button>' : ''}
     <button class="btn-line danger" data-a="delete-run">${header ? 'Delete this header' : 'Delete pipe — this length only'}</button>
   </div>
 </div>`;
@@ -833,6 +834,9 @@ function wire(body: HTMLElement, host: Host): void {
       host.edit('Split run', (d) => {
         splitRun(d, id, half);
       });
+    });
+    runEditor.querySelector('[data-a="drawn-reset"]')?.addEventListener('click', () => {
+      host.edit('Redraw at its own length', (d) => resetDrawnLength(d, host.state.analysis, id));
     });
     runEditor.querySelector('[data-a="delete-run"]')?.addEventListener('click', () => {
       host.edit('Delete run', (d) => deleteRunGroup(d, host.state.analysis, id));
