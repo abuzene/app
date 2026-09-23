@@ -14,7 +14,11 @@ ships, and the decisions already taken, so they are not re-litigated.
   expected to look like those sheets, not like a textbook. When in doubt, crop
   the sheet with pymupdf and compare side by side before changing a symbol.
 - Sizes are in **inches**, dimensions in **mm**, weld numbers matter most.
-  The sheet carries the PLATINUM logo and an **AS MADE** stamp. Output is
+  The sheet carries the PLATINUM logo and a **stamp**: AS MADE, FOR
+  APPROVAL or APPROVED FOR CONSTRUCTION (`meta.stamp`, unset = AS MADE;
+  `SHEET_STAMPS`/`sheetStamp`/`stampBox` in sheet.ts, a long label set
+  smaller to fit an A4 box), picked in the Title tab (`[data-meta="stamp"]`)
+  or the print dialog (`#sheet-stamp`); his ask, 2026-09-24. Output is
   **print to PDF only** (no SVG/PNG export).
 
 ## How it ships

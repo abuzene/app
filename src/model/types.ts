@@ -265,6 +265,8 @@ export interface Meta {
   drawnBy: string;
   /** The company logo, held as a data URI so it travels with the drawing. */
   logo?: string;
+  /** The stamp printed over the title block: one of `SHEET_STAMPS`; AS MADE when unset. */
+  stamp?: string;
 }
 
 export interface DrawingOptions {

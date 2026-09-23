@@ -164,14 +164,27 @@ function quantityText(line: BomLine): string {
  * stamp the drawing once the line is actually built.
  */
 /**
- * The AS MADE stamp, kept as its own box so it reads at a glance and can be
- * signed over after the line is built.
+ * What the sheet is stamped: as built, sent for approval, or approved to
+ * build from (his ask, 2026-09-24). AS MADE is the default.
  */
-function asMadeStamp(x: number, y: number, w: number, h: number): string {
+export const SHEET_STAMPS = ['AS MADE', 'FOR APPROVAL', 'APPROVED FOR CONSTRUCTION'] as const;
+
+export function sheetStamp(drawing: Drawing): string {
+  const stamp = drawing.meta.stamp;
+  return stamp && (SHEET_STAMPS as readonly string[]).includes(stamp) ? stamp : 'AS MADE';
+}
+
+/**
+ * The stamp, kept as its own box so it reads at a glance and can be signed
+ * over. A long one is set smaller so it keeps inside the box on an A4.
+ */
+function stampBox(x: number, y: number, w: number, h: number, label: string): string {
+  // About 0.74 of the font size per letter, spacing included, and a margin.
+  const size = Math.min(3.6, (w - 12) / (label.length * 0.74));
   return (
     rect(x, y, w, h, 'block') +
     rect(x + 2.5, y + 2.5, w - 5, h - 5, 'stamp') +
-    text(x + w / 2, y + h / 2 + 1.4, 'AS MADE', 'stamp-text', 'middle')
+    `<text x="${(x + w / 2).toFixed(2)}" y="${(y + h / 2 + size * 0.39).toFixed(2)}" class="stamp-text" text-anchor="middle" style="font-size:${size.toFixed(2)}px">${escapeText(label)}</text>`
   );
 }
 
@@ -456,7 +469,7 @@ ${bom.svg}
 ${welds.svg}
 ${list.svg}
 ${notesSvg}
-${asMadeStamp(dividerX, stampY, col, stampH)}
+${stampBox(dividerX, stampY, col, stampH, sheetStamp(drawing))}
 ${titleBlock(drawing, dividerX, tbY, col, tbH)}
 </svg>`;
 }

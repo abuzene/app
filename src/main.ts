@@ -12,7 +12,7 @@ import { initialCommandState, runCommands } from './model/commands';
 import { addMeasure, applyMeasureToOlet, DASHED_NOTE, deleteRunGroup, measureTypeable, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, ensureNode, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, runLength, setRunDashed, setRunDirect, startFromEquipment, stretchRun } from './model/edit';
 import { DN_LIST, schedulesFor, sizeLabel } from './model/pipe-data';
 import { northArrow, paperOf, renderDrawing, symbolSizeFor } from './render/renderer';
-import { renderSheet, sheetSymbolSize, type SheetSize } from './render/sheet';
+import { SHEET_STAMPS, renderSheet, sheetStamp, sheetSymbolSize, type SheetSize } from './render/sheet';
 import { Canvas } from './ui/canvas';
 import { fileStem, renderPanel, renderTabs } from './ui/panels';
 import { renderTools } from './ui/tools';
@@ -1623,6 +1623,9 @@ function openPrintDialog(): void {
     <option value="A3" selected>A3 landscape</option>
     <option value="A2">A2 landscape</option>
   </select></div>
+  <div class="row"><label>Stamp</label><select id="sheet-stamp">
+    ${SHEET_STAMPS.map((label) => `<option value="${label}"${sheetStamp(state.drawing) === label ? ' selected' : ''}>${label}</option>`).join('')}
+  </select></div>
   <div class="row"><label>Paper</label><select id="sheet-paper">
     <option value="landscape"${tabletPrinter ? '' : ' selected'}>Landscape, as the sheet is</option>
     <option value="upright"${tabletPrinter ? ' selected' : ''}>Upright — the sheet is turned to fill it</option>
@@ -1658,6 +1661,13 @@ function openPrintDialog(): void {
 
   const sheetSize = () => (backdrop.querySelector<HTMLSelectElement>('#sheet-size')?.value ?? 'A3') as SheetSize;
   const upright = () => backdrop.querySelector<HTMLSelectElement>('#sheet-paper')?.value === 'upright';
+  // What the sheet is stamped: kept with the drawing, as in the Title tab.
+  backdrop.querySelector<HTMLSelectElement>('#sheet-stamp')?.addEventListener('change', (event) => {
+    const value = (event.target as HTMLSelectElement).value;
+    host.edit('Set stamp', (d) => {
+      d.meta.stamp = value === 'AS MADE' ? undefined : value;
+    });
+  });
   // The scale is the drawing's own, kept with it, and sizes the symbols on screen too.
   backdrop.querySelector<HTMLSelectElement>('#sheet-scale')?.addEventListener('change', (event) => {
     const value = Number((event.target as HTMLSelectElement).value);

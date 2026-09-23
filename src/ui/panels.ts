@@ -8,6 +8,7 @@ import { projectsOf } from '../model/library';
 import { applyReducer, resetDrawnLength, deletePoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, runLength, setGroupLength, setLastFlange, deleteRunGroup, DASHED_NOTE, setRunDashed, setRunDirect, setRunLength, setTerminal, splitRun } from '../model/edit';
 import { setDriveClientId } from '../model/drive';
 import { reducerPreview } from './reducer-preview';
+import { SHEET_STAMPS, sheetStamp } from '../render/sheet';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'route', label: 'Route' },
@@ -573,6 +574,7 @@ function titleTab(host: Host): string {
   return `
 <div class="section" data-editor="meta">
   <h3>Title block</h3>
+  <div class="row"><label>Stamp</label><select data-meta="stamp">${options([...SHEET_STAMPS], sheetStamp(host.state.drawing))}</select></div>
   ${META_FIELDS.map(
     (f) =>
       `<div class="row"><label>${esc(f.label)}</label><input type="text" data-meta="${f.key}" value="${esc(String(meta[f.key] ?? ''))}" placeholder="${esc(f.placeholder ?? '')}" /></div>`,

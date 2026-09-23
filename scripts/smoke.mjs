@@ -3439,6 +3439,58 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   check('a valve dragged past another stops against it', valvesNow, (v) => v.length === 2 && v[0] > 1000 && v[0] < 2000 && v[1] === 2000, 'the first between 1000 and 2000, the second at 2000');
 }
 
+/* --------------------------------------------- the stamp on the printed sheet */
+
+// "I want to switch the printed sheet between AS MADE, FOR APPROVAL and
+// APPROVED FOR CONSTRUCTION" (2026-09-24). Chosen in the Title tab or the
+// print dialog, kept with the drawing, printed in the stamp box.
+{
+  await startNewDrawing();
+  await page.click('[data-a="load-sample"]');
+  await page.waitForTimeout(500);
+  await page.click('#tabs button:has-text("Title")');
+  await page.waitForTimeout(200);
+  check('the Title tab offers the three stamps, AS MADE first', await page.locator('#tab-body [data-meta="stamp"] option').allInnerTexts(), (v) => v.join('|') === 'AS MADE|FOR APPROVAL|APPROVED FOR CONSTRUCTION', 'AS MADE | FOR APPROVAL | APPROVED FOR CONSTRUCTION');
+  await page.selectOption('#tab-body [data-meta="stamp"]', 'FOR APPROVAL');
+  await page.waitForTimeout(300);
+  check('picked, it is kept with the drawing', (await drawingNow()).meta.stamp, (v) => v === 'FOR APPROVAL', 'FOR APPROVAL');
+  const stampOnSheet = async () => {
+    await page.click('[data-x="preview"]');
+    await page.waitForTimeout(600);
+    const out = await page.evaluate(() => {
+      const svg = document.querySelector('.sheet-preview svg');
+      const t = svg.querySelector('.stamp-text');
+      const box = svg.querySelector('rect.stamp').getBoundingClientRect();
+      const r = t.getBoundingClientRect();
+      return { text: t.textContent, inside: r.left >= box.left && r.right <= box.right && r.top >= box.top && r.bottom <= box.bottom };
+    });
+    await page.click('.dialog [data-close]');
+    await page.waitForTimeout(250);
+    return out;
+  };
+  await page.click('#print');
+  await page.waitForTimeout(250);
+  check('the print dialog shows it too', await page.locator('#sheet-stamp').inputValue(), (v) => v === 'FOR APPROVAL', 'FOR APPROVAL');
+  const approval = await stampOnSheet();
+  check('and the sheet is stamped FOR APPROVAL', approval.text, (v) => v === 'FOR APPROVAL', 'FOR APPROVAL');
+  await page.click('#print');
+  await page.waitForTimeout(250);
+  await page.selectOption('#sheet-stamp', 'APPROVED FOR CONSTRUCTION');
+  await page.waitForTimeout(250);
+  await page.selectOption('#sheet-size', 'A4');
+  const afc = await stampOnSheet();
+  check('changed in the print dialog, the A4 sheet reads APPROVED FOR CONSTRUCTION inside its box', `${afc.text} ${afc.inside}`, (v) => v === 'APPROVED FOR CONSTRUCTION true', 'APPROVED FOR CONSTRUCTION true');
+  await page.click('#print');
+  await page.waitForTimeout(250);
+  await page.selectOption('#sheet-stamp', 'AS MADE');
+  await page.waitForTimeout(250);
+  await page.click('[data-x="close"]');
+  await page.waitForTimeout(200);
+  check('AS MADE again leaves no stamp stored: the default', (await drawingNow()).meta.stamp, (v) => v === undefined, 'undefined');
+  await page.click('#tabs button:has-text("Route")');
+  await page.waitForTimeout(150);
+}
+
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 
 await browser.close();
