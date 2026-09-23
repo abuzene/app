@@ -1,9 +1,9 @@
 import type { ComponentKind, FlangeKind, JointType, Run, TerminalKind } from '../model/types';
 import type { Host } from './types';
-import { COMPONENT_LABEL, TERMINAL_LABEL, dimensionStops, isValve, oletEntries, oletLegs, oletMarks, terminalTakeoutOf } from '../model/drawing';
-import { addComponent, addEquipment, addFlangeJoint, applyReducer, runLength, setTerminal, splitRun } from '../model/edit';
+import { COMPONENT_LABEL, TERMINAL_LABEL, dimensionStops, isValve, oletEntries, oletLegs, oletMarks, resolveEnds, terminalTakeoutOf, valveOpenSide } from '../model/drawing';
+import { addComponent, addEquipment, addFlangeJoint, applyReducer, runLength, setLastFlange, setTerminal, splitRun } from '../model/edit';
 import { axisBetween } from '../model/iso';
-import { DN_LIST, componentTakeout, fittingTakeout, sizeLabel } from '../model/pipe-data';
+import { DN_LIST, componentTakeout, fittingTakeout, sizeLabel, valveFlangeKind } from '../model/pipe-data';
 import { isFlange } from '../render/symbols';
 import { componentSymbol, jointMark, oletSymbol, type Frame } from '../render/symbols';
 
@@ -291,6 +291,34 @@ function place(host: Host, kind: ComponentKind): void {
     return;
   }
 
+  // A blind picked with a flanged valve on the open end — the valve itself,
+  // or the end point it stands on — bolts straight on the valve's last face.
+  if (kind === 'FLG_BLIND') {
+    const valveAtEnd = (() => {
+      const { drawing } = host.state;
+      if (selection?.kind === 'component') {
+        const run = drawing.runs.find((r) => r.inline.some((c) => c.id === selection.id));
+        const comp = run?.inline.find((c) => c.id === selection.id);
+        return run && comp && valveOpenSide(drawing, run, comp) !== null ? comp.id : null;
+      }
+      if (selection?.kind === 'node') {
+        for (const run of drawing.runs.filter((r) => r.from === selection.id || r.to === selection.id)) {
+          for (const comp of run.inline) {
+            const side = valveOpenSide(drawing, run, comp);
+            if (side !== null && (side === 1 ? run.to : run.from) === selection.id) return comp.id;
+          }
+        }
+      }
+      return null;
+    })();
+    if (valveAtEnd) {
+      host.edit('Blind on the valve', (d) => setLastFlange(d, valveAtEnd, 'blind'));
+      host.select({ kind: 'component', id: valveAtEnd });
+      host.notify('A blind bolted on the valve\'s last face, in place of its flange.');
+      return;
+    }
+  }
+
   if (selection?.kind === 'node') {
     const info = analysis.nodeInfo.get(selection.id);
     const nodeId = selection.id;
@@ -339,7 +367,14 @@ function place(host: Host, kind: ComponentKind): void {
       host.edit(`Add ${label}`, (d) => {
         const target = d.runs.find((r) => r.id === run.id);
         if (!target) return;
-        const offset = target.from === nodeId ? 0 : runLength(d, target);
+        // On an end, a valve sits with its last face (flange and all) on
+        // the end point, rather than half past it.
+        const joint = d.options.joint ?? 'BW';
+        const dn = target.dn;
+        const half = isValve(kind) ? componentTakeout(kind, dn, resolveEnds(kind, dn, undefined, joint) === 'FLG' && valveFlangeKind(joint)) : 0;
+        const onEnd = (info?.degree ?? 0) <= 1;
+        const total = runLength(d, target);
+        const offset = target.from === nodeId ? (onEnd ? half : 0) : onEnd ? total - half : total;
         const comp = addComponent(d, target.id, kind, offset, kind === 'SPECTACLE' ? 'FLG' : undefined);
         addedId = comp?.id ?? null;
       });

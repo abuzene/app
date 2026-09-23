@@ -105,7 +105,10 @@ ships, and the decisions already taken, so they are not re-litigated.
   made the figure untappable ("the 468 won't let me edit it",
   2026-09-23): `buriedFigure` in canvas.ts looks through the element
   stack under the pointer and gives a tap within ~16 px of a figure's
-  centre to the figure. Do not put `dimHits` on top of the tag layer
+  centre to the figure — and only when the tap is nearer the figure's
+  centre than the tag's own (zoomed out, a dashed run's note sat within
+  16 px of the run's figure and every tap on it went to the figure).
+  Do not put `dimHits` on top of the tag layer
   instead: its radius grows with the view, and zoomed out it swallowed
   taps on the pipe.
 - A run can be **fittings joined directly** (`run.direct`, HUD "No pipe —
@@ -333,6 +336,25 @@ ships, and the decisions already taken, so they are not re-litigated.
   case), draggable via `itemOverrides['rn:<runId>']` (leader once moved)
   and typed over on the touch (`data-balloon="rn:<id>"` →
   `onEditRunNote`, like a support's callout) or in the panel's Note field.
+- **A valve's last flange** (`comp.lastFlange?: 'none' | 'blind'`,
+  `valveOpenSide`/`setLastFlange`; his ask, 2026-09-23): a flanged valve
+  whose outer face (with flange) reaches an open end (degree 1, no end
+  piece) offers "Last flange" in its panel: its flange / none / blind on
+  the valve. None or blind: that side's flange is off the list, its weld
+  gone, the end point comes in by the flange length (out again when put
+  back), the drawn pipe ends at the valve face; blind adds a BLIND FLANGE
+  line and draws a blind plate on the valve face. Blind from the palette
+  with the valve, or the end point it stands on, selected does the same
+  (not a terminal blind). A valve put on an end point now sits with its
+  flanged face on the end (it used to be centred on it, half past).
+  The pipe list subtracts only the part of such a valve lying on the run.
+- **Run note removal**: the note's keypad has "Remove this text"
+  (clears `run.note` and its drag offset); a dashed run stays dashed.
+- **Hand dimensions along one straight line are typeable**
+  (`measureAlongLine`/`measureTypeable` in edit.ts; flange to flange): the
+  point tapped second moves with everything beyond it, by stretching the
+  run that leads to it (`stretchRun(..., moveEnd=true)`); from an olet the
+  olet moves instead. Anything else still says "move a point".
 - **Right click while drawing** puts the pencil down (`onStopDrawing`
   from canvas.ts; the right button still pans when not drawing).
 - Supports and the AG/UG mark are **notes, not material**: no BOM line, no

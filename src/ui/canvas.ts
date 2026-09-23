@@ -246,7 +246,7 @@ export class Canvas {
     // Only a tag, balloon, mark or box lying over a figure gives way to it;
     // the pipe and its points keep their taps.
     const overFigure = !!(tagEl || balloonEl || equipmentEl || weldEl) && !nodeEl;
-    const dimEl = target?.closest('[data-dim]') ?? (overFigure ? this.buriedFigure(event.clientX, event.clientY) : null);
+    const dimEl = target?.closest('[data-dim]') ?? (overFigure ? this.buriedFigure(event.clientX, event.clientY, tagEl ?? balloonEl ?? equipmentEl ?? weldEl ?? null) : null);
     const handleEl = target?.closest('[data-run-end]');
 
     const startView = { ...this.view };
@@ -619,14 +619,20 @@ export class Canvas {
    * pointer says what is there; the figure has to be near, not just
    * within its wide touch target.
    */
-  private buriedFigure(clientX: number, clientY: number): Element | null {
+  private buriedFigure(clientX: number, clientY: number, over: Element | null): Element | null {
     if (typeof document.elementsFromPoint !== 'function') return null;
+    // How far the tap is from the centre of what it landed on: a figure
+    // only takes the tap when the tap is nearer the figure's centre, so a
+    // note or tag beside a figure (zoomed out, they sit close) keeps its own.
+    const own = over?.getBoundingClientRect();
+    const ownDistance = own ? Math.hypot(own.left + own.width / 2 - clientX, own.top + own.height / 2 - clientY) : Infinity;
     for (const el of document.elementsFromPoint(clientX, clientY)) {
       const figure = el.closest('[data-dim]');
       if (!figure) continue;
       const box = figure.getBoundingClientRect();
       const near = Math.min(16, Math.max(6, box.width / 2));
-      if (Math.hypot(box.left + box.width / 2 - clientX, box.top + box.height / 2 - clientY) <= near) return figure;
+      const distance = Math.hypot(box.left + box.width / 2 - clientX, box.top + box.height / 2 - clientY);
+      if (distance <= near && distance < ownDistance) return figure;
       return null;
     }
     return null;

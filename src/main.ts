@@ -8,7 +8,7 @@ import { loadLibrary, removeDrawing, renumberProject, sheetNumber, upsertDrawing
 import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, noteRemovedFromLibrary, setDriveClientId, syncDrive } from './model/drive';
 import { AXES, AXIS_VECTOR, add, length3, scale3, sub } from './model/iso';
 import { initialCommandState, runCommands } from './model/commands';
-import { addMeasure, applyMeasureToOlet, DASHED_NOTE, deleteRunGroup, measureOnOlet, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, ensureNode, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, runLength, setRunDashed, setRunDirect, startFromEquipment, stretchRun } from './model/edit';
+import { addMeasure, applyMeasureToOlet, DASHED_NOTE, deleteRunGroup, measureTypeable, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, ensureNode, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, runLength, setRunDashed, setRunDirect, startFromEquipment, stretchRun } from './model/edit';
 import { DN_LIST, schedulesFor, sizeLabel } from './model/pipe-data';
 import { northArrow, paperOf, toPaper } from './render/renderer';
 import { renderSheet, type SheetSize } from './render/sheet';
@@ -289,7 +289,7 @@ function openDimensionEditor(key: string, clientX: number, clientY: number): voi
       const value = Number(text);
       if (!Number.isFinite(value) || value <= 0 || Math.round(value) === current) return;
       let refused: string | null = null;
-      if (measured && !measureOnOlet(state.drawing, state.analysis, key.slice(5))) {
+      if (measured && !measureTypeable(state.drawing, state.analysis, key.slice(5))) {
         host.notify('A dimension between two points: move a point to change it.');
         return;
       }
@@ -639,14 +639,33 @@ const canvas = new Canvas(svg, {
     const run = state.drawing.runs.find((r) => r.id === runId);
     if (!run) return;
     const current = run.note ?? '';
-    openInlineEditor(current, 'text', clientX, clientY, (text) => {
-      const note = text.trim().toUpperCase();
-      if (note === current) return;
-      host.edit('Edit note', (d) => {
-        const target = d.runs.find((r) => r.id === runId);
-        if (target) target.note = note || undefined;
-      });
-    });
+    openInlineEditor(
+      current,
+      'text',
+      clientX,
+      clientY,
+      (text) => {
+        const note = text.trim().toUpperCase();
+        if (note === current) return;
+        host.edit('Edit note', (d) => {
+          const target = d.runs.find((r) => r.id === runId);
+          if (target) target.note = note || undefined;
+        });
+      },
+      [
+        {
+          label: 'Remove this text',
+          act: () => {
+            host.edit('Remove note', (d) => {
+              const target = d.runs.find((r) => r.id === runId);
+              if (target) target.note = undefined;
+              if (d.itemOverrides) delete d.itemOverrides[`rn:${runId}`];
+            });
+            host.notify('Text removed. The run\'s panel can write it again.');
+          },
+        },
+      ],
+    );
   },
   onStopDrawing() {
     stopDrawing();

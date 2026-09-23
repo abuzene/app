@@ -86,6 +86,13 @@ export interface InlineComponent {
   flip?: boolean;
   tag?: string;
   note?: string;
+  /**
+   * A flanged valve on the open end of a line: what its last face wears.
+   * Unset, its own flange; 'none', no flange (the face is left open, or
+   * bolts to something drawn elsewhere); 'blind', a blind bolted straight
+   * on the valve's face. His ask, 2026-09-23.
+   */
+  lastFlange?: 'none' | 'blind';
 }
 
 export interface Terminal {

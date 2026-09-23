@@ -2382,6 +2382,91 @@ check('taken off again, the point comes back in', await page.evaluate(() => Math
 await page.keyboard.press('Escape');
 await page.waitForTimeout(150);
 
+/* ---------------- a valve's last flange off or blinded; a note removed; flange to flange */
+
+// "Let me delete the last flange on a manual or actuated valve, and put a
+// blind on it; delete the text of the dashed line; check a flange-to-flange
+// dimension can be set" (2026-09-23).
+{
+  await routeLine('3"\nSTD\nORIGIN 0 0 0\nEND FLG\nE 2000');
+  const valveEnd = (await nodesAt()).find((p) => p[1] === 2000)[0];
+  await tapNode(valveEnd);
+  await page.locator('.tool[data-kind="BALL_ACT"]').click();
+  await page.waitForTimeout(300);
+  const lastFlangeState = () => page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).runs[0].inline[0].lastFlange ?? 'flange');
+  check('a valve put on the end sits with its last flange face on the end', await page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem('iso-draw.drawing.v1'));
+    return Math.round(d.runs[0].inline[0].offset);
+  }), (v) => v > 1700 && v < 1950, 'its centre inside the run');
+  check('its panel offers the last flange', await page.locator('#tab-body [data-f="last-flange"]').count(), (v) => v === 1, '1');
+  await page.selectOption('#tab-body [data-f="last-flange"]', 'none');
+  await page.waitForTimeout(300);
+  const flangeCount = async () => {
+    await page.click('#tabs button:has-text("Items")');
+    await page.waitForTimeout(200);
+    const rows = await page.locator('#tab-body table tbody tr').allInnerTexts();
+    await page.click('#tabs button:has-text("Route")');
+    const line = (name) => Number(rows.find((r) => r.includes(name))?.split('\t')[4] ?? 0);
+    return `${line('WELD NECK FLANGE')} ${line('BLIND FLANGE')}`;
+  };
+  check('taken off: one flange fewer, its weld gone, the end brought in to the valve face', `${await lastFlangeState()} ${await flangeCount()} ${await runCount()} ${Math.max(...(await nodesAt()).map((p) => p[1])) < 2000}`, (v) => v === 'none 2 0 1 true', 'none 2 0 1 true');
+  await page.click('#tabs button:has-text("Welds")');
+  await page.waitForTimeout(200);
+  check('two welds left', await page.locator('#tab-body table tbody tr').count(), (v) => v === 2, '2');
+  await page.click('#tabs button:has-text("Route")');
+  await tapNode(valveEnd);
+  await page.locator('.tool[data-kind="FLG_BLIND"]').click();
+  await page.waitForTimeout(300);
+  check('Blind on the end point bolts a blind on the valve, not a flange on the end', `${await lastFlangeState()} ${await flangeCount()} ${await page.evaluate((id) => JSON.stringify(JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).nodes.find((n) => n.id === id).terminal ?? null), valveEnd)}`, (v) => v === 'blind 2 1 null', 'blind 2 1 null');
+  const valveId = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).runs[0].inline[0].id);
+  await page.locator(`#canvas circle.hit-dot[data-component="${valveId}"]`).dispatchEvent('pointerdown', { bubbles: true, pointerId: 12, pointerType: 'mouse', button: 0, isPrimary: true });
+  await page.locator(`#canvas circle.hit-dot[data-component="${valveId}"]`).dispatchEvent('pointerup', { bubbles: true, pointerId: 12, pointerType: 'mouse', button: 0, isPrimary: true });
+  await page.waitForTimeout(300);
+  await page.selectOption('#tab-body [data-f="last-flange"]', 'flange');
+  await page.waitForTimeout(300);
+  check('put back, the flange and its weld return and the end goes back out', `${await lastFlangeState()} ${await flangeCount()} ${Math.max(...(await nodesAt()).map((p) => p[1]))}`, (v) => v === 'flange 3 0 2000', 'flange 3 0 2000');
+  await page.keyboard.press('Escape');
+
+  // The dashed line's text taken off from its own keypad.
+  await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 3000');
+  const noteRun = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).runs[0].id);
+  const noteRunEl = page.locator(`#canvas [data-run="${noteRun}"]`).first();
+  await noteRunEl.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await noteRunEl.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await page.waitForTimeout(300);
+  await page.click('#hud-dashed');
+  await page.waitForTimeout(300);
+  const noteHitBox = await page.locator('#canvas [data-balloon^="rn:"]').boundingBox();
+  await penTap(noteHitBox.x + noteHitBox.width / 2, noteHitBox.y + noteHitBox.height / 2);
+  await page.locator('.dim-keypad button:has-text("Remove this text")').dispatchEvent('pointerdown', { bubbles: true });
+  await page.waitForTimeout(300);
+  check('the dashed line\'s text comes off from its keypad; the line stays dashed', `${await page.locator('#canvas .run-note').count()} ${await page.locator('#canvas line.pipe.dashed').count()}`, (v) => v === '0 1', '0 1');
+  await page.keyboard.press('Escape');
+
+  // Flange to flange: a hand dimension between two flanges typed over.
+  await routeLine('3"\nSTD\nORIGIN 0 0 0\nEND FLG\nE 1500\nEND FLG');
+  const f1 = (await nodesAt()).find((p) => p[1] === 0 && p[2] === 0)[0];
+  const f2 = (await nodesAt()).find((p) => p[1] === 1500 && p[2] === 0)[0];
+  await tapNode(f1);
+  await page.click('#hud-measure');
+  await page.waitForTimeout(200);
+  await tapNode(f2);
+  const flgMeasure = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).measures[0].id);
+  const flgFig = page.locator(`#canvas [data-dim="meas:${flgMeasure}"]`).first();
+  const ffb = await flgFig.boundingBox();
+  const fat = { bubbles: true, pointerId: 11, pointerType: 'mouse', button: 0, clientX: ffb.x + ffb.width / 2, clientY: ffb.y + ffb.height / 2, isPrimary: true };
+  await flgFig.dispatchEvent('pointerdown', fat);
+  await page.waitForTimeout(100);
+  await flgFig.dispatchEvent('pointerup', fat);
+  await page.waitForTimeout(300);
+  await page.keyboard.press('Control+A');
+  await page.keyboard.type('1800');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(400);
+  check('a flange-to-flange dimension is typed: the second flange moves, the first stays', `${(await nodesAt()).find((p) => p[0] === f2)[1]} ${(await nodesAt()).find((p) => p[0] === f1)[1]}`, (v) => v === '1800 0', '1800 0');
+  await page.keyboard.press('Escape');
+}
+
 /* ------------------------------ an olet leaves its header one pipe */
 
 // "An olet still cuts the pipe in the middle; adding it must not touch the

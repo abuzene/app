@@ -1,7 +1,7 @@
 import type { Axis, ComponentKind, Drawing, EndType, Equipment, FlangeKind, InlineComponent, IsoNode, Measure, Run, TerminalKind, Vec3 } from './types';
 import { AXIS_VECTOR, add, axisBetween, direction, equals3, length3, scale3, step, sub } from './iso';
-import { chainStops, dimensionStops, fittingsTouchLength, isValve, itemAtEnd, oletMarks, runGroupIds, terminalTakeoutOf, uid, type Analysis } from './drawing';
-import { componentTakeout } from './pipe-data';
+import { chainStops, dimensionStops, fittingsTouchLength, isValve, itemAtEnd, oletMarks, runGroupIds, terminalTakeoutOf, uid, valveOpenSide, type Analysis } from './drawing';
+import { componentTakeout, valveFlangeKind } from './pipe-data';
 
 /** Finds an existing node at a position, so that routes join rather than overlap. */
 export function findNodeAt(drawing: Drawing, pos: Vec3, tol = 0.5): string | null {
@@ -731,6 +731,39 @@ export function setGroupLength(drawing: Drawing, analysis: Analysis, runId: stri
   return stretchRun(drawing, last.run.id, length, last.forward ? 'to' : 'from', true);
 }
 
+/**
+ * What a flanged valve on the open end wears on its last face: its flange
+ * (unset), none, or a blind bolted on the valve. With no flange the line
+ * ends at the valve's face, so the end point comes in by the flange's
+ * length, and goes back out when the flange is put back.
+ */
+export function setLastFlange(drawing: Drawing, compId: string, state: 'flange' | 'none' | 'blind'): boolean {
+  const run = drawing.runs.find((r) => r.inline.some((c) => c.id === compId));
+  const comp = run?.inline.find((c) => c.id === compId);
+  if (!run || !comp) return false;
+  const side = valveOpenSide(drawing, run, comp);
+  if (side === null) return false;
+  const joint = drawing.options.joint ?? 'BW';
+  const dn = comp.dn ?? run.dn;
+  const flangeLen = componentTakeout(comp.kind, dn, valveFlangeKind(joint)) - componentTakeout(comp.kind, dn, false);
+  const hadFlange = !comp.lastFlange;
+  const hasFlange = state === 'flange';
+  comp.lastFlange = hasFlange ? undefined : state;
+  if (hadFlange === hasFlange) return true;
+  const a = drawing.nodes.find((n) => n.id === run.from);
+  const b = drawing.nodes.find((n) => n.id === run.to);
+  const dir = a && b ? direction(a.pos, b.pos) : null;
+  if (!a || !b || !dir) return true;
+  // In towards the valve when the flange comes off, out again when it returns.
+  const shift = hasFlange ? flangeLen : -flangeLen;
+  if (side === 1) b.pos = add(b.pos, scale3(dir, shift));
+  else {
+    a.pos = add(a.pos, scale3(dir, -shift));
+    for (const c of run.inline) c.offset += shift;
+  }
+  return true;
+}
+
 /** Deletes the whole pipe a run belongs to; an olet left with no header is no olet. */
 export function deleteRunGroup(drawing: Drawing, analysis: Analysis, runId: string): void {
   const ids = runGroupIds(analysis, runId);
@@ -770,10 +803,48 @@ export function measureOnOlet(drawing: Drawing, analysis: Analysis, measureId: s
   return null;
 }
 
+/**
+ * A hand dimension between two points on one straight line — flange to
+ * flange, say — can be typed: the point tapped second moves along the
+ * line with everything beyond it, by stretching the run that leads to it
+ * from the first. Returns which run and end, or null when there is none.
+ */
+export function measureAlongLine(drawing: Drawing, measureId: string): { runId: string; end: 'from' | 'to'; length: number; current: number } | null {
+  const measure = (drawing.measures ?? []).find((m) => m.id === measureId);
+  if (!measure) return null;
+  for (const [fixedId, movingId] of [[measure.a, measure.b], [measure.b, measure.a]]) {
+    const fixed = drawing.nodes.find((n) => n.id === fixedId);
+    const moving = drawing.nodes.find((n) => n.id === movingId);
+    if (!fixed || !moving || !axisBetween(fixed.pos, moving.pos)) continue;
+    const current = length3(sub(moving.pos, fixed.pos));
+    const toward = direction(moving.pos, fixed.pos);
+    if (!toward) continue;
+    for (const run of drawing.runs.filter((r) => r.from === movingId || r.to === movingId)) {
+      const other = drawing.nodes.find((n) => n.id === (run.from === movingId ? run.to : run.from));
+      if (!other) continue;
+      const leg = sub(other.pos, moving.pos);
+      const along = leg.e * toward.e + leg.n * toward.n + leg.u * toward.u;
+      // The run heads back along the line, no further than the fixed point.
+      if (along <= 0.5 || along > current + 0.5 || length3(sub(leg, scale3(toward, along))) > 0.5) continue;
+      return { runId: run.id, end: run.to === movingId ? 'to' : 'from', length: runLength(drawing, run), current };
+    }
+  }
+  return null;
+}
+
+/** Whether a hand dimension can be typed over: from an olet, or along one straight line. */
+export function measureTypeable(drawing: Drawing, analysis: Analysis, measureId: string): boolean {
+  return !!measureOnOlet(drawing, analysis, measureId) || !!measureAlongLine(drawing, measureId);
+}
+
 export function applyMeasureToOlet(drawing: Drawing, analysis: Analysis, measureId: string, value: number): string | null {
   const on = measureOnOlet(drawing, analysis, measureId);
-  if (!on) return 'A dimension between two points: move a point to change it.';
-  return applyChainDimension(drawing, analysis, `olet:${on.oletId}`, on.otherAlong + on.sign * value);
+  if (on) return applyChainDimension(drawing, analysis, `olet:${on.oletId}`, on.otherAlong + on.sign * value);
+  const line = measureAlongLine(drawing, measureId);
+  if (!line) return 'A dimension between two points: move a point to change it.';
+  const length = line.length + (value - line.current);
+  if (length <= 0.5) return 'The line cannot be made that length here.';
+  return stretchRun(drawing, line.runId, length, line.end, true) ? null : 'The line cannot be made that length here.';
 }
 
 export function applyChainDimension(drawing: Drawing, analysis: Analysis, key: string, value: number): string | null {

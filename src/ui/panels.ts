@@ -1,11 +1,11 @@
 import type { Axis, ComponentKind, EndType, Equipment, FittingKind, FlangeKind, JointType, TerminalKind } from '../model/types';
 import type { Host, TabId } from './types';
-import { COMPONENT_LABEL, DEFAULT_LOGO, ROOT_GAP, TERMINAL_LABEL, fittingLabel, fmtMm, isMark, isReducer, isSupport, isValve, oletLabel, oletLegs, oletMarks, pipeNetAt, reducerName, resolveEnds, runGroupIds } from '../model/drawing';
+import { COMPONENT_LABEL, DEFAULT_LOGO, ROOT_GAP, TERMINAL_LABEL, fittingLabel, fmtMm, isMark, isReducer, isSupport, isValve, oletLabel, oletLegs, oletMarks, pipeNetAt, reducerName, resolveEnds, runGroupIds, valveOpenSide } from '../model/drawing';
 import { COMMAND_HELP } from '../model/commands';
 import { DN_LIST, SIZE_LABELS, defaultValveEnds, schedulesFor, sizeLabel } from '../model/pipe-data';
 import { AXES, AXIS_VECTOR, axisBetween } from '../model/iso';
 import { projectsOf } from '../model/library';
-import { applyReducer, deletePoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, runLength, setGroupLength, deleteRunGroup, DASHED_NOTE, setRunDashed, setRunDirect, setRunLength, setTerminal, splitRun } from '../model/edit';
+import { applyReducer, deletePoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, runLength, setGroupLength, setLastFlange, deleteRunGroup, DASHED_NOTE, setRunDashed, setRunDirect, setRunLength, setTerminal, splitRun } from '../model/edit';
 import { setDriveClientId } from '../model/drive';
 import { reducerPreview } from './reducer-preview';
 
@@ -231,6 +231,15 @@ function componentProperties(host: Host, compId: string): string {
       : comp.kind === 'GROUND'
         ? `<div class="row"><label>AG side</label><select data-f="flip">${options(['end', 'start'], comp.flip ? 'start' : 'end', { end: 'As drawn (up a riser, else towards the end)', start: 'The other way' })}</select></div>`
         : ''
+  }
+  ${
+    valveOpenSide(drawing, run, comp) !== null
+      ? `<div class="row"><label>Last flange</label><select data-f="last-flange">${options(['flange', 'none', 'blind'], comp.lastFlange ?? 'flange', {
+          flange: 'Its flange',
+          none: 'None — flange taken off',
+          blind: 'Blind on the valve',
+        })}</select></div>`
+      : ''
   }
   ${mark ? '' : `<div class="row"><label>Ends</label><select data-f="ends">${options(['auto', ...END_TYPES], comp.ends ?? 'auto', {
     auto: isValve(comp.kind)
@@ -1029,6 +1038,10 @@ function wire(body: HTMLElement, host: Host): void {
         c.flip = (e.target as HTMLSelectElement).value === 'start' ? true : undefined;
       }),
     );
+    field('last-flange')?.addEventListener('change', (e) => {
+      const value = (e.target as HTMLSelectElement).value as 'flange' | 'none' | 'blind';
+      host.edit('Last flange', (d) => setLastFlange(d, compEditor.dataset.id!, value));
+    });
     field('ends')?.addEventListener('change', (e) =>
       withComponent('Change end preparation', (c) => {
         const value = (e.target as HTMLSelectElement).value;

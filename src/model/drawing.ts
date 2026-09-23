@@ -253,6 +253,28 @@ export function itemAtEnd(
   return null;
 }
 
+/**
+ * The side (0 start, 1 end) of a flanged valve that faces the open end of
+ * its line — the "last flange" — or null when the valve is not on an open
+ * end. Open means the end point has no other run and wears no end piece.
+ */
+export function valveOpenSide(drawing: Drawing, run: Run, comp: InlineComponent): 0 | 1 | null {
+  if (!isValve(comp.kind)) return null;
+  const joint = drawing.options.joint ?? 'BW';
+  const dn = comp.dn ?? run.dn;
+  if (resolveEnds(comp.kind, dn, comp.ends, joint) !== 'FLG') return null;
+  const a = drawing.nodes.find((n) => n.id === run.from);
+  const b = drawing.nodes.find((n) => n.id === run.to);
+  if (!a || !b) return null;
+  const total = length3(sub(b.pos, a.pos));
+  const half = componentTakeout(comp.kind, dn, valveFlangeKind(joint));
+  const open = (node: IsoNode) =>
+    drawing.runs.filter((r) => r.from === node.id || r.to === node.id).length === 1 && (!node.terminal || node.terminal.kind === 'OPEN');
+  if (comp.offset + half >= total - 0.5 && open(b)) return 1;
+  if (comp.offset - half <= 0.5 && open(a)) return 0;
+  return null;
+}
+
 /** The size at a run's end: the item welded straight to the end piece there, else the run's. */
 export function endDn(drawing: Drawing, run: Run, atStart: boolean): string {
   return itemAtEnd(drawing, run, atStart)?.dn ?? run.dn;
@@ -736,7 +758,11 @@ export function analyse(drawing: Drawing): Analysis {
     for (const comp of run.inline) {
       const dn = comp.dn ?? run.dn;
       const ends = resolveEnds(comp.kind, dn, comp.ends, drawing.options.joint ?? 'BW');
-      cut -= componentTakeout(comp.kind, dn, ends === 'FLG' && valveFlangeKind(drawing.options.joint ?? 'BW')) * 2;
+      const half = componentTakeout(comp.kind, dn, ends === 'FLG' && valveFlangeKind(drawing.options.joint ?? 'BW'));
+      // A valve on the open end may reach past it (its last flange taken
+      // off, the end brought in to its face): only what lies on the run counts.
+      const open = valveOpenSide(drawing, run, comp) !== null;
+      cut -= open ? Math.min(comp.offset + half, centre) - Math.max(comp.offset - half, 0) : half * 2;
     }
     runLengths.set(run.id, { run, centre, cut: Math.max(0, cut) });
     // Nothing left to cut between two fittings: they meet, and there is one
@@ -1001,6 +1027,8 @@ export function analyse(drawing: Drawing): Analysis {
         // side is fused, which is no weld of ours.
         if (comp.kind === 'TRANSITION' && side === (comp.flip ? 1 : 0)) continue;
         if (onTerminal(side === 0)) continue;
+        // No flange on the valve's last face (or a blind there): nothing welded.
+        if (comp.lastFlange && valveOpenSide(drawing, run, comp) === side) continue;
         const distance = side === 0 ? comp.offset - takeout : comp.offset + takeout;
         // A reducer's two welds are each the size of their own end.
         const sideDn = isReducer(comp.kind) ? (side === 0 ? reducerSides(comp, run.dn).start : reducerSides(comp, run.dn).end) : dn;
@@ -1345,7 +1373,19 @@ export function analyse(drawing: Drawing): Analysis {
       if (ends === 'FLG' && !isFlange(comp.kind)) {
         const flange = valveFlangeKind(drawing.options.joint ?? 'BW');
         const takeout = componentTakeout(comp.kind, dn, flange);
+        const lastSide = comp.lastFlange ? valveOpenSide(drawing, run, comp) : null;
         for (const side of [-1, 1] as const) {
+          if (lastSide !== null && side === (lastSide === 0 ? -1 : 1)) {
+            // The last flange taken off, or a blind bolted on in its place.
+            if (comp.lastFlange === 'blind') {
+              instances.push({
+                key: `comp:${comp.id}:blind`,
+                bomKey: tally({ category: 'FLANGE', description: TERMINAL_LABEL.FLG_BLIND, dn, schedule: fittingThickness, unit: 'off' }),
+                pos: a && dir ? add(a.pos, scale3(dir, comp.offset + side * takeout * 0.75)) : at,
+              });
+            }
+            continue;
+          }
           const bomKey = tally({
             category: 'FLANGE',
             description: COMPONENT_LABEL[flange],

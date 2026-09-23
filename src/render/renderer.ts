@@ -1,9 +1,9 @@
 import type { Analysis } from '../model/drawing';
 import type { Axis, DimOverride, Drawing, FlangeKind, Run, Vec3 } from '../model/types';
-import { COMPONENT_LABEL, SYMBOL_MM, TERMINAL_LABEL, chainStops, dimensionStops, fittingLabel, runGroupIds, isMark, isReducer, isSupport, isValve, itemAtEnd, oletEntries, oletLegs, resolveEnds } from '../model/drawing';
+import { COMPONENT_LABEL, SYMBOL_MM, TERMINAL_LABEL, chainStops, dimensionStops, fittingLabel, runGroupIds, isMark, isReducer, isSupport, isValve, itemAtEnd, oletEntries, oletLegs, resolveEnds, valveOpenSide } from '../model/drawing';
 import { componentTakeout, sizeLabel, valveFlangeKind } from '../model/pipe-data';
 import { AXIS_VECTOR, axisBetween, axisScreenDir, equals3, northArrowDir, project, scale3, add } from '../model/iso';
-import { componentSymbol, flangeHub, flangeSymbol, frameFor, gasketLine, groundSymbol, isFlange, jointMark, oletSymbol, supportCallout, supportSymbol, terminalSymbol, transitionSymbol, type Facing, type Frame } from './symbols';
+import { componentSymbol, counterFlange, flangeHub, flangeSymbol, frameFor, gasketLine, groundSymbol, isFlange, jointMark, oletSymbol, supportCallout, supportSymbol, terminalSymbol, transitionSymbol, type Facing, type Frame } from './symbols';
 
 export interface ViewBox {
   x: number;
@@ -571,8 +571,26 @@ export function renderDrawing(state: RenderState): string {
         const shifted = (by: number): Frame => ({ ...f, cx: f.cx + f.dx * by, cy: f.cy + f.dy * by });
         // Weld neck flanges on a butt welded line; socket weld or threaded on those.
         const flange = valveFlangeKind(drawing.options.joint ?? 'BW');
-        comps += gasketLine(f, -faceHalf) + flangeSymbol(shifted(-faceHalf), flange, 1);
-        comps += gasketLine(f, faceHalf) + flangeSymbol(shifted(faceHalf), flange, -1);
+        // The valve's last face on an open end: its flange, none, or a blind.
+        const lastSide = comp.lastFlange ? valveOpenSide(drawing, run, comp) : null;
+        // The line ends at the valve's face: no pipe drawn on past it.
+        if (lastSide !== null) {
+          const piece = straights.find((st) => st.run.id === run.id);
+          const face = { x: f.cx + f.dx * (lastSide === 0 ? -faceHalf : faceHalf), y: f.cy + f.dy * (lastSide === 0 ? -faceHalf : faceHalf) };
+          if (piece) {
+            if (lastSide === 1) piece.pb = face;
+            else piece.pa = face;
+          }
+        }
+        for (const side of [0, 1] as const) {
+          const at = side === 0 ? -faceHalf : faceHalf;
+          if (lastSide === side && comp.lastFlange === 'none') continue;
+          if (lastSide === side && comp.lastFlange === 'blind') {
+            comps += gasketLine(f, at) + counterFlange(f, 'FLG_BLIND', side === 0 ? -1 : 1, faceHalf + size * 0.12);
+            continue;
+          }
+          comps += gasketLine(f, at) + flangeSymbol(shifted(at), flange, side === 0 ? 1 : -1);
+        }
       }
       // A support's name is part of its symbol; a mark has no tag of its own.
       const label = isMark(comp.kind) ? '' : (comp.tag ?? '');
