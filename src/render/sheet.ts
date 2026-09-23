@@ -1,6 +1,6 @@
 import { pipeNetAt, type Analysis, type BomLine } from '../model/drawing';
 import type { Drawing } from '../model/types';
-import { SYMBOL_MM, contentBounds, escapeText, renderDrawing } from './renderer';
+import { SYMBOL_MM, contentBounds, escapeText, renderDrawing, symbolSizeFor, type Bounds } from './renderer';
 import { sizeLabel } from '../model/pipe-data';
 import { northArrowDir } from '../model/iso';
 import { contentCss } from './style';
@@ -17,23 +17,116 @@ const SHEETS: Record<SheetSize, { w: number; h: number }> = {
 // most printers will put ink.
 const MARGIN = 5;
 
+/** Symbol half-size on the printed sheet, in mm, at the least: a third up on the screen's, as he asked. */
+const SHEET_SYMBOL_MM = SYMBOL_MM * 1.35;
+/** And at the most, so a small drawing does not print with huge lettering. */
+const SHEET_SYMBOL_MAX_MM = SHEET_SYMBOL_MM * 1.7;
+
 /**
- * The symbol half-size, in drawing paper units, that the printed sheet
- * will use: the sheet fits the drawing to its area, so this is not the
- * screen's. Tidy lays out for whichever is bigger.
+ * The symbol half-size, in drawing paper units, for a sheet at k sheet mm
+ * per paper unit: the screen's own, so the sheet has the proportions he
+ * sees on screen (his complaint, 2026-09-24: "on screen the drawing looks
+ * good, printed the pipe comes out stretched"), but never under
+ * SHEET_SYMBOL_MM on the paper (a long line once printed with tiny
+ * symbols) nor over SHEET_SYMBOL_MAX_MM.
  */
-export function sheetSymbolSize(drawing: Drawing, analysis: Analysis, size: SheetSize = 'A3'): number {
+function sheetSymbolAt(drawing: Drawing, analysis: Analysis, k: number): number {
+  const screen = symbolSizeFor(drawing, analysis);
+  return Math.min(Math.max(screen, SHEET_SYMBOL_MM / k), SHEET_SYMBOL_MAX_MM / k);
+}
+
+/** The sheet's drawing area, in mm. */
+function drawingArea(size: SheetSize): { x: number; y: number; w: number; h: number; dividerX: number; col: number } {
   const { w: W, h: H } = SHEETS[size];
   const col = Math.min(112, W * 0.26);
-  const areaW = W - MARGIN - col - MARGIN - 5;
-  const areaH = H - MARGIN * 2;
-  const bounds = contentBounds(drawing, analysis);
-  const pad = 18;
-  const k = Math.min((areaW - pad * 2) / Math.max(bounds.maxX - bounds.minX, 1), (areaH - pad * 2) / Math.max(bounds.maxY - bounds.minY, 1));
-  return (SYMBOL_MM * 1.35) / k;
+  const dividerX = W - MARGIN - col;
+  return { x: MARGIN, y: MARGIN, w: dividerX - MARGIN - 5, h: H - MARGIN * 2, dividerX, col };
 }
-/** Symbol half-size on the printed sheet, in mm: a third up on the screen's, as he asked. */
-const SHEET_SYMBOL_MM = SYMBOL_MM * 1.35;
+
+/**
+ * The drawn extent of the drawing's SVG, in its own paper units, labels
+ * and dimensions included (the touch targets left out); null where there
+ * is no page to measure in.
+ */
+function measureContent(content: string, css: string): Bounds | null {
+  if (typeof document === 'undefined' || !document.body) return null;
+  const host = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  host.setAttribute('width', '10');
+  host.setAttribute('height', '10');
+  host.style.cssText = 'position:absolute;left:-10000px;top:0;visibility:hidden;pointer-events:none';
+  host.innerHTML = `<style>${css}</style><g>${content}</g>`;
+  host.querySelectorAll('.hits').forEach((e) => e.remove());
+  document.body.appendChild(host);
+  try {
+    const g = host.querySelector('g') as SVGGElement | null;
+    const box = g?.getBBox();
+    if (!box || !(box.width > 0) || !(box.height > 0)) return null;
+    return { minX: box.x, minY: box.y, maxX: box.x + box.width, maxY: box.y + box.height };
+  } catch {
+    return null;
+  } finally {
+    host.remove();
+  }
+}
+
+interface SheetFit {
+  k: number;
+  symbol: number;
+  tx: number;
+  ty: number;
+  content: string;
+}
+
+/**
+ * Fits the drawing to the sheet's area, all of it — pipe, dimensions,
+ * tags, balloons — so that bigger lettering never runs off the frame. A
+ * first guess from the points, then measured and fitted again.
+ */
+function fitSheet(drawing: Drawing, analysis: Analysis, size: SheetSize): SheetFit {
+  const area = drawingArea(size);
+  const nodes = contentBounds(drawing, analysis);
+  const sheetDrawing = { ...drawing, options: { ...drawing.options, showGrid: false } };
+  const draw = (k: number, bounds: Bounds) => {
+    const symbol = sheetSymbolAt(drawing, analysis, k);
+    const tx = area.x + area.w / 2 - ((bounds.minX + bounds.maxX) / 2) * k;
+    const ty = area.y + area.h / 2 - ((bounds.minY + bounds.maxY) / 2) * k;
+    const view = { x: (area.x - tx) / k, y: (area.y - ty) / k, w: area.w / k, h: area.h / k };
+    const content = renderDrawing({ drawing: sheetDrawing, analysis, view, selection: null, symbol });
+    return { k, symbol, tx, ty, content };
+  };
+  const fitTo = (b: Bounds, pad: number) =>
+    Math.min((area.w - pad * 2) / Math.max(b.maxX - b.minX, 1), (area.h - pad * 2) / Math.max(b.maxY - b.minY, 1));
+  let fit = draw(fitTo(nodes, 18), nodes);
+  for (let pass = 0; pass < 3; pass += 1) {
+    const drawn = measureContent(fit.content, contentCss({ k: fit.k, u: 0.24, symbol: fit.symbol }));
+    if (!drawn) break;
+    const all: Bounds = {
+      minX: Math.min(drawn.minX, nodes.minX),
+      minY: Math.min(drawn.minY, nodes.minY),
+      maxX: Math.max(drawn.maxX, nodes.maxX),
+      maxY: Math.max(drawn.maxY, nodes.maxY),
+    };
+    const k = fitTo(all, 4);
+    // Within a percent is close enough: draw it once more where it sits and stop.
+    if (Math.abs(k - fit.k) / fit.k < 0.01) {
+      fit = draw(fit.k, all);
+      break;
+    }
+    fit = draw(k, all);
+  }
+  return fit;
+}
+
+/**
+ * The symbol half-size, in drawing paper units, that the printed sheet
+ * will use. Tidy lays out for whichever of this and the screen's is bigger.
+ */
+export function sheetSymbolSize(drawing: Drawing, analysis: Analysis, size: SheetSize = 'A3'): number {
+  const area = drawingArea(size);
+  const bounds = contentBounds(drawing, analysis);
+  const k = Math.min((area.w - 36) / Math.max(bounds.maxX - bounds.minX, 1), (area.h - 36) / Math.max(bounds.maxY - bounds.minY, 1));
+  return sheetSymbolAt(drawing, analysis, k);
+}
 
 function text(
   x: number,
@@ -298,36 +391,13 @@ export function renderSheet(drawing: Drawing, analysis: Analysis, size: SheetSiz
   const dividerX = W - MARGIN - col;
   const areaX = MARGIN;
   const areaY = MARGIN;
-  const areaW = dividerX - MARGIN - 5;
-  const areaH = H - MARGIN * 2;
 
   // The drawing fills the sheet's drawing area, whatever its scale on
-  // screen, and the symbols are a set size on the paper — the way his own
-  // sheets are drawn. The scale is worked out from the fit and noted.
-  const bounds = contentBounds(drawing, analysis);
-  const pad = 18;
-  const contentW = Math.max(bounds.maxX - bounds.minX, 1);
-  const contentH = Math.max(bounds.maxY - bounds.minY, 1);
-  const k = Math.min((areaW - pad * 2) / contentW, (areaH - pad * 2) / contentH);
-  const symbol = SHEET_SYMBOL_MM / k;
+  // screen — the way his own sheets are drawn — with the pipe and the
+  // symbols in the proportions he sees on screen. The scale is worked out
+  // from the fit and noted.
+  const { k, tx, ty, content, symbol } = fitSheet(drawing, analysis, size);
   const scaleR = Math.round(1 / drawing.options.scale / k);
-  const tx = areaX + areaW / 2 - ((bounds.minX + bounds.maxX) / 2) * k;
-  const ty = areaY + areaH / 2 - ((bounds.minY + bounds.maxY) / 2) * k;
-
-  const view = {
-    x: (areaX - tx) / k,
-    y: (areaY - ty) / k,
-    w: areaW / k,
-    h: areaH / k,
-  };
-
-  const content = renderDrawing({
-    drawing: { ...drawing, options: { ...drawing.options, showGrid: false } },
-    analysis,
-    view,
-    selection: null,
-    symbol,
-  });
 
   // Right hand column: bill of materials, weld summary, title block.
   const tbH = 50;

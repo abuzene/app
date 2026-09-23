@@ -60,19 +60,26 @@ ships, and the decisions already taken, so they are not re-litigated.
 
 ## Decisions already taken (do not undo)
 
-- Symbols, tags, balloons and lettering are a **set size on the sheet**
-  (`sheetScale` option, default 1:15; `symbolSizeFor`, `SYMBOL_MM` = 2.4 mm
-  half-size). They do not scale with pipe length or zoom. Valves too
-  (`faceReach` is capped). The **printed sheet always fits** the drawing to
-  its area (`renderSheet`: `k` from the fit, `symbol = SHEET_SYMBOL_MM / k`
-  passed as `RenderState.symbol`; `SHEET_SYMBOL_MM` = 1.35 × `SYMBOL_MM`,
-  ≈3.2 mm, since he asked for bigger fittings on the PDF), so symbols are the same size on paper for a
-  short line and a long one, and the note reads "SCALE 1:R (FITTED TO
-  SHEET)". The dialog's scale ("On-screen scale") sizes symbols against
-  the pipe on screen only. He asked for this after a long line printed
-  with tiny symbols. Dimension figures (`.dim-text` 1.15 × symbol) and
-  weld numbers (`.weld-no` 1.0 ×, bold, in a box 1.55 × tall) are set
-  large on his request; balloons stay at 0.72 ×.
+- Symbols, tags, balloons and lettering are a **set size against the
+  pipe** (`sheetScale` option, default 15 = "100%"; `symbolSizeFor`,
+  `SYMBOL_MM` = 2.4 mm half-size). They do not scale with pipe length or
+  zoom. Valves too (`faceReach` is capped). **View → Symbols**
+  (`#opt-symbols`, 53%…220% = sheetScale 8…33, `syncSymbolSelect` in
+  main.ts) and the print dialog's "Symbols against the pipe" set it.
+  The **printed sheet keeps the screen's proportions** (his complaint,
+  2026-09-24: "on screen it looks good, printed the pipe comes out
+  stretched"): `renderSheet` → `fitSheet` in sheet.ts uses the screen's
+  symbol size (`sheetSymbolAt`), clamped on the paper to at least
+  `SHEET_SYMBOL_MM` (1.35 × `SYMBOL_MM`, ≈3.2 mm; a long line once
+  printed with tiny symbols) and at most `SHEET_SYMBOL_MAX_MM` (1.7 ×
+  that). It fits **everything drawn** to the area — labels, dimensions,
+  balloons — by measuring the rendered content with `getBBox` in a
+  hidden SVG (`measureContent`, the `.hits` groups removed) and fitting
+  again (up to three passes), so bigger lettering never runs off the
+  frame. The note reads "SCALE 1:R (FITTED TO SHEET)". Dimension figures
+  (`.dim-text` 1.15 × symbol) and weld numbers (`.weld-no` 1.0 ×, bold,
+  in a box 1.55 × tall) are set large on his request; balloons stay at
+  0.72 ×.
 - Fitting reach is fixed (`FITTING_REACH`); weld marks sit on the symbol's
   end and are part of it — no line between dot and symbol.
 - A flange **breaks the line** (`node.flange`, flanged joint). Continuing

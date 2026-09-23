@@ -985,6 +985,7 @@ function render(): void {
   compassEl.innerHTML = northArrow(state.drawing);
   const northSelect = document.getElementById('opt-north-arrow') as HTMLSelectElement | null;
   if (northSelect) northSelect.value = String(state.drawing.options.northArrow ?? 0);
+  syncSymbolSelect();
   emptyHintEl.classList.toggle('hidden', state.drawing.nodes.length > 0);
   renderHud();
   $<HTMLButtonElement>('undo').disabled = undoStack.length === 0;
@@ -1354,6 +1355,27 @@ const turnNorthArrow = (turn: number) => {
   const select = document.getElementById('opt-north-arrow') as HTMLSelectElement | null;
   if (select) select.value = String(state.drawing.options.northArrow ?? 0);
 };
+// Symbols against the pipe: the drawing's sheetScale (1:15 is 100%), the
+// same the print dialog sets. A bigger share makes the pipe read shorter
+// against its fittings, on screen and on the sheet alike.
+function syncSymbolSelect(): void {
+  const select = document.getElementById('opt-symbols') as HTMLSelectElement | null;
+  if (!select) return;
+  const r = state.drawing.options.sheetScale ?? 15;
+  if (![...select.options].some((o) => Number(o.value) === r)) {
+    const option = document.createElement('option');
+    option.value = String(r);
+    option.textContent = r === 0 ? 'Fit' : `${Math.round((r / 15) * 100)}%`;
+    select.appendChild(option);
+  }
+  select.value = String(r);
+}
+document.getElementById('opt-symbols')?.addEventListener('change', (event) => {
+  const value = Number((event.target as HTMLSelectElement).value);
+  host.edit('Symbol size', (d) => {
+    d.options.sheetScale = value;
+  });
+});
 compassEl.addEventListener('click', () => turnNorthArrow((state.drawing.options.northArrow ?? 0) + 45));
 document.getElementById('opt-north-arrow')?.addEventListener('change', (event) => turnNorthArrow(Number((event.target as HTMLSelectElement).value)));
 
@@ -1553,12 +1575,13 @@ function openPrintDialog(): void {
     <option value="upright"${tabletPrinter ? ' selected' : ''}>Upright — the sheet is turned to fill it</option>
   </select></div>
   <p class="empty-note">A tablet prints on upright paper unless told otherwise, so the sheet is turned to lie along it; a printer fed landscape paper takes the sheet as it is.</p>
-  <div class="row"><label>On-screen scale</label><select id="sheet-scale">
-    ${[0, 5, 10, 15, 20, 25, 33, 40, 50, 75, 100]
-      .map((r) => `<option value="${r}"${(state.drawing.options.sheetScale ?? 15) === r ? ' selected' : ''}>${r === 0 ? 'Fit to the sheet' : `1:${r}`}</option>`)
+  <div class="row"><label>Symbols against the pipe</label><select id="sheet-scale">
+    ${[...new Set([8, 10, 12, 15, 18, 22, 27, 33, state.drawing.options.sheetScale ?? 15])]
+      .sort((a, b) => a - b)
+      .map((r) => `<option value="${r}"${(state.drawing.options.sheetScale ?? 15) === r ? ' selected' : ''}>${r === 0 ? 'Fit to the sheet' : `${Math.round((r / 15) * 100)}%`}</option>`)
       .join('')}
   </select></div>
-  <p class="empty-note">The sheet always fits the drawing to the page, with symbols, tags and lettering a set size on the paper. This scale sizes the symbols against the pipe on screen only.</p>
+  <p class="empty-note">The sheet fits the whole drawing to the page, with the pipe and the symbols in the proportions you see on screen (View → Symbols sets them too); lettering is never printed smaller than the standard size.</p>
   <div class="btn-row">
     <button class="btn-line${tabletPrinter ? ' solid' : ''}" data-x="pdf">PDF sheet</button>
     <button class="btn-line${tabletPrinter ? '' : ' solid'}" data-x="print">Print / Save as PDF</button>

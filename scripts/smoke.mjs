@@ -1410,13 +1410,13 @@ check('and offers to look for a new one', await page.locator('.dialog-backdrop [
   await page.waitForTimeout(250);
 }
 check('at 1:15 to begin with', await page.locator('#sheet-scale').inputValue(), (v) => v === '15', '15');
-await page.selectOption('#sheet-scale', '50');
+await page.selectOption('#sheet-scale', '33');
 await page.waitForTimeout(400);
 const coarser = await tagBox();
-check('a coarser scale makes the symbols bigger against the pipe', coarser / smallSymbol, (v) => Math.abs(v - 50 / 15) < 0.05, `${(50 / 15).toFixed(2)}x`);
+check('a coarser scale makes the symbols bigger against the pipe', coarser / smallSymbol, (v) => Math.abs(v - 33 / 15) < 0.05, `${(33 / 15).toFixed(2)}x`);
 await page.click('[data-x="preview"]');
 await page.waitForTimeout(600);
-check('while the sheet is fitted to the page whatever the on-screen scale', await page.locator('.sheet-preview').innerText(), (v) => /SCALE 1:\d+ \(FITTED TO SHEET\)/.test(v) && !/SCALE 1:50/.test(v), 'SCALE 1:n (FITTED TO SHEET), not 1:50');
+check('while the sheet is fitted to the page whatever the on-screen scale', await page.locator('.sheet-preview').innerText(), (v) => /SCALE 1:\d+ \(FITTED TO SHEET\)/.test(v) && !/SCALE 1:33 /.test(v), 'SCALE 1:n (FITTED TO SHEET), not 1:33');
 await page.click('.dialog [data-close]');
 await page.waitForTimeout(200);
 await page.click('#print');
@@ -2171,7 +2171,10 @@ const shortSheet = await sheetSymbol();
 await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 30000\nN 12000\nE 20000');
 const longSheet = await sheetSymbol();
 check('a long line is fitted to the sheet, and says so', longSheet.note, (v) => /FITTED TO SHEET/.test(v), 'SCALE 1:n (FITTED TO SHEET)');
-check('and its weld dots are the same size on paper as a short line\'s', Math.abs(longSheet.r * longSheet.k - shortSheet.r * shortSheet.k) / (shortSheet.r * shortSheet.k), (v) => v < 0.02, 'within 2%');
+// Since 2026-09-24 the sheet keeps the screen's proportions, within a
+// floor and a ceiling on the paper: the long line sits on the floor, the
+// short one no bigger than 1.7 times it.
+check('and its weld dots are no smaller on paper than a short line\'s', (shortSheet.r * shortSheet.k) / (longSheet.r * longSheet.k), (v) => v >= 0.98 && v <= 1.72, 'between 1 and 1.7 times');
 check('though the drawings are at very different scales', shortSheet.k / longSheet.k, (v) => v > 10, 'more than 10×');
 
 /* ----------------------------- a pair of flanges taken out of the line */
@@ -3241,6 +3244,48 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   });
   check('clear of each other on the printed sheet too', sheetClashes, (v) => v === 'true 0', 'true 0');
   await page.click('.dialog [data-close]');
+  await page.waitForTimeout(200);
+}
+
+/* ------------------------------------ the sheet in the screen's proportions */
+
+// "On screen the drawing looks good, printed the pipe comes out stretched;
+// improve it or let me change the pipe's size in the view" (2026-09-24).
+// The sheet keeps the screen's symbols-to-pipe proportion, the View menu's
+// Symbols sets it for both, and the whole drawing, lettering and all, is
+// fitted inside the frame.
+{
+  await startNewDrawing();
+  await page.click('[data-a="load-sample"]');
+  await page.waitForTimeout(500);
+  await page.selectOption('#opt-symbols', '22');
+  await page.waitForTimeout(300);
+  check('View → Symbols sets the drawing\'s symbol size', (await drawingNow()).options.sheetScale, (v) => v === 22, '22 (147%)');
+  const proportion = (sel) => page.evaluate((sel) => {
+    const root = document.querySelector(sel);
+    const box = root.querySelector('.weld-box').getBoundingClientRect();
+    const pipes = [...root.querySelectorAll('line.pipe')].map((l) => l.getBoundingClientRect()).map((r) => Math.hypot(r.width, r.height));
+    return box.height / Math.max(...pipes);
+  }, sel);
+  const onScreen = await proportion('#canvas');
+  await page.click('#print');
+  await page.waitForTimeout(250);
+  check('the print dialog shows the same size', await page.locator('#sheet-scale').inputValue(), (v) => v === '22', '22');
+  await page.click('[data-x="preview"]');
+  await page.waitForTimeout(700);
+  const onSheet = await proportion('.sheet-preview');
+  check('the sheet has the symbols against the pipe as on screen', onSheet / onScreen, (v) => Math.abs(v - 1) < 0.03, 'within 3%');
+  const inFrame = await page.evaluate(() => {
+    const svg = document.querySelector('.sheet-preview svg');
+    const frame = svg.querySelector('.frame').getBoundingClientRect();
+    const divider = [...svg.querySelectorAll('.frame')][1].getBoundingClientRect();
+    const labels = [...svg.querySelectorAll('.weld-box, .balloon-ring, .pipe-letter-box, .dim-text, .pipe')].map((e) => e.getBoundingClientRect());
+    return labels.filter((r) => r.left < frame.left || r.top < frame.top || r.bottom > frame.bottom || r.right > divider.left).length;
+  });
+  check('and all of the drawing sits inside the frame', inFrame, (v) => v === 0, '0 outside');
+  await page.click('.dialog [data-close]');
+  await page.waitForTimeout(200);
+  await page.selectOption('#opt-symbols', '15');
   await page.waitForTimeout(200);
 }
 
