@@ -348,6 +348,18 @@ ships, and the decisions already taken, so they are not re-litigated.
   (not a terminal blind). A valve put on an end point now sits with its
   flanged face on the end (it used to be centred on it, half past).
   The pipe list subtracts only the part of such a valve lying on the run.
+- **Fittings one after another** (`boltValveOnEnd` in edit.ts, called
+  from `place` in tools.ts for a valve on an end point, tried on a copy
+  first; his ask, 2026-09-23, manual and actuated alike): on an end that
+  wears a flange (WN/SW/THD), the flange becomes the valve's own flange
+  on that side (terminal removed, weld override `n:<node>:term` carried to
+  `c:<comp>:0|1`, the weld stays where it was) and the end moves out by
+  the valve; on a flanged valve already on the open end, the new valve
+  bolts face to face: `comp.bare = 0|1` on both (no flange, no weld, off
+  the list, a gasket line only), the renderer draws each bolted valve with
+  its bare face on the true joint so no pipe shows between. On the open
+  end the drawn pipe stops at the valve (at the outer flange's weld, or
+  its face with no flange). Anything else on an end: placed as before.
 - **Run note removal**: the note's keypad has "Remove this text"
   (clears `run.note` and its drag offset); a dashed run stays dashed.
 - **Hand dimensions along one straight line are typeable**

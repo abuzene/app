@@ -1,6 +1,6 @@
 import type { Axis, ComponentKind, Drawing, EndType, Equipment, FlangeKind, InlineComponent, IsoNode, Measure, Run, TerminalKind, Vec3 } from './types';
 import { AXIS_VECTOR, add, axisBetween, direction, equals3, length3, scale3, step, sub } from './iso';
-import { chainStops, dimensionStops, fittingsTouchLength, isValve, itemAtEnd, oletMarks, runGroupIds, terminalTakeoutOf, uid, valveOpenSide, type Analysis } from './drawing';
+import { chainStops, dimensionStops, fittingsTouchLength, isValve, itemAtEnd, oletMarks, resolveEnds, runGroupIds, terminalTakeoutOf, uid, valveOpenSide, type Analysis } from './drawing';
 import { componentTakeout, valveFlangeKind } from './pipe-data';
 
 /** Finds an existing node at a position, so that routes join rather than overlap. */
@@ -762,6 +762,68 @@ export function setLastFlange(drawing: Drawing, compId: string, state: 'flange' 
     for (const c of run.inline) c.offset += shift;
   }
   return true;
+}
+
+/**
+ * A flanged valve put on the end of a line bolts on to what is there, with
+ * no pipe between (his ask, 2026-09-23: "fittings one after another").
+ * On an end flange, that flange becomes the valve's own flange on that
+ * side and the line grows by the valve; on a valve already on the open
+ * end, the two bolt face to face with no flanges between. Returns the new
+ * valve's id, or null when the end holds neither (the caller places it as
+ * before).
+ */
+export function boltValveOnEnd(drawing: Drawing, nodeId: string, kind: ComponentKind): string | null {
+  const node = drawing.nodes.find((n) => n.id === nodeId);
+  const touching = drawing.runs.filter((r) => r.from === nodeId || r.to === nodeId);
+  if (!node || touching.length !== 1 || !isValve(kind)) return null;
+  const run = touching[0];
+  const joint = drawing.options.joint ?? 'BW';
+  const dn = run.dn;
+  if (resolveEnds(kind, dn, undefined, joint) !== 'FLG') return null;
+  const half = componentTakeout(kind, dn, valveFlangeKind(joint));
+  const faceHalf = componentTakeout(kind, dn, false);
+  const a = drawing.nodes.find((n) => n.id === run.from);
+  const b = drawing.nodes.find((n) => n.id === run.to);
+  const dir = a && b ? direction(a.pos, b.pos) : null;
+  if (!a || !b || !dir) return null;
+  const total = length3(sub(b.pos, a.pos));
+  const atTo = run.to === nodeId;
+  // Distances measured outward from the end point.
+  const outward = (offset: number) => (atTo ? offset - total : -offset);
+  let centre: number;
+  let weldKey: string | null = null;
+  let bareNew: 0 | 1 | undefined;
+  const term = node.terminal?.kind;
+  if (term && isFlangeKind(term) && term !== 'FLG_BLIND') {
+    // The end flange is the valve's own: its weld stays where it is.
+    centre = half - terminalTakeoutOf(term, dn);
+    weldKey = `n:${nodeId}:term`;
+    node.terminal = undefined;
+  } else {
+    const prev = run.inline.find((c) => valveOpenSide(drawing, run, c) === (atTo ? 1 : 0));
+    if (!prev) return null;
+    const prevFace = outward(prev.offset) + componentTakeout(prev.kind, prev.dn ?? dn, false);
+    centre = prevFace + faceHalf;
+    prev.bare = atTo ? 1 : 0;
+    prev.lastFlange = undefined;
+    bareNew = atTo ? 0 : 1;
+  }
+  const reach = centre + half;
+  if (atTo) b.pos = add(b.pos, scale3(dir, reach));
+  else {
+    a.pos = add(a.pos, scale3(dir, -reach));
+    for (const c of run.inline) c.offset += reach;
+  }
+  const comp: InlineComponent = { id: uid('c'), kind, offset: atTo ? total + centre : reach - centre };
+  if (bareNew !== undefined) comp.bare = bareNew;
+  run.inline.push(comp);
+  run.inline.sort((x, y) => x.offset - y.offset);
+  if (weldKey && drawing.weldOverrides?.[weldKey]) {
+    drawing.weldOverrides[`c:${comp.id}:${atTo ? 0 : 1}`] = drawing.weldOverrides[weldKey];
+    delete drawing.weldOverrides[weldKey];
+  }
+  return comp.id;
 }
 
 /** Deletes the whole pipe a run belongs to; an olet left with no header is no olet. */

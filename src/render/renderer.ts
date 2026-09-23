@@ -533,6 +533,17 @@ export function renderDrawing(state: RenderState): string {
           f = { ...f, cx: p.x + inward.x * (hub + faceHalf), cy: p.y + inward.y * (hub + faceHalf) };
         }
       }
+      // A valve bolted face to face with the next is drawn with that face on
+      // the true joint, so the two symbols meet with no pipe showing between.
+      if (faceHalf !== undefined && comp.bare !== undefined && total > 0) {
+        const trueFace = comp.offset + (comp.bare === 1 ? 1 : -1) * componentTakeout(comp.kind, dn, false);
+        const face = along(trueFace);
+        const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+        const ux = (b.x - a.x) / len;
+        const uy = (b.y - a.y) / len;
+        const back = comp.bare === 1 ? -faceHalf : faceHalf;
+        f = { ...f, cx: face.x + ux * back, cy: face.y + uy * back };
+      }
       compCentre.set(comp.id, { x: f.cx, y: f.cy });
       comps += `<g class="component${selectedComp ? ' selected' : ''}" data-component="${comp.id}">`;
       comps +=
@@ -572,11 +583,15 @@ export function renderDrawing(state: RenderState): string {
         // Weld neck flanges on a butt welded line; socket weld or threaded on those.
         const flange = valveFlangeKind(drawing.options.joint ?? 'BW');
         // The valve's last face on an open end: its flange, none, or a blind.
-        const lastSide = comp.lastFlange ? valveOpenSide(drawing, run, comp) : null;
-        // The line ends at the valve's face: no pipe drawn on past it.
-        if (lastSide !== null) {
+        const openSide = valveOpenSide(drawing, run, comp);
+        const lastSide = comp.lastFlange ? openSide : null;
+        // On the open end the line stops at the valve: at its face with no
+        // flange there, at the flange's weld with one — no pipe drawn past.
+        if (openSide !== null) {
           const piece = straights.find((st) => st.run.id === run.id);
-          const face = { x: f.cx + f.dx * (lastSide === 0 ? -faceHalf : faceHalf), y: f.cy + f.dy * (lastSide === 0 ? -faceHalf : faceHalf) };
+          const reach = faceHalf + (comp.lastFlange ? 0 : flangeHub(flange, size));
+          const face = { x: f.cx + f.dx * (openSide === 0 ? -reach : reach), y: f.cy + f.dy * (openSide === 0 ? -reach : reach) };
+          const lastSide = openSide;
           if (piece) {
             if (lastSide === 1) piece.pb = face;
             else piece.pa = face;
@@ -585,6 +600,11 @@ export function renderDrawing(state: RenderState): string {
         for (const side of [0, 1] as const) {
           const at = side === 0 ? -faceHalf : faceHalf;
           if (lastSide === side && comp.lastFlange === 'none') continue;
+          // Bolted face to face with the valve beside it: the joint, no flange.
+          if (comp.bare === side) {
+            comps += gasketLine(f, at);
+            continue;
+          }
           if (lastSide === side && comp.lastFlange === 'blind') {
             comps += gasketLine(f, at) + counterFlange(f, 'FLG_BLIND', side === 0 ? -1 : 1, faceHalf + size * 0.12);
             continue;

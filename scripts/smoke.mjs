@@ -2382,6 +2382,50 @@ check('taken off again, the point comes back in', await page.evaluate(() => Math
 await page.keyboard.press('Escape');
 await page.waitForTimeout(150);
 
+/* ------------------------ fittings one after another: a valve bolted on the end flange */
+
+// "I want to put fittings one after another with no pipe: a valve on the
+// end flange went on the pipe before the flange instead; for manual and
+// actuated valves alike" (2026-09-23). A valve put on an end that wears a
+// flange takes that flange as its own and the line grows by the valve;
+// a second valve on the end bolts face to face with the first.
+{
+  await routeLine('3"\nSTD\nORIGIN 0 0 0\nEND FLG\nE 2000\nEND FLG');
+  const boltEnd = () => page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem('iso-draw.drawing.v1'));
+    return d.nodes.find((n) => n.pos.e > 0).id;
+  });
+  const listCount = async (name) => {
+    await page.click('#tabs button:has-text("Items")');
+    await page.waitForTimeout(200);
+    const rows = await page.locator('#tab-body table tbody tr').allInnerTexts();
+    await page.click('#tabs button:has-text("Route")');
+    return rows.find((r) => r.includes(name))?.split('\t')[4] ?? '0';
+  };
+  const weldCount = async () => {
+    await page.click('#tabs button:has-text("Welds")');
+    await page.waitForTimeout(200);
+    const n = await page.locator('#tab-body table tbody tr').count();
+    await page.click('#tabs button:has-text("Route")');
+    return n;
+  };
+  await tapNode(await boltEnd());
+  await page.locator('.tool[data-kind="BALL"]').click();
+  await page.waitForTimeout(300);
+  const afterOne = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')));
+  check('a valve on the end flange bolts on: the flange is its own, the line grows by the valve', `${afterOne.runs.length} ${afterOne.runs[0].inline.length} ${afterOne.nodes.find((n) => n.pos.e > 0).terminal ? 'end flange kept' : 'no end flange'} ${afterOne.nodes.find((n) => n.pos.e > 0).pos.e > 2000}`, (v) => v === '1 1 no end flange true', '1 1 no end flange true');
+  check('three flanges and three welds, the pipe unchanged', `${await listCount('WELD NECK FLANGE')} ${await weldCount()} ${await listCount('PIPE, SMLS')}`, (v) => v === '3 3 1.86', '3 flanges, 3 welds, 1.86 m of pipe');
+  await page.keyboard.press('Escape');
+  await tapNode(await boltEnd());
+  await page.locator('.tool[data-kind="BALL_ACT"]').click();
+  await page.waitForTimeout(300);
+  const afterTwo = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).runs[0].inline.map((c) => `${c.kind}:${c.bare}`).join(' '));
+  check('an actuated valve on that valve bolts face to face, no flanges between', afterTwo, (v) => v === 'BALL:1 BALL_ACT:0', 'BALL:1 BALL_ACT:0');
+  check('still three flanges and three welds, the pipe unchanged', `${await listCount('WELD NECK FLANGE')} ${await weldCount()} ${await listCount('PIPE, SMLS')}`, (v) => v === '3 3 1.86', '3 flanges, 3 welds, 1.86 m of pipe');
+  check('the last valve offers its last flange', await page.locator('#tab-body [data-f="last-flange"]').count(), (v) => v === 1, '1');
+  await page.keyboard.press('Escape');
+}
+
 /* ---------------- a valve's last flange off or blinded; a note removed; flange to flange */
 
 // "Let me delete the last flange on a manual or actuated valve, and put a

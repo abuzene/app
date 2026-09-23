@@ -762,7 +762,11 @@ export function analyse(drawing: Drawing): Analysis {
       // A valve on the open end may reach past it (its last flange taken
       // off, the end brought in to its face): only what lies on the run counts.
       const open = valveOpenSide(drawing, run, comp) !== null;
-      cut -= open ? Math.min(comp.offset + half, centre) - Math.max(comp.offset - half, 0) : half * 2;
+      // A side bolted straight to the next valve has no flange on it.
+      const flangeLen = half - componentTakeout(comp.kind, dn, false);
+      const lo = comp.offset - half + (comp.bare === 0 ? flangeLen : 0);
+      const hi = comp.offset + half - (comp.bare === 1 ? flangeLen : 0);
+      cut -= open ? Math.min(hi, centre) - Math.max(lo, 0) : hi - lo;
     }
     runLengths.set(run.id, { run, centre, cut: Math.max(0, cut) });
     // Nothing left to cut between two fittings: they meet, and there is one
@@ -1029,6 +1033,8 @@ export function analyse(drawing: Drawing): Analysis {
         if (onTerminal(side === 0)) continue;
         // No flange on the valve's last face (or a blind there): nothing welded.
         if (comp.lastFlange && valveOpenSide(drawing, run, comp) === side) continue;
+        // Bolted straight to the valve beside it: no flange, no weld.
+        if (comp.bare === side) continue;
         const distance = side === 0 ? comp.offset - takeout : comp.offset + takeout;
         // A reducer's two welds are each the size of their own end.
         const sideDn = isReducer(comp.kind) ? (side === 0 ? reducerSides(comp, run.dn).start : reducerSides(comp, run.dn).end) : dn;
@@ -1375,6 +1381,7 @@ export function analyse(drawing: Drawing): Analysis {
         const takeout = componentTakeout(comp.kind, dn, flange);
         const lastSide = comp.lastFlange ? valveOpenSide(drawing, run, comp) : null;
         for (const side of [-1, 1] as const) {
+          if (comp.bare !== undefined && side === (comp.bare === 0 ? -1 : 1)) continue;
           if (lastSide !== null && side === (lastSide === 0 ? -1 : 1)) {
             // The last flange taken off, or a blind bolted on in its place.
             if (comp.lastFlange === 'blind') {

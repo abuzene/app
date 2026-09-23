@@ -93,6 +93,11 @@ export interface InlineComponent {
    * on the valve's face. His ask, 2026-09-23.
    */
   lastFlange?: 'none' | 'blind';
+  /**
+   * The side (0 start, 1 end) of a flanged valve bolted straight to the
+   * valve beside it: no flange there, nothing welded, off the list.
+   */
+  bare?: 0 | 1;
 }
 
 export interface Terminal {

@@ -1,7 +1,7 @@
 import type { ComponentKind, FlangeKind, JointType, Run, TerminalKind } from '../model/types';
 import type { Host } from './types';
 import { COMPONENT_LABEL, TERMINAL_LABEL, dimensionStops, isValve, oletEntries, oletLegs, oletMarks, resolveEnds, terminalTakeoutOf, valveOpenSide } from '../model/drawing';
-import { addComponent, addEquipment, addFlangeJoint, applyReducer, runLength, setLastFlange, setTerminal, splitRun } from '../model/edit';
+import { addComponent, addEquipment, addFlangeJoint, applyReducer, boltValveOnEnd, runLength, setLastFlange, setTerminal, splitRun } from '../model/edit';
 import { axisBetween } from '../model/iso';
 import { DN_LIST, componentTakeout, fittingTakeout, sizeLabel, valveFlangeKind } from '../model/pipe-data';
 import { isFlange } from '../render/symbols';
@@ -356,6 +356,20 @@ function place(host: Host, kind: ComponentKind): void {
       const run = info.runs[0];
       if (run) {
         placeFlangeOnRun(host, run, kind, run.from === nodeId ? 'start' : 'end', fittingTakeout(info.fitting, run.dn));
+        return;
+      }
+    }
+
+    // A valve on an end bolts on to the flange or valve already there.
+    // Tried on a copy first, so an end with nothing to bolt to leaves no undo step.
+    if (isValve(kind) && info && info.degree <= 1 && boltValveOnEnd(JSON.parse(JSON.stringify(host.state.drawing)), nodeId, kind)) {
+      let bolted: string | null = null;
+      host.edit(`Add ${label}`, (d) => {
+        bolted = boltValveOnEnd(d, nodeId, kind);
+      });
+      if (bolted) {
+        host.select({ kind: 'component', id: bolted });
+        host.notify(`${label} bolted on, no pipe between. Its last flange can be taken off or blinded in its panel.`);
         return;
       }
     }
