@@ -3,6 +3,7 @@ import type { Axis, Drawing, Run, Vec3 } from './model/types';
 import type { Preview, Selection } from './render/renderer';
 import type { AppState, Host, OletAsk, OletChoice, ReducerAsk, ReducerChoice } from './ui/types';
 import { reducerPreview } from './ui/reducer-preview';
+import { tidyLayout, type LayoutSpecs } from './render/tidy';
 import { analyse, chainStops, dimensionStops, drawnLength, runGroupIds, emptyDrawing, minDrawnLength, oletLegs, oletMarks, uid } from './model/drawing';
 import { loadLibrary, removeDrawing, renumberProject, sheetNumber, upsertDrawing, worthKeeping } from './model/library';
 import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, noteRemovedFromLibrary, setDriveClientId, syncDrive } from './model/drive';
@@ -10,8 +11,8 @@ import { AXES, AXIS_VECTOR, add, length3, scale3, sub } from './model/iso';
 import { initialCommandState, runCommands } from './model/commands';
 import { addMeasure, applyMeasureToOlet, DASHED_NOTE, deleteRunGroup, measureTypeable, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, ensureNode, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, runLength, setRunDashed, setRunDirect, startFromEquipment, stretchRun } from './model/edit';
 import { DN_LIST, schedulesFor, sizeLabel } from './model/pipe-data';
-import { northArrow, paperOf, toPaper } from './render/renderer';
-import { renderSheet, type SheetSize } from './render/sheet';
+import { northArrow, paperOf, renderDrawing, symbolSizeFor, toPaper } from './render/renderer';
+import { renderSheet, sheetSymbolSize, type SheetSize } from './render/sheet';
 import { Canvas } from './ui/canvas';
 import { fileStem, renderPanel, renderTabs } from './ui/panels';
 import { renderTools } from './ui/tools';
@@ -317,12 +318,12 @@ function openDimensionEditor(key: string, clientX: number, clientY: number): voi
         ]
       : [
           {
-            label: 'Hide this dimension',
+            label: 'Delete this dimension',
             act: () => {
-              host.edit('Hide dimension', (d) => {
+              host.edit('Delete dimension', (d) => {
                 d.dimOverrides = { ...d.dimOverrides, [key]: { ...d.dimOverrides?.[key], hidden: true } };
               });
-              host.notify('Dimension hidden. The run\'s panel brings it back.');
+              host.notify('Dimension deleted: off the drawing and the sheet. Undo, or the run\'s panel (Dimension: show), brings it back.');
             },
           },
         ],
@@ -1300,6 +1301,43 @@ try {
 $('undo').addEventListener('click', undo);
 $('redo').addEventListener('click', redo);
 $('fit').addEventListener('click', () => fitView());
+$('tidy').addEventListener('click', () => tidyDrawing());
+
+/**
+ * Lays out every dimension, weld tag, balloon and pipe letter so none sits
+ * on another or on the pipe, each as close to what it belongs to as it can
+ * be, and keeps the result as though each had been dragged there: one
+ * undo step, and every one can still be moved by hand. Laid out for the
+ * bigger of the screen's symbols and the sheet's, so the PDF reads as well.
+ */
+function tidyDrawing(): void {
+  if (state.drawing.runs.length === 0) return;
+  const size = Math.max(symbolSizeFor(state.drawing, state.analysis), sheetSymbolSize(state.drawing, state.analysis));
+  const specs: LayoutSpecs = { size, centroid: { x: 0, y: 0 }, pipes: [], points: [], texts: [], dims: [], tags: [], balloons: [], letters: [] };
+  renderDrawing({ drawing: state.drawing, analysis: state.analysis, view: { x: 0, y: 0, w: 1, h: 1 }, selection: null, symbol: size, collect: specs });
+  const result = tidyLayout(specs);
+  host.edit('Tidy', (d) => {
+    const dims = { ...d.dimOverrides };
+    for (const [key, place] of Object.entries(result.dims)) dims[key] = { ...dims[key], offset: place.offset, along: place.along };
+    d.dimOverrides = dims;
+    for (const [key, tag] of Object.entries(result.tags)) d.weldOverrides[key] = { ...d.weldOverrides[key], tag };
+    const items = { ...d.itemOverrides };
+    const balloons = { ...d.balloons };
+    for (const [key, b] of Object.entries(result.balloons)) {
+      items[key] = { dx: b.dx, dy: b.dy };
+      balloons[b.line] = { ...balloons[b.line], at: key, hidden: undefined };
+    }
+    // Letters that sit well where they are anyway lose any old drag.
+    for (const letter of specs.letters) {
+      const moved = result.letters[letter.key];
+      if (moved) items[letter.key] = moved;
+      else delete items[letter.key];
+    }
+    d.itemOverrides = items;
+    d.balloons = balloons;
+  });
+  host.notify('Tidied: dimensions, weld numbers, balloons and letters laid out clear of each other. Undo puts them back.');
+}
 $('rotate').addEventListener('click', () => {
   updateOptions((o) => {
     o.northRotation = ((o.northRotation + 1) % 4) as 0 | 1 | 2 | 3;

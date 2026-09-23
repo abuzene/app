@@ -16,6 +16,22 @@ const SHEETS: Record<SheetSize, { w: number; h: number }> = {
 // Tight: the frame sits 5 mm in from the paper edge, which is as close as
 // most printers will put ink.
 const MARGIN = 5;
+
+/**
+ * The symbol half-size, in drawing paper units, that the printed sheet
+ * will use: the sheet fits the drawing to its area, so this is not the
+ * screen's. Tidy lays out for whichever is bigger.
+ */
+export function sheetSymbolSize(drawing: Drawing, analysis: Analysis, size: SheetSize = 'A3'): number {
+  const { w: W, h: H } = SHEETS[size];
+  const col = Math.min(112, W * 0.26);
+  const areaW = W - MARGIN - col - MARGIN - 5;
+  const areaH = H - MARGIN * 2;
+  const bounds = contentBounds(drawing, analysis);
+  const pad = 18;
+  const k = Math.min((areaW - pad * 2) / Math.max(bounds.maxX - bounds.minX, 1), (areaH - pad * 2) / Math.max(bounds.maxY - bounds.minY, 1));
+  return (SYMBOL_MM * 1.35) / k;
+}
 /** Symbol half-size on the printed sheet, in mm: a third up on the screen's, as he asked. */
 const SHEET_SYMBOL_MM = SYMBOL_MM * 1.35;
 

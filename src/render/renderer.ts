@@ -3,6 +3,7 @@ import type { Axis, DimOverride, Drawing, FlangeKind, Run, Vec3 } from '../model
 import { COMPONENT_LABEL, SYMBOL_MM, TERMINAL_LABEL, chainStops, dimensionStops, fittingLabel, runGroupIds, isMark, isReducer, isSupport, isValve, itemAtEnd, oletEntries, oletLegs, resolveEnds, valveOpenSide } from '../model/drawing';
 import { componentTakeout, sizeLabel, valveFlangeKind } from '../model/pipe-data';
 import { AXIS_VECTOR, axisBetween, axisScreenDir, equals3, northArrowDir, project, scale3, add } from '../model/iso';
+import type { LayoutSpecs } from './tidy';
 import { componentSymbol, counterFlange, flangeHub, flangeSymbol, frameFor, gasketLine, groundSymbol, isFlange, jointMark, oletSymbol, supportCallout, supportSymbol, terminalSymbol, transitionSymbol, type Facing, type Frame } from './symbols';
 
 export interface ViewBox {
@@ -75,6 +76,8 @@ export interface RenderState {
   hitSize?: number;
   /** Symbol half-size in paper units, when the sheet sets it rather than the drawing's scale. */
   symbol?: number;
+  /** Filled with what Tidy lays out, when given (nothing is drawn differently). */
+  collect?: LayoutSpecs;
 }
 
 export interface Pt {
@@ -306,6 +309,16 @@ export function renderDrawing(state: RenderState): string {
 
   const bounds = contentBounds(drawing, analysis);
   const centroid: Pt = { x: (bounds.minX + bounds.maxX) / 2, y: (bounds.minY + bounds.maxY) / 2 };
+  const collect = state.collect;
+  if (collect) {
+    collect.size = size;
+    collect.centroid = centroid;
+  }
+  /** A dimension drawn, and handed to Tidy when it is laying out. */
+  const dimension = (a: Pt, b: Pt, c: Pt, text: string, sz: number, key: string, hr: number, place?: DimOverride) => {
+    collect?.dims.push({ key, a, b, text });
+    return renderDimension(a, b, c, text, sz, key, hr, place);
+  };
 
   const paper = (id: string) => paperOf(analysis, drawing, id);
 
@@ -414,6 +427,7 @@ export function renderDrawing(state: RenderState): string {
         (lead ? `<line class="balloon-leader" x1="${lead.x.toFixed(2)}" y1="${lead.y.toFixed(2)}" x2="${nx.toFixed(2)}" y2="${ny.toFixed(2)}"/>` : '') +
         `<text class="sym-text callout-text" x="${nx.toFixed(2)}" y="${ny.toFixed(2)}" text-anchor="middle" dominant-baseline="middle" font-size="${(size * 1.0).toFixed(2)}">${escapeText(run.note)}</text>` +
         `</g>`;
+      collect?.texts.push({ p: { x: nx, y: ny }, w: run.note.length * size * 0.62 + size * 0.4, h: size * 1.2 });
       calloutHits += `<circle class="hit-dot" data-balloon="rn:${run.id}" data-ax="${mx.toFixed(2)}" data-ay="${my.toFixed(2)}" cx="${nx.toFixed(2)}" cy="${ny.toFixed(2)}" r="${Math.max(size * 1.4, hitR * 0.6).toFixed(2)}"/>`;
     }
     const along = (mm: number): Pt => {
@@ -457,7 +471,7 @@ export function renderDrawing(state: RenderState): string {
               gapAt = ((marks[k] + marks[k + 1]) / 2 - stops[i]) / span;
             }
           }
-          const dim = renderDimension(at(stops[i]), at(stops[i + 1]), centroid, formatMm(span), size, key, hitR, { along: gapAt, ...place });
+          const dim = dimension(at(stops[i]), at(stops[i + 1]), centroid, formatMm(span), size, key, hitR, { along: gapAt, ...place });
           dims += dim.svg;
           dimHits += dim.hit;
           figures.push(dim.at);
@@ -466,7 +480,7 @@ export function renderDrawing(state: RenderState): string {
           const key = `olet:${olet.nodeId}`;
           const place = drawing.dimOverrides?.[key];
           if (place?.hidden) continue;
-          const dim = renderDimension(at(0), at(olet.along), centroid, formatMm(olet.along), size, key, hitR, { offset: size * 5.2, ...place });
+          const dim = dimension(at(0), at(olet.along), centroid, formatMm(olet.along), size, key, hitR, { offset: size * 5.2, ...place });
           dims += dim.svg;
           dimHits += dim.hit;
           figures.push(dim.at);
@@ -493,7 +507,7 @@ export function renderDrawing(state: RenderState): string {
         if (span < 0.5) continue;
         const place = drawing.dimOverrides?.[`${run.id}:${i}`];
         if (place?.hidden) continue;
-        const dim = renderDimension(at(stops[i]), at(stops[i + 1]), centroid, formatMm(span), size, `${run.id}:${i}`, hitR, place);
+        const dim = dimension(at(stops[i]), at(stops[i + 1]), centroid, formatMm(span), size, `${run.id}:${i}`, hitR, place);
         dims += dim.svg;
         dimHits += dim.hit;
         figures.push(dim.at);
@@ -645,6 +659,14 @@ export function renderDrawing(state: RenderState): string {
       rear.gaps.push(rear === A ? hit.t : hit.u);
     }
   }
+  if (collect) {
+    collect.pipes = straights.map((st) => [st.pa, st.pb] as [Pt, Pt]);
+    for (const p of compCentre.values()) collect.points.push({ p, r: size * 1.3 });
+    for (const id of analysis.nodeById.keys()) {
+      const p = paper(id);
+      if (p) collect.points.push({ p, r: size * 0.9 });
+    }
+  }
   for (const piece of straights) {
     const cls = `pipe${piece.run.dashed ? ' dashed' : ''}${piece.selected ? ' selected' : ''}`;
     const len = Math.hypot(piece.pb.x - piece.pa.x, piece.pb.y - piece.pa.y);
@@ -783,6 +805,8 @@ export function renderDrawing(state: RenderState): string {
     if ((joint.number || joint.skipped) && !onPoint) {
       weldHits += `<circle class="hit-dot" data-weld="${joint.key}" cx="${f.cx.toFixed(2)}" cy="${f.cy.toFixed(2)}" r="${Math.max(size * 0.9, hitR * 0.4).toFixed(2)}"/>`;
     }
+    collect?.points.push({ p: { x: f.cx, y: f.cy }, r: size * 0.45 });
+    if (collect && drawing.options.showWelds && joint.number) collect.tags.push({ key: joint.key, at: { x: f.cx, y: f.cy }, n: { x: f.nx, y: f.ny }, text: joint.number });
     if (drawing.options.showWelds && joint.number) {
       // Joints cluster around fittings, so stagger the tags either side of the
       // pipe rather than stacking them all on the same one.
@@ -871,6 +895,8 @@ export function renderDrawing(state: RenderState): string {
           number: item.number,
           fromX: f.cx,
           fromY: f.cy,
+          nx: f.nx,
+          ny: f.ny,
           x: placed ? f.cx + placed.dx : f.cx + f.nx * reach * inward,
           y: placed ? f.cy + placed.dy : f.cy + f.ny * reach * inward,
           placed: !!placed,
@@ -903,6 +929,7 @@ export function renderDrawing(state: RenderState): string {
       }
       if (!pick) continue;
       marks.push(pick);
+      collect?.balloons.push({ key: pick.key, line, at: { x: pick.fromX, y: pick.fromY }, n: { x: pick.nx, y: pick.ny } });
       crowd.push({ x: pick.x, y: pick.y });
     }
 
@@ -943,6 +970,7 @@ export function renderDrawing(state: RenderState): string {
     const reach = size * 1.6;
     const x = placed ? f.cx + placed.dx : f.cx - f.nx * reach * inward;
     const y = placed ? f.cy + placed.dy : f.cy - f.ny * reach * inward;
+    collect?.letters.push({ key: `pc:${piece.key}`, at: { x: f.cx, y: f.cy }, n: { x: f.nx, y: f.ny }, text: piece.letter, dflt: { x: f.cx - f.nx * reach * inward, y: f.cy - f.ny * reach * inward } });
     const boxW = Math.max(size * 1.7, piece.letter.length * size * 0.8 + size * 0.7);
     const boxH = size * 1.5;
     // Dragged, the letter leads to the pipe right beside it.
@@ -1000,7 +1028,7 @@ export function renderDrawing(state: RenderState): string {
     const place = drawing.dimOverrides?.[key];
     if (place?.hidden) continue;
     const value = Math.hypot(nb.pos.e - na.pos.e, nb.pos.n - na.pos.n, nb.pos.u - na.pos.u);
-    const dim = renderDimension(pa, pb, centroid, formatMm(value), size, key, hitR, { offset: size * 5.2, ...place });
+    const dim = dimension(pa, pb, centroid, formatMm(value), size, key, hitR, { offset: size * 5.2, ...place });
     dims += dim.svg;
     dimHits += dim.hit;
     figures.push(dim.at);
@@ -1046,6 +1074,7 @@ export function renderDrawing(state: RenderState): string {
     const points = corners.map((c) => `${(c.x + dx).toFixed(2)},${(c.y + dy).toFixed(2)}`).join(' ');
     const cx = corners.reduce((sum, c) => sum + c.x, 0) / 4 + dx;
     const cy = corners.reduce((sum, c) => sum + c.y, 0) / 4 + dy;
+    collect?.texts.push({ p: { x: cx, y: cy }, w: (box.name || 'EQUIPMENT').length * size * 0.66 + size * 0.4, h: size * 1.3 });
     const selectedBox = sel?.kind === 'equipment' && sel.id === box.id;
     equipment +=
       `<g class="equipment${selectedBox ? ' selected' : ''}">` +

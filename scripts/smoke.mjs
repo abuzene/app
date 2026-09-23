@@ -1859,7 +1859,7 @@ const figure3 = await page.evaluate(() => {
   return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
 });
 await penTap(figure3.x, figure3.y);
-check('the dimension keypad offers to hide it', await page.locator('.dim-keypad [data-extra="0"]').innerText(), (v) => /Hide/.test(v), 'Hide this dimension');
+check('the dimension keypad offers to delete it', await page.locator('.dim-keypad [data-extra="0"]').innerText(), (v) => v === 'Delete this dimension', 'Delete this dimension');
 await page.locator('.dim-keypad [data-extra="0"]').dispatchEvent('pointerdown', { bubbles: true });
 await page.waitForTimeout(300);
 check('and hidden it is gone', await page.locator('#canvas .dim').count(), (v) => v === 2, '2');
@@ -3186,6 +3186,63 @@ await page.waitForTimeout(200);
 await page.click('#tab-body [data-a="delete-equipment"]');
 await page.waitForTimeout(300);
 check('deleted from its panel', await page.locator('#canvas .equip-box').count(), (v) => v === 0, '0');
+
+/* ---------------------------------------------------------------- Tidy */
+
+// "A button that arranges the dimension lines, weld numbers and item
+// numbers so no line or balloon clashes, neatly, as close to the drawing
+// as it can" (2026-09-23). Tidy lays them all out in one step (one undo),
+// saved as ordinary drags; pieces of one run keep one row.
+{
+  await startNewDrawing();
+  await page.click('[data-a="load-sample"]');
+  await page.waitForTimeout(500);
+  await page.click('#fit');
+  await page.waitForTimeout(300);
+  const clashes = () => page.evaluate(() => {
+    const boxes = [...document.querySelectorAll('#canvas .weld-box, #canvas .balloon-ring, #canvas .pipe-letter-box')].map((e) => e.getBoundingClientRect());
+    const figures = [...document.querySelectorAll('#canvas .dim-text')].map((e) => e.getBoundingClientRect());
+    const over = (a, b) => a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1;
+    let n = 0;
+    for (let i = 0; i < boxes.length; i += 1) for (let j = i + 1; j < boxes.length; j += 1) if (over(boxes[i], boxes[j])) n += 1;
+    for (const f of figures) {
+      const c = { x: (f.left + f.right) / 2, y: (f.top + f.bottom) / 2 };
+      for (const b of boxes) if (c.x > b.left && c.x < b.right && c.y > b.top && c.y < b.bottom) n += 1;
+    }
+    return n;
+  });
+  const beforeTidy = await drawingNow();
+  await page.click('#tidy');
+  await page.waitForTimeout(400);
+  await page.click('#fit');
+  await page.waitForTimeout(300);
+  const tidied = await drawingNow();
+  check('Tidy places every dimension, weld number and balloon', `${Object.keys(tidied.dimOverrides ?? {}).length > 0} ${Object.values(tidied.weldOverrides ?? {}).filter((w) => w.tag).length} ${Object.keys(tidied.balloons ?? {}).length}`, (v) => v === 'true 13 6', 'true 13 6');
+  check('and nothing sits on anything else', await clashes(), (v) => v === 0, '0 clashes');
+  const firstRun = tidied.runs[0].id;
+  const rowOffsets = Object.entries(tidied.dimOverrides).filter(([k]) => k.startsWith(`${firstRun}:`)).map(([, o]) => Math.abs(o.offset).toFixed(3));
+  check('the pieces of one run keep one row', `${rowOffsets.length > 1} ${new Set(rowOffsets).size}`, (v) => v === 'true 1', 'true 1');
+  await page.click('#undo');
+  await page.waitForTimeout(300);
+  const undone = await drawingNow();
+  check('one Undo puts everything back', JSON.stringify([undone.dimOverrides ?? {}, undone.weldOverrides ?? {}, undone.itemOverrides ?? {}, undone.balloons ?? {}]), (v) => v === JSON.stringify([beforeTidy.dimOverrides ?? {}, beforeTidy.weldOverrides ?? {}, beforeTidy.itemOverrides ?? {}, beforeTidy.balloons ?? {}]), 'as before');
+  await page.click('#redo');
+  await page.waitForTimeout(300);
+  await page.click('#print');
+  await page.waitForTimeout(250);
+  await page.click('[data-x="preview"]');
+  await page.waitForTimeout(600);
+  const sheetClashes = await page.evaluate(() => {
+    const boxes = [...document.querySelectorAll('.sheet-preview .weld-box, .sheet-preview .balloon-ring, .sheet-preview .pipe-letter-box')].map((e) => e.getBoundingClientRect());
+    const over = (a, b) => a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5;
+    let n = 0;
+    for (let i = 0; i < boxes.length; i += 1) for (let j = i + 1; j < boxes.length; j += 1) if (over(boxes[i], boxes[j])) n += 1;
+    return `${boxes.length > 10} ${n}`;
+  });
+  check('clear of each other on the printed sheet too', sheetClashes, (v) => v === 'true 0', 'true 0');
+  await page.click('.dialog [data-close]');
+  await page.waitForTimeout(200);
+}
 
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 
