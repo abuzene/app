@@ -537,12 +537,15 @@ const canvas = new Canvas(svg, {
       render();
       return;
     }
-    state.selection = { kind: 'node', id: toId };
-    state.commandState.currentNode = toId;
-    canvas.setAnchor(toId);
+    // The point tapped may be gone: joined straight on, the pipe runs
+    // through and there is nothing left to draw on from.
+    const still = state.drawing.nodes.some((n) => n.id === toId);
+    state.selection = still ? { kind: 'node', id: toId } : null;
+    state.commandState.currentNode = still ? toId : null;
+    canvas.setAnchor(still ? toId : null);
     state.preview = null;
     const elbows = path.filter((id) => state.analysis.nodeInfo.get(id)?.fitting === 'ELBOW_90').length;
-    host.notify(elbows === 0 ? 'Joined, pipe to pipe.' : elbows === 1 ? 'Joined, with an elbow at the turn.' : `Joined, with ${elbows} elbows.`);
+    host.notify(elbows === 0 ? 'Joined: the pipe runs straight through.' : elbows === 1 ? 'Joined, with an elbow at the turn.' : `Joined, with ${elbows} elbows.`);
     render();
   },
   onStart() {
@@ -966,7 +969,7 @@ function renderHud(): void {
     const flanged = sel.kind === 'node' && !!state.drawing.nodes.find((n) => n.id === sel.id)?.flange;
     const olet = sel.kind === 'node' && oletAlone(sel.id);
     const plain = sel.kind === 'node' && isPlainPoint(state.drawing, sel.id);
-    const what = sel.kind === 'run' ? 'run' : sel.kind === 'node' ? (flanged ? 'flanges' : 'point') : sel.kind === 'equipment' ? 'equipment' : 'item';
+    const what = sel.kind === 'run' ? 'pipe' : sel.kind === 'node' ? (flanged ? 'flanges' : 'point') : sel.kind === 'equipment' ? 'equipment' : 'item';
     parts.push(`<button class="hud-stop hud-delete" id="hud-delete" type="button">${flanged ? 'Remove flanges' : olet ? 'Remove olet' : plain ? 'Remove point' : `Delete ${what}`}</button>`);
   }
   parts.push(`<span>snap ${state.drawing.options.snap} mm</span>`);
@@ -1791,16 +1794,24 @@ function oletDialog(ask: OletAsk): Promise<OletChoice | null> {
     const dirs = AXES.filter((axis) => !same(axis, ask.along) && !(ask.taken ?? []).includes(axis));
     const pick = dirs.includes('U') ? 'U' : dirs[0];
     const at = DN_LIST.indexOf(ask.header);
-    const small = DN_LIST[Math.max(0, at - 1)] ?? ask.header;
-    const name = ask.joint === 'SW' ? 'Sockolet' : ask.joint === 'THD' ? 'Threadolet' : 'Weldolet';
+    const tee = ask.kind === 'tee';
+    // A tee is equal unless a smaller branch is picked; an olet's branch is
+    // a size down unless said otherwise.
+    const small = tee ? ask.header : DN_LIST[Math.max(0, at - 1)] ?? ask.header;
+    const name = tee ? 'Tee' : ask.joint === 'SW' ? 'Sockolet' : ask.joint === 'THD' ? 'Threadolet' : 'Weldolet';
+    const sizes = tee ? DN_LIST.filter((dn) => DN_LIST.indexOf(dn) <= at) : DN_LIST;
     backdrop.innerHTML = `
-<div class="dialog" role="dialog" aria-label="Olet" data-editor="olet">
+<div class="dialog" role="dialog" aria-label="${tee ? 'Tee' : 'Olet'}" data-editor="${tee ? 'tee' : 'olet'}">
   <h3>${name} on ${sizeLabel(ask.header)}</h3>
-  <div class="row"><label>Branch size</label><select data-f="olet-dn">${DN_LIST.map((dn) => `<option value="${dn}"${dn === small ? ' selected' : ''}>${sizeLabel(dn)}</option>`).join('')}</select></div>
-  <div class="row"><label>Branch goes</label><select data-f="olet-dir">${dirs.map((axis) => `<option value="${axis}"${axis === pick ? ' selected' : ''}>${AXIS_NAMES[axis]}</option>`).join('')}</select></div>
-  <p class="empty-note">The olet rides on the header, which keeps its full length. Type the dimension up to it to place it; draw the branch from it whenever you like, at the branch size.</p>
+  <div class="row"><label>Branch size</label><select data-f="olet-dn">${sizes.map((dn) => `<option value="${dn}"${dn === small ? ' selected' : ''}>${sizeLabel(dn)}${tee ? (dn === ask.header ? ' — equal tee' : ' — reducing tee') : ''}</option>`).join('')}</select></div>
+  ${tee ? '' : `<div class="row"><label>Branch goes</label><select data-f="olet-dir">${dirs.map((axis) => `<option value="${axis}"${axis === pick ? ' selected' : ''}>${AXIS_NAMES[axis]}</option>`).join('')}</select></div>`}
+  <p class="empty-note">${
+    tee
+      ? 'An equal tee at the header\'s size, or a reducing tee with a smaller branch. Then tap where the branch goes; it is drawn at that size.'
+      : 'The olet rides on the header, which keeps its full length. Type the dimension up to it to place it; draw the branch from it whenever you like, at the branch size.'
+  }</p>
   <div class="btn-row">
-    <button class="btn-line solid" data-confirm>Place olet</button>
+    <button class="btn-line solid" data-confirm>${tee ? 'Place tee' : 'Place olet'}</button>
     <button class="btn-line" data-cancel>Cancel</button>
   </div>
 </div>`;
@@ -1812,7 +1823,7 @@ function oletDialog(ask: OletAsk): Promise<OletChoice | null> {
     backdrop.querySelector('[data-confirm]')?.addEventListener('click', () =>
       close({
         dn: backdrop.querySelector<HTMLSelectElement>('[data-f="olet-dn"]')!.value,
-        dir: backdrop.querySelector<HTMLSelectElement>('[data-f="olet-dir"]')!.value as Axis,
+        dir: (backdrop.querySelector<HTMLSelectElement>('[data-f="olet-dir"]')?.value as Axis | undefined) ?? pick,
       }),
     );
     backdrop.querySelector('[data-cancel]')?.addEventListener('click', () => close(null));

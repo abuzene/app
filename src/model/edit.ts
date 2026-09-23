@@ -900,7 +900,10 @@ export function connectNodes(drawing: Drawing, fromId: string, toId: string, dn:
     }
     if (!ok || here !== toId) continue;
     Object.assign(drawing, trial);
-    return { path };
+    // Joined straight on to a line, the ends are no joints of their own: the
+    // pipe runs through, with no point left where the gap was.
+    for (const id of [fromId, toId]) if (isPlainPoint(drawing, id)) joinThrough(drawing, id);
+    return { path: path.filter((id) => drawing.nodes.some((n) => n.id === id)) };
   }
   return { path: [], refused: 'No way round from here to there clear of the lines already drawn.' };
 }

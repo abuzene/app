@@ -97,6 +97,8 @@ export interface ReducerAsk {
 }
 
 export interface OletAsk {
+  /** An olet (the default), or a tee: a tee's branch way is where it is drawn, so only its size is asked. */
+  kind?: 'olet' | 'tee';
   joint: JointType;
   /** The header's size. */
   header: string;

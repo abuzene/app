@@ -434,10 +434,24 @@ function placeBranch(host: Host, tool: BranchTool): void {
     host.notify('Select the header run first, then pick a branch fitting.');
     return;
   }
-  const label = 'tee';
+  void placeTee(host, run);
+}
+
+/**
+ * A tee is cut into the header. Equal, or reducing with a smaller branch:
+ * asked first, then the branch is drawn from the new point at that size,
+ * which is what makes it the one or the other. The dimension up to the tee
+ * opens for typing; dragging the point slides it along the header.
+ */
+async function placeTee(host: Host, run: Run): Promise<void> {
+  const { drawing } = host.state;
+  const a = drawing.nodes.find((n) => n.id === run.from);
+  const b = drawing.nodes.find((n) => n.id === run.to);
+  const choice = await host.oletDialog({ kind: 'tee', joint: 'BW', header: run.dn, along: a && b ? axisBetween(a.pos, b.pos) : null });
+  if (!choice) return;
   const at = runLength(host.state.drawing, run) / 2;
   let nodeId: string | null = null;
-  host.edit(`Add ${label}`, (d) => {
+  host.edit('Add tee', (d) => {
     nodeId = splitRun(d, run.id, at);
     if (!nodeId) return;
     const node = d.nodes.find((n) => n.id === nodeId);
@@ -447,13 +461,16 @@ function placeBranch(host: Host, tool: BranchTool): void {
     node.fittingOverride = undefined;
     node.joint = undefined;
   });
-  if (nodeId) {
-    // The route is left ready at the new point, so the branch is drawn by
-    // clicking where it goes. Dragging the point instead slides it along the
-    // header, which is how it gets to where it actually belongs.
-    host.continueFrom(nodeId);
-    openDimensionUpTo(host, nodeId);
+  if (!nodeId) {
+    host.notify('The run is too short for a tee.');
+    return;
   }
+  // The route is left ready at the new point, so the branch is drawn by
+  // tapping where it goes, at the branch size picked.
+  host.continueFrom(nodeId);
+  host.setCurrentSize(choice.dn);
+  host.notify(`Tap where the branch goes: ${sizeLabel(choice.dn)} off the tee.`);
+  openDimensionUpTo(host, nodeId);
 }
 
 /**

@@ -85,7 +85,7 @@ function runProperties(host: Host, runId: string): string {
   <p class="empty-note">Cut length after take-outs: <strong>${mm(lengths?.cut ?? 0)} mm</strong></p>
   <div class="btn-row">
     <button class="btn-line" data-a="split">Split in half</button>
-    <button class="btn-line danger" data-a="delete-run">Delete run</button>
+    <button class="btn-line danger" data-a="delete-run">Delete pipe — this length only</button>
   </div>
 </div>`;
 }

@@ -471,10 +471,14 @@ await page.waitForTimeout(300);
 await page.locator('#tab-body .run-list tbody tr').first().click();
 await page.waitForTimeout(250);
 await page.locator('.tool[data-branch="TEE"]').click();
+await page.waitForTimeout(300);
+// A tee asks its branch size first: equal, or smaller for a reducing tee.
+check('a tee asks whether it is equal or reducing', await page.locator('.dialog[data-editor="tee"] [data-f="olet-dn"] option').allInnerTexts().then((v) => v.some((t) => /equal tee/.test(t)) && v.some((t) => /reducing tee/.test(t))), (v) => v === true, 'equal and reducing choices');
+await page.selectOption('.dialog[data-editor="tee"] [data-f="olet-dn"]', 'DN80');
+await page.click('.dialog[data-editor="tee"] [data-confirm]');
 await page.waitForTimeout(450);
 const teeHandle = await page.locator('#canvas .node.selected circle.hit-dot').boundingBox();
-await page.selectOption('#dn', 'DN80');
-await page.waitForTimeout(250);
+check('and arms the branch at that size', await page.inputValue('#dn'), (v) => v === 'DN80', 'DN80');
 await page.mouse.move(teeHandle.x + 130, teeHandle.y - 95, { steps: 10 });
 await page.waitForTimeout(200);
 await page.mouse.click(teeHandle.x + 130, teeHandle.y - 95);
@@ -1088,7 +1092,7 @@ await page.keyboard.press('Escape');
 await page.waitForTimeout(150);
 await page.locator('#canvas [data-run]').last().click({ force: true });
 await page.waitForTimeout(250);
-check('a Delete button shows for the selection', await page.locator('#hud-delete').innerText(), (v) => /Delete run/.test(v), 'Delete run');
+check('a Delete button shows for the selection', await page.locator('#hud-delete').innerText(), (v) => /Delete pipe/.test(v), 'Delete pipe');
 await page.click('#hud-delete');
 await page.waitForTimeout(350);
 check('and it deletes', await page.locator('#tab-body .run-list tbody tr').count(), (v) => v === runsBeforeEndDrag - 1, `${runsBeforeEndDrag - 1}`);
@@ -1153,6 +1157,8 @@ await page.waitForTimeout(200);
 await page.locator('#canvas [data-run]').last().click({ force: true });
 await page.waitForTimeout(200);
 await page.click('.tool[data-branch="TEE"]');
+await page.waitForTimeout(300);
+await page.click('.dialog[data-editor="tee"] [data-confirm]');
 await page.waitForTimeout(400);
 check('a tee put in opens its dimension for typing', await page.locator('.dim-editor').count(), (v) => v === 1, '1');
 await page.fill('.dim-editor', '300');
@@ -1999,10 +2005,12 @@ await tapNode(gapNodes.find((p) => p[1] === 3000 && p[2] === 0)[0]);
 await page.click('#tab-body [data-a="draw-from"]');
 await page.waitForTimeout(250);
 await penTapNode(gapNodes.find((p) => p[1] === 6000 && p[2] === 2000)[0]);
-check('ends not on a line are joined round a corner', await runCount(), (v) => v === 4, '4');
+// The legs run straight on into both pieces, so they join through: two
+// runs meeting at the one elbow, and no point left where the ends were.
+check('ends not on a line are joined round a corner, straight through into both pieces', `${await runCount()} ${(await nodesAt()).length}`, (v) => v === '2 3', '2 runs, 3 points');
 check('the corner where the fewest turns put it', (await nodesAt()).some((p) => p[1] === 6000 && p[2] === 0), (v) => v === true, 'a point at 6000, 0');
 check('with the one elbow there', await page.locator('#hud').innerText(), (v) => /Joined, with an elbow at the turn/.test(v), 'Joined, with an elbow at the turn.');
-check('the joined end welded straight through', await page.locator('#tab-body').innerText(), (v) => /POINT — JOINT/.test(v), 'POINT — JOINT');
+check('the joined ends left no joint of their own', await page.locator('#tab-body').innerText(), (v) => !/POINT — JOINT/.test(v), 'no joint point');
 await page.keyboard.press('Escape');
 await page.waitForTimeout(150);
 
@@ -2563,6 +2571,32 @@ check('its keypad offers to take it off', await page.locator('button:has-text("R
 await page.click('button:has-text("Remove this dimension")');
 await page.waitForTimeout(300);
 check('and it goes', await page.locator('#canvas circle.hit-dot[data-dim^="meas:"]').count(), (v) => v === 0, '0');
+
+/* --------------------------------- a length of pipe deleted, the gap closed clean */
+
+// Delete pipe takes one length out; drawing the open end back to the
+// other piece joins the line straight through, leaving no point behind.
+await routeLine('4"\nSTD\nORIGIN 0 0 0\nE 4000\nN 2000');
+await page.locator('#canvas [data-run]').first().click({ force: true });
+await page.waitForTimeout(200);
+await page.locator('.tool[data-weld="BW"]').click();
+await page.waitForTimeout(400);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
+await page.locator('#canvas [data-run]').nth(1).click({ force: true });
+await page.waitForTimeout(200);
+check('a run picked offers Delete pipe', await page.locator('#hud-delete').innerText(), (v) => v === 'Delete pipe', 'Delete pipe');
+await page.click('#hud-delete');
+await page.waitForTimeout(300);
+check('only that length goes', `${await runCount()} ${(await nodesAt()).length}`, (v) => v === '2 4', '2 runs, 4 points');
+const gapP = (await nodesAt()).find((p) => p[1] === 2000 && p[2] === 0)[0];
+const gapQ = (await nodesAt()).find((p) => p[1] === 4000 && p[2] === 0)[0];
+await tapNode(gapP);
+await page.click('#tab-body [data-a="draw-from"]');
+await page.waitForTimeout(250);
+await penTapNode(gapQ);
+check('drawn back to the other piece, the pipe runs straight through with no point left', `${await runCount()} ${(await nodesAt()).length}`, (v) => v === '2 3', '2 runs, 3 points');
+check('and the header is one dimension again', await page.locator('#canvas .dim-text').evaluateAll((els) => els.map((e) => e.textContent).sort().join()), (v) => v === '2000,4000', '4000 and 2000');
 
 /* ----------------------------------------------- an olet taken off again */
 

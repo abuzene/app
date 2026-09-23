@@ -131,7 +131,17 @@ ships, and the decisions already taken, so they are not re-litigated.
   on a line, else legs round a corner, the way with the fewest turns
   (straight out of / into the ends where possible), refused if it would lie
   along a line already drawn. Elbows come from the turns as usual. Tapping
-  any other point while drawing still just moves the pencil there.
+  any other point while drawing still just moves the pencil there. An end
+  joined straight on is **joined through** (`joinThrough`), so no plain
+  "white point" is left where the gap was (his complaint); the tapped
+  point may then be gone, and `onConnect` clears the selection/anchor.
+  The HUD/panel say **Delete pipe** for a run (one length only).
+- **Tees** ask first (`placeTee` in tools.ts, the olet dialog with
+  `kind: 'tee'`): Branch size, equal (the header's size) or smaller for a
+  reducing tee, no direction; then the pencil is armed at the new point
+  at that size (`setCurrentSize` after `continueFrom`, which would reset
+  it) and the dimension up to it opens. Equal/reducing is still inferred
+  from the branch drawn (`inferFitting`).
 - **Pipe net** (Welds tab column, `Analysis.pieces`, `PipePiece`, `ROOT_GAP`
   = 2.5 mm): every length of pipe between its welds as cut: take-outs off
   and a 2.5 mm root gap off at each BW weld to a fitting/valve/flange/cap.
