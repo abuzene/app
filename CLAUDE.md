@@ -166,6 +166,23 @@ ships, and the decisions already taken, so they are not re-litigated.
   piece is laid out from its first node's true position (was the origin,
   so two pieces overlapped), and an equipment box stands on the drawn
   position of the node at its `at`.
+- **Moving an item keeps the line's length** (his complaint, 2026-09-24:
+  "moving the olet stretched the header; any item in a line or on its end
+  must move without the pipe's length changing"). `onSlideNode` in
+  main.ts restores the drag-start snapshot on every step and applies the
+  absolute target (steps used to add up: not to scale each step grew the
+  drawn line). To scale, `slideNodeTo` moves the point between the far
+  ends, no nearer either end than that side's take-outs (`len - cut`) or
+  the items on it (`itemHalf` in drawing.ts), and shifts the offsets of a
+  run starting at the point so its items stay in space. Not to scale,
+  `slideDrawnTo` shares the two sides' drawn total, each at least the
+  floor. `slideLimits` keeps a dragged valve between its run's ends and
+  its neighbours (marks pass freely; where it stands is always allowed).
+  `splitRun` gives the halves the parent's **drawn** length in proportion
+  when not to scale (each at least the floor), so an olet or valve put in
+  a long run no longer draws it twice as long. The chain's dimensions
+  are placed along the chain run by run as drawn, so an olet's location
+  dimension ends on the olet not to scale too.
 - Lines never overlap (`overlapsExisting`); crossings gap the rear line.
 - Toolbar Joint select (BW/SW/THD) sets the picked point's joint, else the
   drawing default. SW marks' lips point back over the pipe. In SW/THD mode

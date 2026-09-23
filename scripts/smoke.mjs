@@ -3289,6 +3289,105 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   await page.waitForTimeout(200);
 }
 
+/* ------------------------------ moving an item keeps the line's length */
+
+// "Moving the olet along the pipe changes the pipe's length and stretches
+// it; I should be able to move it along an existing line, within limits,
+// without its length changing — and not only olets, any item put in a line
+// or on its end" (2026-09-24). Not to scale, each step of a drag added to
+// the drawn line, and putting an olet into a long run drew it twice as
+// long. To scale, the point moves between the ends and stops at the items
+// either side; items stay where they are.
+{
+  const dragNodeTo = async (id, toward, share) => {
+    const b = await page.locator(`#canvas circle.hit-dot[data-node="${id}"]`).boundingBox();
+    const e = await page.locator(`#canvas circle.hit-dot[data-node="${toward}"]`).boundingBox();
+    const from = { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+    const to = { x: e.x + e.width / 2, y: e.y + e.height / 2 };
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(from.x + (to.x - from.x) * share, from.y + (to.y - from.y) * share, { steps: 12 });
+    await page.mouse.up();
+    await page.waitForTimeout(400);
+  };
+  const dotAt = (id) => page.evaluate((id) => {
+    const c = document.querySelector(`#canvas circle.hit-dot[data-node="${id}"]`);
+    return [Math.round(Number(c.getAttribute('cx'))), Math.round(Number(c.getAttribute('cy')))].join(',');
+  }, id);
+  const addOlet = async () => {
+    const runId = (await drawingNow()).runs[0].id;
+    const runEl = page.locator(`#canvas [data-run="${runId}"]`).first();
+    await runEl.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+    await runEl.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+    await page.waitForTimeout(300);
+    await page.locator('.tool[data-olet="BW"]').click();
+    await page.waitForTimeout(300);
+    await page.click('.dialog [data-confirm]');
+    await page.waitForTimeout(400);
+    await page.keyboard.press('Escape');
+    return (await drawingNow()).nodes.find((n) => n.fittingOverride === 'OLET').id;
+  };
+
+  await routeLine('6"\nSTD\nORIGIN 0 0 0\nEND FLG\nE 3000\nEND FLG');
+  await page.click('#opt-schematic');
+  await page.waitForTimeout(300);
+  const ends = await drawingNow();
+  const [startId, endId] = [ends.runs[0].from, ends.runs[0].to];
+  const endBefore = await dotAt(endId);
+  const olet = await addOlet();
+  check('not to scale, an olet put in does not draw the header longer', await dotAt(endId), (v) => v === endBefore, endBefore);
+  await dragNodeTo(olet, startId, 0.8);
+  const afterDrag = await drawingNow();
+  check('dragged along it, the header is drawn no longer', await dotAt(endId), (v) => v === endBefore, endBefore);
+  check('its true length stays too', afterDrag.nodes.find((n) => n.id === endId).pos.e, (v) => v === 3000, '3000');
+  check('the olet moved on the drawing', await dotAt(olet), (v) => v !== endBefore, 'moved');
+  const oletDim = await page.evaluate(([id, startId]) => {
+    const hit = document.querySelector(`#canvas [data-dim="olet:${id}"]`);
+    const dot = document.querySelector(`#canvas circle.hit-dot[data-node="${id}"]`);
+    const start = document.querySelector(`#canvas circle.hit-dot[data-node="${startId}"]`);
+    if (!hit || !dot || !start) return 'missing';
+    // The figure, taken along the line, sits half way from the start to the
+    // olet as drawn (it stands off the line, so only the part along counts).
+    const p = (el) => ({ x: Number(el.getAttribute('cx')), y: Number(el.getAttribute('cy')) });
+    const [f, o, a] = [p(hit), p(dot), p(start)];
+    const t = ((f.x - a.x) * (o.x - a.x) + (f.y - a.y) * (o.y - a.y)) / ((o.x - a.x) ** 2 + (o.y - a.y) ** 2);
+    return Math.abs(t - 0.5) < 0.1 ? 'half way to the olet' : `at ${t.toFixed(2)} of the way`;
+  }, [olet, startId]);
+  check('and its dimension ends on it where it is drawn', oletDim, (v) => v === 'half way to the olet', 'half way to the olet');
+  await page.click('#opt-schematic');
+  await page.waitForTimeout(300);
+
+  await routeLine('6"\nSTD\nORIGIN 0 0 0\nEND FLG\nE 3000\n+BALL 600\n+BALL 2400\nEND FLG');
+  const valved = await drawingNow();
+  const [vStart, vEnd] = [valved.runs[0].from, valved.runs[0].to];
+  const olet2 = await addOlet();
+  await page.click('#fit');
+  await page.waitForTimeout(300);
+  await dragNodeTo(olet2, vStart, 0.9);
+  const slid = await drawingNow();
+  const oletE = slid.nodes.find((n) => n.id === olet2).pos.e;
+  check('to scale, the olet slides but stops at the valve before it', oletE, (v) => v > 600 && v < 1500, 'between the valve at 600 and 1500');
+  check('the line keeps its length', slid.nodes.find((n) => n.id === vEnd).pos.e, (v) => v === 3000, '3000');
+  const valveAt = slid.runs.flatMap((r) => r.inline.map((c) => (slid.nodes.find((n) => n.id === r.from).pos.e + c.offset))).map((x) => Math.round(x)).sort((a, b) => a - b).join(' ');
+  check('and the valves stay where they were', valveAt, (v) => v === '600 2400', '600 2400');
+
+  // A valve slides between its neighbours, never through one.
+  await routeLine('6"\nSTD\nORIGIN 0 0 0\nE 3000\n+BALL 1000\n+BALL 2000');
+  await page.click('#fit');
+  await page.waitForTimeout(300);
+  const twoValves = await drawingNow();
+  const firstValve = twoValves.runs[0].inline.find((c) => c.offset === 1000).id;
+  const vb = await page.locator(`#canvas circle.hit-dot[data-component="${firstValve}"]`).boundingBox();
+  const lineEnd = await page.locator(`#canvas circle.hit-dot[data-node="${twoValves.runs[0].to}"]`).boundingBox();
+  await page.mouse.move(vb.x + vb.width / 2, vb.y + vb.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(lineEnd.x + lineEnd.width / 2, lineEnd.y + lineEnd.height / 2, { steps: 12 });
+  await page.mouse.up();
+  await page.waitForTimeout(400);
+  const valvesNow = (await drawingNow()).runs[0].inline.map((c) => c.offset).sort((a, b) => a - b);
+  check('a valve dragged past another stops against it', valvesNow, (v) => v.length === 2 && v[0] > 1000 && v[0] < 2000 && v[1] === 2000, 'the first between 1000 and 2000, the second at 2000');
+}
+
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 
 await browser.close();

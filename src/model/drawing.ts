@@ -253,6 +253,15 @@ export function itemAtEnd(
   return null;
 }
 
+/** Half an item's length along its run, flanges included: how far it reaches from its centre. */
+export function itemHalf(drawing: Drawing, run: Run, comp: InlineComponent): number {
+  if (isMark(comp.kind)) return 0;
+  const dn = comp.dn ?? run.dn;
+  const joint = drawing.options.joint ?? 'BW';
+  const ends = resolveEnds(comp.kind, dn, comp.ends, joint);
+  return componentTakeout(comp.kind, dn, ends === 'FLG' && valveFlangeKind(joint));
+}
+
 /**
  * The side (0 start, 1 end) of a flanged valve that faces the open end of
  * its line — the "last flange" — or null when the valve is not on an open

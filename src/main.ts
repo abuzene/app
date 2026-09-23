@@ -4,14 +4,14 @@ import type { Preview, Selection } from './render/renderer';
 import type { AppState, Host, OletAsk, OletChoice, ReducerAsk, ReducerChoice } from './ui/types';
 import { reducerPreview } from './ui/reducer-preview';
 import { tidyLayout, type LayoutSpecs } from './render/tidy';
-import { analyse, chainStops, dimensionStops, drawnLength, runGroupIds, emptyDrawing, minDrawnLength, oletLegs, oletMarks, uid } from './model/drawing';
+import { analyse, chainStops, dimensionStops, drawnLength, isMark, itemHalf, runGroupIds, emptyDrawing, minDrawnLength, oletLegs, oletMarks, uid } from './model/drawing';
 import { loadLibrary, removeDrawing, renumberProject, sheetNumber, upsertDrawing, worthKeeping } from './model/library';
 import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, noteRemovedFromLibrary, setDriveClientId, syncDrive } from './model/drive';
 import { AXES, AXIS_VECTOR, add, length3, scale3, sub } from './model/iso';
 import { initialCommandState, runCommands } from './model/commands';
 import { addMeasure, applyMeasureToOlet, DASHED_NOTE, deleteRunGroup, measureTypeable, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, ensureNode, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, runLength, setRunDashed, setRunDirect, startFromEquipment, stretchRun } from './model/edit';
 import { DN_LIST, schedulesFor, sizeLabel } from './model/pipe-data';
-import { northArrow, paperOf, renderDrawing, symbolSizeFor, toPaper } from './render/renderer';
+import { northArrow, paperOf, renderDrawing, symbolSizeFor } from './render/renderer';
 import { renderSheet, sheetSymbolSize, type SheetSize } from './render/sheet';
 import { Canvas } from './ui/canvas';
 import { fileStem, renderPanel, renderTabs } from './ui/panels';
@@ -590,8 +590,8 @@ const canvas = new Canvas(svg, {
     const run = state.drawing.runs.find((r) => r.inline.some((c) => c.id === componentId));
     const comp = run?.inline.find((c) => c.id === componentId);
     if (!run || !comp) return;
-    const offset = offsetFromPaper(run, paper);
-    if (offset === null) return;
+    const raw = offsetFromPaper(run, paper);
+    if (raw === null) return;
 
     // The drag is shown live by moving the real thing, so the position before
     // it started is kept and put back before the edit is recorded. Otherwise
@@ -599,6 +599,10 @@ const canvas = new Canvas(svg, {
     if (!slideFrom || slideFrom.id !== componentId) {
       slideFrom = { id: componentId, offset: comp.offset };
     }
+    // It moves along its own run and stops at what stands either side of
+    // it — the run's ends, another item — so the run keeps its length and
+    // nothing is passed through (his complaint, 2026-09-24).
+    const offset = slideLimits(run, comp, slideFrom.offset, raw);
 
     if (commit) {
       comp.offset = slideFrom.offset;
@@ -769,42 +773,37 @@ const canvas = new Canvas(svg, {
     renderCanvasOnly();
   },
 
-  /** Slides a branch point along the line that runs through it. */
+  /**
+   * Slides a point that a line runs straight through — an olet, a tee, a
+   * flanged joint, a weld — along that line. The line keeps its length:
+   * what one side gains the other gives (his complaint, 2026-09-24: moving
+   * an olet stretched the header). Every step is worked out from where the
+   * drag began, so the steps cannot add up.
+   */
   onSlideNode(nodeId, paper, commit) {
-    const node = state.drawing.nodes.find((n) => n.id === nodeId);
-    if (!node) return;
-    // Not to scale, sliding a point moves it on the drawing only: the drawn
-    // lengths either side change, the typed ones stay.
-    const schematic = !!state.drawing.options.schematic;
-    const drawn = schematic ? slideDrawnTo(nodeId, paper) : null;
-    const moved = schematic ? null : slideNodeTo(nodeId, paper);
-    if (!moved && !drawn) return;
-
+    if (!state.drawing.nodes.some((n) => n.id === nodeId)) return;
     if (!slideNodeFrom || slideNodeFrom.id !== nodeId) {
       slideNodeFrom = { id: nodeId, snapshot: snapshot() };
     }
-    const apply = (d: Drawing) => {
-      if (drawn) {
-        for (const [runId, visual] of drawn) {
-          const target = d.runs.find((r) => r.id === runId);
-          if (target) target.visual = visual;
-        }
-      } else if (moved) {
-        const target = d.nodes.find((n) => n.id === nodeId);
-        if (target) target.pos = { ...moved };
-      }
-    };
+    // Back to where the drag began, then on to where the pointer is now.
+    replaceDrawing(JSON.parse(slideNodeFrom.snapshot) as Drawing);
+    recompute();
+    // Not to scale, sliding a point moves it on the drawing only: the drawn
+    // lengths either side change, the typed ones stay.
+    const apply = state.drawing.options.schematic ? slideDrawnTo(nodeId, paper) : slideNodeTo(nodeId, paper);
 
     if (commit) {
-      replaceDrawing(JSON.parse(slideNodeFrom.snapshot) as Drawing);
       slideNodeFrom = null;
-      host.edit('Move point', apply);
+      if (apply) host.edit('Move point', apply);
+      else render();
       return;
     }
-    apply(state.drawing);
-    recompute();
+    if (apply) {
+      apply(state.drawing);
+      recompute();
+    }
     renderCanvasOnly();
-    hoverMessage = 'sliding along the line';
+    hoverMessage = 'sliding along the line — its length stays';
     renderHud();
   },
 });
@@ -844,13 +843,40 @@ function stretchLengthTo(run: Run, end: 'from' | 'to', paper: { x: number; y: nu
   return Math.max(snap, Math.round(along / perMm / snap) * snap);
 }
 
+/**
+ * An item's offset along its run kept between what stands either side of
+ * where it began: the run's ends and the items before and after it (marks
+ * such as supports are notes and are passed freely).
+ */
+function slideLimits(run: Run, comp: Run['inline'][number], from: number, offset: number): number {
+  const total = runLength(state.drawing, run);
+  const half = itemHalf(state.drawing, run, comp);
+  let lo = half;
+  let hi = total - half;
+  if (!isMark(comp.kind)) {
+    for (const other of run.inline) {
+      if (other.id === comp.id || isMark(other.kind)) continue;
+      const reach = itemHalf(state.drawing, run, other) + half;
+      if (other.offset <= from) lo = Math.max(lo, other.offset + reach);
+      else hi = Math.min(hi, other.offset - reach);
+    }
+  }
+  // Where it stands now is always allowed (a valve on an open end without
+  // its last flange sits nearer the end than its flanged half).
+  lo = Math.min(lo, from);
+  hi = Math.max(hi, from);
+  return Math.max(lo, Math.min(hi, offset));
+}
+
 /** Where along a run a paper point falls, snapped, or null if it cannot be read. */
 function offsetFromPaper(run: Run, paper: { x: number; y: number }): number | null {
   const a = state.analysis.nodeById.get(run.from);
   const b = state.analysis.nodeById.get(run.to);
   if (!a || !b) return null;
-  const pa = toPaper(a.pos, state.drawing);
-  const pb = toPaper(b.pos, state.drawing);
+  // Where the run is drawn: not to scale that is not where it is.
+  const pa = paperOf(state.analysis, state.drawing, run.from);
+  const pb = paperOf(state.analysis, state.drawing, run.to);
+  if (!pa || !pb) return null;
   const vx = pb.x - pa.x;
   const vy = pb.y - pa.y;
   const lenSq = vx * vx + vy * vy;
@@ -877,9 +903,11 @@ function lineThrough(nodeId: string): [Run, Run] | null {
 
 /**
  * Not to scale: the drawn lengths either side of a point, with the point
- * dragged along the drawn line between its neighbours. Their sum stays.
+ * dragged along the drawn line between its neighbours. Their sum stays,
+ * and neither side is drawn under the floor (one that was would be drawn
+ * at its own length, and the line would grow).
  */
-function slideDrawnTo(nodeId: string, paper: { x: number; y: number }): [string, number][] | null {
+function slideDrawnTo(nodeId: string, paper: { x: number; y: number }): ((d: Drawing) => void) | null {
   const through = lineThrough(nodeId);
   if (!through) return null;
   const farOf = (run: Run) => (run.from === nodeId ? run.to : run.from);
@@ -892,61 +920,84 @@ function slideDrawnTo(nodeId: string, paper: { x: number; y: number }): [string,
   if (lenSq < 1) return null;
   const drawnOf = (run: Run) => drawnLength(state.drawing, run, runLength(state.drawing, run));
   const total = drawnOf(through[0]) + drawnOf(through[1]);
-  const t = Math.max(0.05, Math.min(0.95, ((paper.x - pa.x) * vx + (paper.y - pa.y) * vy) / lenSq));
+  const floor = minDrawnLength(state.drawing);
+  if (total < floor * 2) return null;
+  const t = ((paper.x - pa.x) * vx + (paper.y - pa.y) * vy) / lenSq;
   const snap = dragSnap();
-  const first = Math.max(snap, Math.round((t * total) / snap) * snap);
-  return [
+  const first = Math.max(floor, Math.min(total - floor, Math.round((t * total) / snap) * snap));
+  const lengths: [string, number][] = [
     [through[0].id, first],
-    [through[1].id, Math.max(snap, total - first)],
+    [through[1].id, total - first],
   ];
+  return (d) => {
+    for (const [runId, visual] of lengths) {
+      const target = d.runs.find((r) => r.id === runId);
+      if (target) target.visual = visual;
+    }
+  };
 }
 
 /**
- * The position a branch point would slide to: along the line that runs through
- * it, never off either end of the runs it joins.
+ * To scale: the point moved along the line between its neighbours, the
+ * ends staying where they are. What stands along either side — a valve,
+ * a support — keeps its place in space, and the point cannot pass it or
+ * leave less pipe than the fittings take.
  */
-function slideNodeTo(nodeId: string, paper: { x: number; y: number }): Vec3 | null {
-  const info = state.analysis.nodeInfo.get(nodeId);
-  if (!info) return null;
-
-  // The line through the point is the pair of legs that face each other.
-  let through: [Run, Run] | null = null;
-  for (let i = 0; i < info.legs.length && !through; i += 1) {
-    for (let j = i + 1; j < info.legs.length; j += 1) {
-      const a = info.legs[i];
-      const b = info.legs[j];
-      if (a.e * b.e + a.n * b.n + a.u * b.u < -0.999) {
-        through = [info.runs[i], info.runs[j]];
-        break;
-      }
-    }
-  }
+function slideNodeTo(nodeId: string, paper: { x: number; y: number }): ((d: Drawing) => void) | null {
+  const through = lineThrough(nodeId);
   if (!through) return null;
+  const node = state.analysis.nodeById.get(nodeId);
+  const farId = (run: Run) => (run.from === nodeId ? run.to : run.from);
+  const back = state.analysis.nodeById.get(farId(through[0]));
+  const forward = state.analysis.nodeById.get(farId(through[1]));
+  if (!node || !back || !forward) return null;
 
-  const node = state.drawing.nodes.find((n) => n.id === nodeId);
-  if (!node) return null;
-  const farOf = (run: Run) => {
-    const id = run.from === nodeId ? run.to : run.from;
-    return state.analysis.nodeById.get(id);
-  };
-  const back = farOf(through[0]);
-  const forward = farOf(through[1]);
-  if (!back || !forward) return null;
-
-  // Slide between the two ends, leaving a little pipe either side.
   const span = sub(forward.pos, back.pos);
   const spanLen = length3(span);
   if (spanLen < 1) return null;
-  const pa = toPaper(back.pos, state.drawing);
-  const pb = toPaper(forward.pos, state.drawing);
+  const now = length3(sub(node.pos, back.pos));
+  // How near the point may come to each end: the side's own take-outs
+  // (its cut cannot go under nothing) and the items standing on it.
+  const room = (run: Run, farNode: string): number => {
+    const len = runLength(state.drawing, run);
+    const cut = state.analysis.runLengths.get(run.id)?.cut ?? len;
+    let need = len - cut;
+    for (const comp of run.inline) {
+      const fromFar = run.from === farNode ? comp.offset : len - comp.offset;
+      need = Math.max(need, fromFar + itemHalf(state.drawing, run, comp));
+    }
+    return need;
+  };
+  const snap = dragSnap();
+  const lo = Math.max(snap, room(through[0], back.id));
+  const hi = Math.min(spanLen - snap, spanLen - room(through[1], forward.id));
+  if (lo > hi) return null;
+
+  const pa = paperOf(state.analysis, state.drawing, back.id);
+  const pb = paperOf(state.analysis, state.drawing, forward.id);
+  if (!pa || !pb) return null;
   const vx = pb.x - pa.x;
   const vy = pb.y - pa.y;
   const lenSq = vx * vx + vy * vy;
   if (lenSq < 1) return null;
-  const snap = dragSnap();
   const raw = (((paper.x - pa.x) * vx + (paper.y - pa.y) * vy) / lenSq) * spanLen;
-  const at = Math.max(snap, Math.min(spanLen - snap, Math.round(raw / snap) * snap));
-  return add(back.pos, scale3(span, at / spanLen));
+  const at = Math.max(lo, Math.min(hi, Math.round(raw / snap) * snap));
+  const shift = at - now;
+  const pos = add(back.pos, scale3(span, at / spanLen));
+  const [backRun, forwardRun] = through;
+  return (d) => {
+    const target = d.nodes.find((n) => n.id === nodeId);
+    if (!target) return;
+    target.pos = { ...pos };
+    // Offsets are from a run's start: on a run that starts at this point
+    // they change by the move, so its items stay where they are.
+    for (const run of d.runs) {
+      if (run.id !== backRun.id && run.id !== forwardRun.id) continue;
+      if (run.from !== nodeId) continue;
+      const sign = run.id === forwardRun.id ? -1 : 1;
+      for (const comp of run.inline) comp.offset += sign * shift;
+    }
+  };
 }
 
 /**

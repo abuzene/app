@@ -1,6 +1,6 @@
 import type { Axis, ComponentKind, Drawing, EndType, Equipment, FlangeKind, InlineComponent, IsoNode, Measure, Run, TerminalKind, Vec3 } from './types';
 import { AXIS_VECTOR, add, axisBetween, direction, equals3, length3, scale3, step, sub } from './iso';
-import { chainStops, dimensionStops, fittingsTouchLength, isValve, itemAtEnd, oletMarks, resolveEnds, runGroupIds, terminalTakeoutOf, uid, valveOpenSide, type Analysis } from './drawing';
+import { chainStops, dimensionStops, drawnLength, fittingsTouchLength, minDrawnLength, isValve, itemAtEnd, oletMarks, resolveEnds, runGroupIds, terminalTakeoutOf, uid, valveOpenSide, type Analysis } from './drawing';
 import { componentTakeout, valveFlangeKind } from './pipe-data';
 
 /** Finds an existing node at a position, so that routes join rather than overlap. */
@@ -343,10 +343,17 @@ export function splitRun(drawing: Drawing, runId: string, distance: number): str
   };
   run.inline = run.inline.filter((c) => c.offset <= distance);
   run.to = midId;
-  // The two halves share the drawn length the way they share the true one.
-  if (run.visual !== undefined) {
-    tail.visual = run.visual * (1 - t);
-    run.visual = run.visual * t;
+  // The two halves share the drawn length the way they share the true one,
+  // so the line is drawn no longer for being split — an olet or a valve
+  // put in a long header once drew it twice as long, each half capped on
+  // its own (his complaint, 2026-09-24). Neither half is left under the
+  // floor, where it would be drawn at its own length instead.
+  if (run.visual !== undefined || drawing.options.schematic) {
+    const drawn = drawnLength(drawing, run, total);
+    const floor = minDrawnLength(drawing);
+    const head = drawn >= floor * 2 ? Math.max(floor, Math.min(drawn - floor, drawn * t)) : floor;
+    run.visual = head;
+    tail.visual = Math.max(floor, drawn - head);
   }
   drawing.runs.splice(drawing.runs.indexOf(run) + 1, 0, tail);
   return midId;

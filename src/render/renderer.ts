@@ -449,7 +449,18 @@ export function renderDrawing(state: RenderState): string {
       const ca = paper(chain.from);
       const cb = paper(chain.to);
       if (ca && cb) {
+        // Along the chain run by run, each as it is drawn: not to scale the
+        // runs are not drawn in proportion, and an olet's dimension has to
+        // end on the olet.
         const at = (mm: number): Pt => {
+          for (const piece of chain.runs) {
+            if (mm > piece.start + piece.length + 1e-6 && piece !== chain.runs[chain.runs.length - 1]) continue;
+            const p0 = paper(piece.forward ? piece.run.from : piece.run.to);
+            const p1 = paper(piece.forward ? piece.run.to : piece.run.from);
+            if (!p0 || !p1) break;
+            const t = piece.length > 0 ? Math.max(0, Math.min(1, (mm - piece.start) / piece.length)) : 0;
+            return { x: p0.x + (p1.x - p0.x) * t, y: p0.y + (p1.y - p0.y) * t };
+          }
           const t = chain.total > 0 ? Math.max(0, Math.min(1, mm / chain.total)) : 0.5;
           return { x: ca.x + (cb.x - ca.x) * t, y: ca.y + (cb.y - ca.y) * t };
         };
