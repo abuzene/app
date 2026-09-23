@@ -507,6 +507,31 @@ function categoryOf(kind: string): BomLine['category'] {
  * fabrication isometric is normally presented; otherwise true lengths are used
  * with a floor so that short runs stay readable.
  */
+/** Half-size of a symbol on the sheet, in sheet millimetres; symbols are a set size on paper. */
+export const SYMBOL_MM = 2.4;
+
+/**
+ * How long a run is drawn when the sheet is not to scale, in the same units
+ * as its true length: where the pencil put it (`run.visual`), else its true
+ * length capped at the sheet's even spacing, so a 19 m header is drawn no
+ * longer than the rest; and never shorter than a few symbols, so a run holds
+ * the fittings drawn on it and can be picked up by its ends (his complaint,
+ * 2026-09-23: a 19 m pipe drawn as a stub, the sheet unusable not to scale).
+ */
+export function drawnLength(drawing: Drawing, run: Run, trueLength: number): number {
+  const minDrawn = minDrawnLength(drawing);
+  const cap = drawing.options.schematicLength;
+  // A drawn length under the floor is a leftover (a run split down to its
+  // reducer, a stub dragged in), not a choice: drawn as if never set.
+  const chosen = run.visual !== undefined && run.visual >= minDrawn ? run.visual : undefined;
+  return Math.max(minDrawn, chosen ?? Math.min(trueLength, cap));
+}
+
+/** The shortest a run is drawn not to scale: six symbols, so its fittings fit on it. */
+export function minDrawnLength(drawing: Drawing): number {
+  return SYMBOL_MM * (drawing.options.sheetScale ?? 15) * 6;
+}
+
 function layout(drawing: Drawing, nodeById: Map<string, IsoNode>, adjacency: Map<string, Run[]>): Map<string, Vec3> {
   const display = new Map<string, Vec3>();
 
@@ -522,8 +547,10 @@ function layout(drawing: Drawing, nodeById: Map<string, IsoNode>, adjacency: Map
   // wins and the loop is left to close visually as best it can.
   const remaining = new Set(drawing.nodes.map((n) => n.id));
   while (remaining.size > 0) {
+    // Each piece starts from where it really is, so two pieces — a line and
+    // the one drawn on from the far side of its equipment — keep apart.
     const startId = [...remaining][0];
-    display.set(startId, { e: 0, n: 0, u: 0 });
+    display.set(startId, { ...nodeById.get(startId)!.pos });
     remaining.delete(startId);
 
     const queue = [startId];
@@ -538,7 +565,7 @@ function layout(drawing: Drawing, nodeById: Map<string, IsoNode>, adjacency: Map
         const delta = sub(otherTrue, hereTrue);
         const trueLen = length3(delta);
         if (trueLen < 0.01) continue;
-        const visual = run.visual ?? drawing.options.schematicLength;
+        const visual = drawnLength(drawing, run, trueLen);
         display.set(otherId, add(here, scale3(delta, visual / trueLen)));
         remaining.delete(otherId);
         queue.push(otherId);

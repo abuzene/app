@@ -1,8 +1,8 @@
 import type { Analysis } from '../model/drawing';
 import type { Axis, DimOverride, Drawing, FlangeKind, Run, Vec3 } from '../model/types';
-import { COMPONENT_LABEL, TERMINAL_LABEL, chainStops, dimensionStops, fittingLabel, isMark, isReducer, isSupport, isValve, itemAtEnd, oletEntries, oletLegs, resolveEnds } from '../model/drawing';
+import { COMPONENT_LABEL, SYMBOL_MM, TERMINAL_LABEL, chainStops, dimensionStops, fittingLabel, isMark, isReducer, isSupport, isValve, itemAtEnd, oletEntries, oletLegs, resolveEnds } from '../model/drawing';
 import { componentTakeout, sizeLabel, valveFlangeKind } from '../model/pipe-data';
-import { AXIS_VECTOR, axisBetween, axisScreenDir, northArrowDir, project, scale3, add } from '../model/iso';
+import { AXIS_VECTOR, axisBetween, axisScreenDir, equals3, northArrowDir, project, scale3, add } from '../model/iso';
 import { componentSymbol, flangeHub, flangeSymbol, frameFor, gasketLine, groundSymbol, isFlange, jointMark, oletSymbol, supportCallout, supportSymbol, terminalSymbol, transitionSymbol, type Facing, type Frame } from './symbols';
 
 export interface ViewBox {
@@ -28,7 +28,7 @@ export type Selection =
  * print this drawing at. A big drawing prints small, so its symbols are small
  * against it; a small drawing is never blown up to fill the page.
  */
-export const SYMBOL_MM = 2.4;
+export { SYMBOL_MM };
 /** The drawing area of an A3 sheet, in mm, that the symbol size is judged against. */
 const SHEET_AREA = { w: 270, h: 265 };
 /** Sheet mm per paper unit at most: a small drawing sits at this scale rather than filling the page. */
@@ -985,14 +985,17 @@ export function renderDrawing(state: RenderState): string {
   let equipment = '';
   let equipmentHits = '';
   for (const box of drawing.equipment ?? []) {
-    const at = toPaper(box.at, drawing);
+    // Not to scale, the box stands where the point it is on is drawn.
+    const stand = drawing.nodes.find((n) => equals3(n.pos, box.at));
+    const base = (stand && analysis.display.get(stand.id)) ?? box.at;
+    const at = toPaper(base, drawing);
     const along = AXIS_VECTOR[box.axis];
     const side = AXIS_VECTOR[box.across];
     const corners = [
-      add(box.at, scale3(side, -box.width / 2)),
-      add(box.at, scale3(side, box.width / 2)),
-      add(add(box.at, scale3(along, box.length)), scale3(side, box.width / 2)),
-      add(add(box.at, scale3(along, box.length)), scale3(side, -box.width / 2)),
+      add(base, scale3(side, -box.width / 2)),
+      add(base, scale3(side, box.width / 2)),
+      add(add(base, scale3(along, box.length)), scale3(side, box.width / 2)),
+      add(add(base, scale3(along, box.length)), scale3(side, -box.width / 2)),
     ].map((c) => toPaper(c, drawing));
     const placed = drawing.itemOverrides?.[`eq:${box.id}`];
     const dx = placed?.dx ?? 0;

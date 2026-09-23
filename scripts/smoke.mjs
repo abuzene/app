@@ -2382,6 +2382,86 @@ check('taken off again, the point comes back in', await page.evaluate(() => Math
 await page.keyboard.press('Escape');
 await page.waitForTimeout(150);
 
+/* -------------------------- a long run not to scale: drawn short, measured long */
+
+// "Pipe B is about 19 m; the sheet is not to scale, and when I shorten it
+// to fit the drawing the dimension changes" (2026-09-23, HILLEL YAFEH).
+// Not to scale, a run with no drawn length of its own is drawn at its true
+// length capped at the sheet's spacing, never shorter than six symbols; a
+// leftover drawn length under that floor counts as none; dragging an end
+// changes only how long it is drawn, and the typed length stays.
+{
+  await routeLine('2"\nSTD\nORIGIN 0 0 0\nE 300\nN 19240');
+  await page.check('#opt-schematic');
+  await page.waitForTimeout(400);
+  const longRun = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).runs[1].id);
+  const drawnOf = async (id) => page.evaluate((runId) => {
+    const l = document.querySelector(`#canvas line.hit[data-run="${runId}"]`);
+    return Math.hypot(l.getAttribute('x2') - l.getAttribute('x1'), l.getAttribute('y2') - l.getAttribute('y1'));
+  }, id);
+  const shortRun = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).runs[0].id);
+  const ratio = (await drawnOf(longRun)) / (await drawnOf(shortRun));
+  check('a 19 m run with no drawn length is drawn at the sheet spacing, the 300 run as it is', ratio, (v) => v > 4.5 && v < 5.5, '1500 against 300: about 5, not 64');
+  await page.evaluate((runId) => {
+    const d = JSON.parse(localStorage.getItem('iso-draw.drawing.v1'));
+    d.runs.find((r) => r.id === runId).visual = 35;
+    localStorage.setItem('iso-draw.drawing.v1', JSON.stringify(d));
+  }, longRun);
+  await page.reload();
+  await page.waitForTimeout(500);
+  const ratioLeftover = (await drawnOf(longRun)) / (await drawnOf(shortRun));
+  check('a leftover drawn length of 35 mm is not honoured: the run is not a stub', ratioLeftover, (v) => v > 4.5 && v < 5.5, 'still about 5');
+  const longEl = page.locator(`#canvas [data-run="${longRun}"]`).first();
+  await longEl.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await longEl.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await page.waitForTimeout(300);
+  const farEnd = (await nodesAt()).find((p) => p[2] === 19240)[0];
+  const endHandle = await page.locator(`#canvas [data-run-end="${longRun}:to"]`).boundingBox();
+  const startHandle = await page.locator(`#canvas [data-run-end="${longRun}:from"]`).boundingBox();
+  await page.mouse.move(endHandle.x + endHandle.width / 2, endHandle.y + endHandle.height / 2);
+  await page.mouse.down();
+  await page.mouse.move((endHandle.x + startHandle.x) / 2 + endHandle.width / 2, (endHandle.y + startHandle.y) / 2 + endHandle.height / 2, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForTimeout(400);
+  const drawnAfterDrag = await drawnOf(longRun);
+  check('dragging its end draws it shorter', drawnAfterDrag / (await drawnOf(shortRun)), (v) => v > 2 && v < 3, 'about half: 750 against 300');
+  check('and the dimension is still 19240', `${(await nodesAt()).find((p) => p[0] === farEnd)[2]} ${await page.locator('#tab-body [data-f="length"]').inputValue()}`, (v) => v === '19240 19240', '19240 19240');
+  await page.fill('#tab-body [data-f="length"]', '18000');
+  await page.keyboard.press('Tab');
+  await page.waitForTimeout(400);
+  check('typing a new length changes the pipe, not how long it is drawn', `${(await nodesAt()).find((p) => p[0] === farEnd)[2]} ${Math.round(await drawnOf(longRun))}`, (v) => v === `18000 ${Math.round(drawnAfterDrag)}`, `18000 ${Math.round(drawnAfterDrag)}`);
+  // Equipment stands where its point is drawn, and a piece drawn on from
+  // its far side is laid out from where it really is, not from the origin.
+  await page.keyboard.press('Escape');
+  await tapNode(farEnd);
+  await page.locator('.tool[data-equipment]').click();
+  await page.waitForTimeout(300);
+  const boxAt = await page.locator('#canvas [data-equipment]').boundingBox();
+  const endAt = await page.locator(`#canvas circle.hit-dot[data-node="${farEnd}"]`).boundingBox();
+  check('not to scale, the equipment box stands on the drawn end of the line', Math.hypot(boxAt.x + boxAt.width / 2 - endAt.x - endAt.width / 2, boxAt.y + boxAt.height / 2 - endAt.y - endAt.height / 2) < boxAt.width * 1.2, (v) => v === true, 'the box next to the end');
+  await page.click('#hud-equip-draw');
+  await page.waitForTimeout(300);
+  const origin = (await nodesAt()).find((p) => p[1] === 0 && p[2] === 0)[0];
+  const farSide = (await nodesAt()).find((p) => p[2] === 19500)[0];
+  const originAt = await page.locator(`#canvas circle.hit-dot[data-node="${origin}"]`).boundingBox();
+  const farSideAt = await page.locator(`#canvas circle.hit-dot[data-node="${farSide}"]`).boundingBox();
+  check('and the point on its far side is drawn beyond the box, not back at the origin', Math.hypot(farSideAt.x - originAt.x, farSideAt.y - originAt.y) > 100, (v) => v === true, 'well away from the origin');
+  await page.keyboard.press('Escape');
+  await page.uncheck('#opt-schematic');
+  await page.waitForTimeout(300);
+  // New once kept the last sheet's equipment (Object.assign left optional
+  // parts behind); undoing the first box did not take it away either.
+  await page.click('#undo');
+  await page.waitForTimeout(300);
+  await page.click('#undo');
+  await page.waitForTimeout(300);
+  check('undone, the equipment box is gone', await page.evaluate(() => (JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).equipment ?? []).length), (v) => v === 0, '0');
+  await page.click('#redo');
+  await page.waitForTimeout(300);
+  await startNewDrawing();
+  check('a new drawing starts with no equipment', await page.evaluate(() => (JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).equipment ?? []).length), (v) => v === 0, '0');
+}
+
 /* ---------------------------- a dashed run carried on to the next sheet */
 
 // "Turn a pipe line dashed, and once it is, write CONT. ON NEXT SHEET
@@ -2831,9 +2911,16 @@ const pipeLeader = await page.evaluate((key) => {
   const cy = +hit.getAttribute('cy');
   const leaders = [...document.querySelectorAll('#canvas .balloon .balloon-leader')];
   const mine = leaders.map((l) => ({ l, d: Math.hypot(l.x2.baseVal.value - cx, l.y2.baseVal.value - cy) })).sort((a, b) => a.d - b.d)[0].l;
-  return { len: Math.hypot(mine.x2.baseVal.value - mine.x1.baseVal.value, mine.y2.baseVal.value - mine.y1.baseVal.value), fromAnchor: Math.hypot(mine.x1.baseVal.value - +hit.getAttribute('data-ax'), mine.y1.baseVal.value - +hit.getAttribute('data-ay')) };
+  return {
+    len: Math.hypot(mine.x2.baseVal.value - mine.x1.baseVal.value, mine.y2.baseVal.value - mine.y1.baseVal.value),
+    fromAnchor: Math.hypot(mine.x1.baseVal.value - +hit.getAttribute('data-ax'), mine.y1.baseVal.value - +hit.getAttribute('data-ay')),
+    toMiddle: Math.hypot(cx - +hit.getAttribute('data-ax'), cy - +hit.getAttribute('data-ay')),
+  };
 }, balloonKey);
-check('a pipe number dragged along the pipe leads to the pipe beside it, not back to the middle', pipeLeader, (v) => v.fromAnchor > 20 && v.len < v.fromAnchor / 2, 'foot moved along the pipe, leader far shorter than that');
+// The foot moved along the pipe, and the leader is shorter than one back to
+// the middle would be. (The zoom this runs at once depended on equipment
+// boxes New had failed to clear, so the numbers are compared, not fixed.)
+check('a pipe number dragged along the pipe leads to the pipe beside it, not back to the middle', pipeLeader, (v) => v.fromAnchor > 20 && v.len < v.toMiddle * 0.9, 'foot moved along the pipe, leader shorter than one to the middle');
 
 /* ------------------------------------------------------- an equipment box */
 

@@ -3,12 +3,12 @@ import type { Axis, Drawing, Run, Vec3 } from './model/types';
 import type { Preview, Selection } from './render/renderer';
 import type { AppState, Host, OletAsk, OletChoice, ReducerAsk, ReducerChoice } from './ui/types';
 import { reducerPreview } from './ui/reducer-preview';
-import { analyse, chainStops, dimensionStops, emptyDrawing, oletLegs, oletMarks, uid } from './model/drawing';
+import { analyse, chainStops, dimensionStops, drawnLength, emptyDrawing, minDrawnLength, oletLegs, oletMarks, uid } from './model/drawing';
 import { loadLibrary, removeDrawing, renumberProject, sheetNumber, upsertDrawing, worthKeeping } from './model/library';
 import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, noteRemovedFromLibrary, setDriveClientId, syncDrive } from './model/drive';
 import { AXES, AXIS_VECTOR, add, length3, scale3, sub } from './model/iso';
 import { initialCommandState, runCommands } from './model/commands';
-import { addMeasure, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, deleteRun, ensureNode, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, setRunDashed, setRunDirect, startFromEquipment, stretchRun } from './model/edit';
+import { addMeasure, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, deleteRun, ensureNode, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, runLength, setRunDashed, setRunDirect, startFromEquipment, stretchRun } from './model/edit';
 import { DN_LIST, schedulesFor, sizeLabel } from './model/pipe-data';
 import { northArrow, paperOf, toPaper } from './render/renderer';
 import { renderSheet, type SheetSize } from './render/sheet';
@@ -672,16 +672,16 @@ const canvas = new Canvas(svg, {
       stretchFrom = null;
       // Put the drawing back as it was before the drag, then record the move
       // as one edit so undo returns there rather than to half way through.
-      Object.assign(state.drawing, JSON.parse(before.snapshot) as Drawing);
+      replaceDrawing(JSON.parse(before.snapshot) as Drawing);
       host.edit('Stretch run', (d) => {
         const target = d.runs.find((r) => r.id === runId);
         if (!target) return;
-        if (schematic) target.visual = length;
+        if (schematic) target.visual = Math.max(length, minDrawnLength(d));
         else stretchRun(d, runId, length, end);
       });
       return;
     }
-    if (schematic) run.visual = length;
+    if (schematic) run.visual = Math.max(length, minDrawnLength(state.drawing));
     else stretchRun(state.drawing, runId, length, end);
     recompute();
     renderCanvasOnly();
@@ -703,7 +703,7 @@ const canvas = new Canvas(svg, {
     };
     if (commit) {
       if (tagFrom) {
-        Object.assign(state.drawing, JSON.parse(tagFrom) as Drawing);
+        replaceDrawing(JSON.parse(tagFrom) as Drawing);
         tagFrom = null;
       }
       host.edit('Move dimension', apply);
@@ -734,7 +734,7 @@ const canvas = new Canvas(svg, {
     };
     if (commit) {
       if (tagFrom) {
-        Object.assign(state.drawing, JSON.parse(tagFrom) as Drawing);
+        replaceDrawing(JSON.parse(tagFrom) as Drawing);
         tagFrom = null;
       }
       host.edit(balloon ? 'Move balloon' : 'Move weld tag', apply);
@@ -773,7 +773,7 @@ const canvas = new Canvas(svg, {
     };
 
     if (commit) {
-      Object.assign(state.drawing, JSON.parse(slideNodeFrom.snapshot) as Drawing);
+      replaceDrawing(JSON.parse(slideNodeFrom.snapshot) as Drawing);
       slideNodeFrom = null;
       host.edit('Move point', apply);
       return;
@@ -813,7 +813,7 @@ function stretchLengthTo(run: Run, end: 'from' | 'to', paper: { x: number; y: nu
   const along = ((paper.x - pf.x) * vx + (paper.y - pf.y) * vy) / drawn;
   // Paper units per mm along this run, however it is currently drawn.
   const shown = state.drawing.options.schematic
-    ? (run.visual ?? state.drawing.options.schematicLength)
+    ? drawnLength(state.drawing, run, length3(sub(moving.pos, fixed.pos)))
     : length3(sub(moving.pos, fixed.pos));
   const perMm = shown > 0 ? drawn / shown : 0;
   if (perMm <= 0) return null;
@@ -867,7 +867,7 @@ function slideDrawnTo(nodeId: string, paper: { x: number; y: number }): [string,
   const vy = pb.y - pa.y;
   const lenSq = vx * vx + vy * vy;
   if (lenSq < 1) return null;
-  const drawnOf = (run: Run) => run.visual ?? state.drawing.options.schematicLength;
+  const drawnOf = (run: Run) => drawnLength(state.drawing, run, runLength(state.drawing, run));
   const total = drawnOf(through[0]) + drawnOf(through[1]);
   const t = Math.max(0.05, Math.min(0.95, ((paper.x - pa.x) * vx + (paper.y - pa.y) * vy) / lenSq));
   const snap = dragSnap();
@@ -1308,6 +1308,17 @@ for (const [id, key] of [
   });
 }
 
+/**
+ * Replaces the drawing on screen with another state. Object.assign alone
+ * left optional parts behind — equipment, measures, balloons, notes — when
+ * the new state had none (New kept the last sheet's equipment; undoing the
+ * first box did not take it away).
+ */
+function replaceDrawing(next: Drawing): void {
+  for (const key of Object.keys(state.drawing)) delete (state.drawing as unknown as Record<string, unknown>)[key];
+  Object.assign(state.drawing, next);
+}
+
 $('new').addEventListener('click', async () => {
   if (state.drawing.runs.length > 0) {
     const ok = await confirmDialog(
@@ -1327,7 +1338,7 @@ $('new').addEventListener('click', async () => {
   const fresh = emptyDrawing();
   fresh.id = uid('d');
   const kept = state.drawing;
-  Object.assign(state.drawing, {
+  replaceDrawing({
     ...fresh,
     options: { ...kept.options },
     meta: {
@@ -1425,7 +1436,7 @@ function undo(): void {
   const previous = undoStack.pop();
   if (!previous) return;
   redoStack.push(snapshot());
-  Object.assign(state.drawing, JSON.parse(previous) as Drawing);
+  replaceDrawing(JSON.parse(previous) as Drawing);
   state.selection = null;
   recompute();
   persist();
@@ -1436,7 +1447,7 @@ function redo(): void {
   const next = redoStack.pop();
   if (!next) return;
   undoStack.push(snapshot());
-  Object.assign(state.drawing, JSON.parse(next) as Drawing);
+  replaceDrawing(JSON.parse(next) as Drawing);
   state.selection = null;
   recompute();
   persist();
@@ -2054,7 +2065,7 @@ function keepNow(): void {
 
 /** Puts a drawing on screen in place of the one there. */
 function takeUp(drawing: Drawing): void {
-  Object.assign(state.drawing, { ...emptyDrawing(), ...drawing });
+  replaceDrawing({ ...emptyDrawing(), ...drawing });
   if (!state.drawing.id) state.drawing.id = uid('d');
   state.selection = null;
   state.preview = null;

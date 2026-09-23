@@ -121,7 +121,21 @@ ships, and the decisions already taken, so they are not re-litigated.
   the lift is not lost (a lost lift once turned every later tap into a
   pinch — `onPointerGone` in canvas.ts guards this).
 - Not-to-scale mode draws each run at its tapped length (`run.visual`);
-  handles on a picked run stretch it without turning it.
+  handles on a picked run stretch it without turning it. **Drawn length**
+  (`drawnLength`/`minDrawnLength` in drawing.ts, used by `layout`, the
+  stretch maths and `slideDrawnTo`): `visual` if set and at least the
+  floor, else the true length capped at `schematicLength` (1500); never
+  under the floor of six symbols (`SYMBOL_MM × sheetScale × 6`, now
+  defined in drawing.ts and re-exported by the renderer). A `visual` under
+  the floor is a leftover (`splitRun` shares it in proportion, so a
+  reducer's run got 5 mm; a 19 m header once carried 35) and is ignored;
+  a drag clamps to the floor. His complaint (HILLEL YAFEH, 2026-09-23):
+  the 19 m pipe drawn as a stub, and shortening it "changed the
+  dimension" — his sheet was in fact **to scale** (`schematic: false`),
+  where a handle drag is the true length by design. Not to scale, each
+  piece is laid out from its first node's true position (was the origin,
+  so two pieces overlapped), and an equipment box stands on the drawn
+  position of the node at its `at`.
 - Lines never overlap (`overlapsExisting`); crossings gap the rear line.
 - Toolbar Joint select (BW/SW/THD) sets the picked point's joint, else the
   drawing default. SW marks' lips point back over the pipe. In SW/THD mode
@@ -334,6 +348,12 @@ ships, and the decisions already taken, so they are not re-litigated.
   its printer dialog always adds ~13 mm margins and a URL footer. It is the
   primary button on tablets; browser Print stays for desktop.
 - The toolbar pads for the iPad status bar (`env(safe-area-inset-top)`).
+- **`replaceDrawing(next)` in main.ts** is the only way the drawing on
+  screen is swapped for another state (New, undo/redo, Open, drag
+  snapshots): it deletes every key first. `Object.assign` alone left
+  optional parts behind (`equipment`, `measures`, `balloons`, `bomNames`,
+  `dimOverrides`…) whenever the next state had none: New kept the last
+  sheet's equipment, undoing the first box did not remove it.
 - **North arrow on its own** (`options.northArrow`, degrees clockwise,
   `northArrowDir` in iso.ts used by the canvas compass and the sheet's):
   a tap on the compass overlay turns the arrow 45°, the View menu has a
