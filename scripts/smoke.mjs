@@ -2622,6 +2622,46 @@ await page.keyboard.press('Escape');
 await page.waitForTimeout(150);
 }
 
+/* ------------------------------------------ the north arrow turned on its own */
+
+// Rotate turns the whole drawing; the north arrow can be turned alone, a
+// tap on it at a time or from the View menu, for a sheet whose north lies
+// off the isometric axes.
+{
+  await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 3000\nN 2000');
+  const before = await nodesAt();
+  const needle = () => page.locator('#compass .compass-needle').getAttribute('points');
+  const needleBefore = await needle();
+  await page.click('#compass');
+  await page.waitForTimeout(300);
+  check('a tap on the compass turns the north arrow 45°', await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).options.northArrow), (v) => v === 45, '45');
+  check('the arrow points another way', (await needle()) !== needleBefore, (v) => v === true, 'needle moved');
+  check('and the drawing itself has not turned', JSON.stringify(await nodesAt()) === JSON.stringify(before), (v) => v === true, 'points unchanged');
+  check('the View menu shows it', await page.locator('#opt-north-arrow').inputValue(), (v) => v === '45', '45');
+  await page.selectOption('#opt-north-arrow', '0');
+  await page.waitForTimeout(300);
+  check('and puts it back with the drawing', (await needle()) === needleBefore, (v) => v === true, 'needle back');
+  await page.click('#print');
+  await page.waitForTimeout(250);
+  await page.click('[data-x="preview"]');
+  await page.waitForTimeout(600);
+  const sheetNeedle0 = (await page.locator('.sheet-preview').innerHTML()).match(/compass-needle" points="([^"]+)"/)?.[1];
+  await page.click('[data-close]');
+  await page.waitForTimeout(250);
+  await page.selectOption('#opt-north-arrow', '90');
+  await page.waitForTimeout(300);
+  await page.click('#print');
+  await page.waitForTimeout(250);
+  await page.click('[data-x="preview"]');
+  await page.waitForTimeout(600);
+  const sheetNeedle90 = (await page.locator('.sheet-preview').innerHTML()).match(/compass-needle" points="([^"]+)"/)?.[1];
+  check('the printed sheet turns its compass the same way', !!sheetNeedle0 && !!sheetNeedle90 && sheetNeedle0 !== sheetNeedle90, (v) => v === true, 'a different needle on the sheet');
+  await page.click('[data-close]');
+  await page.waitForTimeout(250);
+  await page.selectOption('#opt-north-arrow', '0');
+  await page.waitForTimeout(200);
+}
+
 /* ----------------------------------------------- an olet taken off again */
 
 // An olet placed and not drawn from comes off on its own: the two header

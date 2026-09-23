@@ -110,7 +110,8 @@ main { flex: 1 1 auto; display: flex; min-height: 0; }
 #canvas.panning { cursor: grabbing; }
 
 .overlay { position: absolute; pointer-events: none; }
-.compass-overlay { top: 12px; left: 12px; }
+.compass-overlay { top: 12px; left: 12px; cursor: pointer; pointer-events: auto; }
+.view-menu .menu select { font: inherit; font-size: 12px; padding: 2px 4px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); }
 .compass-overlay svg { display: block; }
 .compass-overlay .compass-ring { fill: rgba(255, 255, 255, 0.85); stroke: var(--muted); stroke-width: 1; }
 .compass-overlay .compass-needle { fill: var(--ink); }

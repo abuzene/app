@@ -273,6 +273,11 @@ export interface DrawingOptions {
   showGrid: boolean;
   /** Rotates which screen direction North points to, in 90-degree steps. */
   northRotation: 0 | 1 | 2 | 3;
+  /**
+   * Turns the north arrow alone, clockwise in degrees, without turning the
+   * drawing: for a sheet whose north lies off the isometric axes.
+   */
+  northArrow?: number;
   /** How fittings are joined unless a point says otherwise. */
   joint: JointType;
   /** The schedule new runs take, and what "set every run" applies. */

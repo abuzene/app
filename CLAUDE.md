@@ -301,6 +301,11 @@ ships, and the decisions already taken, so they are not re-litigated.
   its printer dialog always adds ~13 mm margins and a URL footer. It is the
   primary button on tablets; browser Print stays for desktop.
 - The toolbar pads for the iPad status bar (`env(safe-area-inset-top)`).
+- **North arrow on its own** (`options.northArrow`, degrees clockwise,
+  `northArrowDir` in iso.ts used by the canvas compass and the sheet's):
+  a tap on the compass overlay turns the arrow 45°, the View menu has a
+  select (`#opt-north-arrow`, synced in `render`). Rotate still turns the
+  whole drawing (`northRotation`); he asked to keep both.
 
 ## How he actually draws (learned from his sheets)
 

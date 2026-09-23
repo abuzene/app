@@ -73,6 +73,13 @@ export function project(p: Vec3, rotation = 0): Pt {
   };
 }
 
+/** Where the north arrow points on screen: the drawing's north, turned by the arrow's own angle. */
+export function northArrowDir(rotation = 0, turn = 0): Pt {
+  const n = axisScreenDir('N', rotation);
+  const rad = ((turn % 360) * Math.PI) / 180;
+  return { x: n.x * Math.cos(rad) - n.y * Math.sin(rad), y: n.x * Math.sin(rad) + n.y * Math.cos(rad) };
+}
+
 /** The unit screen direction a given routing axis travels in. */
 export function axisScreenDir(axis: Axis, rotation = 0): Pt {
   const v = project(AXIS_VECTOR[axis], rotation);

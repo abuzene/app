@@ -59,6 +59,16 @@
             <label class="check"><input type="checkbox" id="opt-welds" checked /><span>Weld nos</span></label>
             <label class="check"><input type="checkbox" id="opt-grid" checked /><span>Grid</span></label>
             <label class="check"><input type="checkbox" id="opt-schematic" /><span>Not to scale</span></label>
+            <label class="check"><span>North arrow</span><select id="opt-north-arrow" title="Turn the north arrow alone; Rotate turns the whole drawing">
+              <option value="0">With the drawing</option>
+              <option value="45">Turned 45°</option>
+              <option value="90">Turned 90°</option>
+              <option value="135">Turned 135°</option>
+              <option value="180">Turned 180°</option>
+              <option value="225">Turned 225°</option>
+              <option value="270">Turned 270°</option>
+              <option value="315">Turned 315°</option>
+            </select></label>
           </div>
         </div>
 
@@ -76,7 +86,7 @@
 
         <section class="canvas-wrap">
           <svg id="canvas" xmlns="http://www.w3.org/2000/svg"></svg>
-          <div class="overlay compass-overlay" id="compass"></div>
+          <div class="overlay compass-overlay" id="compass" title="Tap to turn the north arrow alone, 45° at a time"></div>
           <div class="overlay hud" id="hud"></div>
           <div class="overlay empty-hint" id="empty-hint">
             <h2>Start the route</h2>

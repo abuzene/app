@@ -2,7 +2,7 @@ import { pipeNetAt, type Analysis, type BomLine } from '../model/drawing';
 import type { Drawing } from '../model/types';
 import { SYMBOL_MM, contentBounds, escapeText, renderDrawing } from './renderer';
 import { sizeLabel } from '../model/pipe-data';
-import { axisScreenDir } from '../model/iso';
+import { northArrowDir } from '../model/iso';
 import { contentCss } from './style';
 
 export type SheetSize = 'A4' | 'A3' | 'A2';
@@ -261,7 +261,7 @@ function weldList(analysis: Analysis, x: number, y: number, w: number, maxRows: 
 }
 
 function compass(drawing: Drawing, cx: number, cy: number, r: number): string {
-  const dir = axisScreenDir('N', drawing.options.northRotation);
+  const dir = northArrowDir(drawing.options.northRotation, drawing.options.northArrow ?? 0);
   const tipX = cx + dir.x * r;
   const tipY = cy + dir.y * r;
   const tailX = cx - dir.x * r * 0.55;

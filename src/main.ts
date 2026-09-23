@@ -935,6 +935,8 @@ function render(): void {
   renderPanel(tabBodyEl, host);
   renderTools(toolsEl, host);
   compassEl.innerHTML = northArrow(state.drawing);
+  const northSelect = document.getElementById('opt-north-arrow') as HTMLSelectElement | null;
+  if (northSelect) northSelect.value = String(state.drawing.options.northArrow ?? 0);
   emptyHintEl.classList.toggle('hidden', state.drawing.nodes.length > 0);
   renderHud();
   $<HTMLButtonElement>('undo').disabled = undoStack.length === 0;
@@ -1233,6 +1235,18 @@ $('rotate').addEventListener('click', () => {
   });
   fitView();
 });
+// The north arrow turns on its own, a tap at a time or from the View menu,
+// for a sheet whose north lies off the isometric axes; Rotate still turns
+// the whole drawing.
+const turnNorthArrow = (turn: number) => {
+  updateOptions((o) => {
+    o.northArrow = ((turn % 360) + 360) % 360 || undefined;
+  });
+  const select = document.getElementById('opt-north-arrow') as HTMLSelectElement | null;
+  if (select) select.value = String(state.drawing.options.northArrow ?? 0);
+};
+compassEl.addEventListener('click', () => turnNorthArrow((state.drawing.options.northArrow ?? 0) + 45));
+document.getElementById('opt-north-arrow')?.addEventListener('change', (event) => turnNorthArrow(Number((event.target as HTMLSelectElement).value)));
 
 for (const [id, key] of [
   ['opt-dims', 'showDimensions'],

@@ -2,7 +2,7 @@ import type { Analysis } from '../model/drawing';
 import type { Axis, DimOverride, Drawing, FlangeKind, Run, Vec3 } from '../model/types';
 import { COMPONENT_LABEL, TERMINAL_LABEL, chainStops, dimensionStops, fittingLabel, isMark, isReducer, isSupport, isValve, itemAtEnd, oletEntries, oletLegs, resolveEnds } from '../model/drawing';
 import { componentTakeout, sizeLabel, valveFlangeKind } from '../model/pipe-data';
-import { AXIS_VECTOR, axisBetween, axisScreenDir, project, scale3, add } from '../model/iso';
+import { AXIS_VECTOR, axisBetween, axisScreenDir, northArrowDir, project, scale3, add } from '../model/iso';
 import { componentSymbol, flangeHub, flangeSymbol, frameFor, gasketLine, groundSymbol, isFlange, jointMark, oletSymbol, supportCallout, supportSymbol, terminalSymbol, transitionSymbol, type Facing, type Frame } from './symbols';
 
 export interface ViewBox {
@@ -1089,7 +1089,7 @@ function weldPlacement(
 
 /** Small compass drawn as a screen-fixed overlay rather than part of the sheet. */
 export function northArrow(drawing: Drawing, size = 58): string {
-  const dir = axisScreenDir('N', drawing.options.northRotation);
+  const dir = northArrowDir(drawing.options.northRotation, drawing.options.northArrow ?? 0);
   const c = size / 2;
   const ring = size * 0.3;
   const tip = { x: c + dir.x * ring * 0.86, y: c + dir.y * ring * 0.86 };
