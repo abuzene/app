@@ -2598,6 +2598,30 @@ await penTapNode(gapQ);
 check('drawn back to the other piece, the pipe runs straight through with no point left', `${await runCount()} ${(await nodesAt()).length}`, (v) => v === '2 3', '2 runs, 3 points');
 check('and the header is one dimension again', await page.locator('#canvas .dim-text').evaluateAll((els) => els.map((e) => e.textContent).sort().join()), (v) => v === '2000,4000', '4000 and 2000');
 
+/* ------------------------------ a figure under a dragged weld tag still opens */
+
+// A weld tag dragged on top of a dimension's figure once made the figure
+// impossible to tap (his 468 that "would not let him"). The figure's
+{
+// target sits above the tags now.
+await routeLine('4"\nSTD\nORIGIN 0 0 0\nE 3000\nEND FLG');
+const figHit = await page.locator('#canvas circle.hit-dot[data-dim]').first().boundingBox();
+const figTag = page.locator('#canvas [data-weld-tag]').first();
+const tagBox = await figTag.boundingBox();
+await page.mouse.move(tagBox.x + tagBox.width / 2, tagBox.y + tagBox.height / 2);
+await page.mouse.down();
+await page.mouse.move(figHit.x + figHit.width / 2, figHit.y + figHit.height / 2, { steps: 12 });
+await page.mouse.up();
+await page.waitForTimeout(300);
+const figCovered = await page.locator('#canvas [data-weld-tag]').first().boundingBox();
+check('a weld tag dragged onto a dimension figure lands on it', Math.hypot(figCovered.x + figCovered.width / 2 - figHit.x - figHit.width / 2, figCovered.y + figCovered.height / 2 - figHit.y - figHit.height / 2), (v) => v < 12, 'within 12 px');
+await page.mouse.click(figHit.x + figHit.width / 2, figHit.y + figHit.height / 2);
+await page.waitForTimeout(300);
+check('and the figure still opens to be typed over', await page.evaluate(() => document.activeElement?.tagName === 'INPUT' && document.activeElement.value), (v) => v === '3000', '3000 in the editor');
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
+}
+
 /* ----------------------------------------------- an olet taken off again */
 
 // An olet placed and not drawn from comes off on its own: the two header

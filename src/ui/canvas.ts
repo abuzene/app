@@ -239,7 +239,10 @@ export class Canvas {
     const tagEl = target?.closest('[data-weld-tag]');
     const balloonEl = target?.closest('[data-balloon]');
     const equipmentEl = target?.closest('[data-equipment]');
-    const dimEl = target?.closest('[data-dim]');
+    // Only a tag, balloon, mark or box lying over a figure gives way to it;
+    // the pipe and its points keep their taps.
+    const overFigure = !!(tagEl || balloonEl || equipmentEl || weldEl) && !nodeEl;
+    const dimEl = target?.closest('[data-dim]') ?? (overFigure ? this.buriedFigure(event.clientX, event.clientY) : null);
     const handleEl = target?.closest('[data-run-end]');
 
     const startView = { ...this.view };
@@ -595,6 +598,26 @@ export class Canvas {
    * Whether a point has a line running straight through it — a tee, an olet or
    * a plain joint — in which case dragging should slide it along that line.
    */
+  /**
+   * A dimension figure under whatever was touched: a weld tag or balloon
+   * dragged over a figure sits above it and would take every tap, so a
+   * tap close to the figure's centre is the figure's. The stack under the
+   * pointer says what is there; the figure has to be near, not just
+   * within its wide touch target.
+   */
+  private buriedFigure(clientX: number, clientY: number): Element | null {
+    if (typeof document.elementsFromPoint !== 'function') return null;
+    for (const el of document.elementsFromPoint(clientX, clientY)) {
+      const figure = el.closest('[data-dim]');
+      if (!figure) continue;
+      const box = figure.getBoundingClientRect();
+      const near = Math.min(16, Math.max(6, box.width / 2));
+      if (Math.hypot(box.left + box.width / 2 - clientX, box.top + box.height / 2 - clientY) <= near) return figure;
+      return null;
+    }
+    return null;
+  }
+
   private slidesAlongLine(nodeId: string): boolean {
     if (!this.analysis) return false;
     const info = this.analysis.nodeInfo.get(nodeId);

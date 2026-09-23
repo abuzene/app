@@ -101,6 +101,13 @@ ships, and the decisions already taken, so they are not re-litigated.
 - **Dimensions** are moved by dragging their figure (`dimOverrides[key]`
   `offset`/`along`, the figure's hit carries the frame) and hidden with the
   keypad's "Hide this dimension"; the run panel's Dimension: show clears it.
+  A tag or balloon dragged over a figure sits above its target and once
+  made the figure untappable ("the 468 won't let me edit it",
+  2026-09-23): `buriedFigure` in canvas.ts looks through the element
+  stack under the pointer and gives a tap within ~16 px of a figure's
+  centre to the figure. Do not put `dimHits` on top of the tag layer
+  instead: its radius grows with the view, and zoomed out it swallowed
+  taps on the pipe.
 - A run can be **fittings joined directly** (`run.direct`, HUD "No pipe —
   fittings touch", panel Pipe select, `setRunDirect`): pulled in to the sum
   of the take-outs, one weld mid-run "ELBOW / OLET", cut 0, no pipe on the
