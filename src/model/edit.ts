@@ -1,6 +1,6 @@
 import type { Axis, ComponentKind, Drawing, EndType, Equipment, FlangeKind, InlineComponent, IsoNode, Measure, Run, TerminalKind, Vec3 } from './types';
 import { AXIS_VECTOR, add, axisBetween, direction, equals3, length3, scale3, step, sub } from './iso';
-import { chainStops, dimensionStops, fittingsTouchLength, isValve, itemAtEnd, oletMarks, terminalTakeoutOf, uid, type Analysis } from './drawing';
+import { chainStops, dimensionStops, fittingsTouchLength, isValve, itemAtEnd, oletMarks, runGroupIds, terminalTakeoutOf, uid, type Analysis } from './drawing';
 import { componentTakeout } from './pipe-data';
 
 /** Finds an existing node at a position, so that routes join rather than overlap. */
@@ -721,6 +721,61 @@ export function deletePoint(drawing: Drawing, nodeId: string): 'joined' | 'delet
  * own dimension, from the chain's start, moves just the olet along the
  * header: the header keeps its length, and what sits along it stays put.
  */
+/** Sets the length of the whole pipe a run belongs to: a header's far end moves, its olets stay. */
+export function setGroupLength(drawing: Drawing, analysis: Analysis, runId: string, value: number): boolean {
+  const chain = analysis.chainOfRun.get(runId);
+  if (!chain || chain.runs.length < 2) return setRunLength(drawing, runId, value);
+  const last = chain.runs[chain.runs.length - 1];
+  const length = last.length + (value - chain.total);
+  if (length <= 0.5) return false;
+  return stretchRun(drawing, last.run.id, length, last.forward ? 'to' : 'from', true);
+}
+
+/** Deletes the whole pipe a run belongs to; an olet left with no header is no olet. */
+export function deleteRunGroup(drawing: Drawing, analysis: Analysis, runId: string): void {
+  const ids = runGroupIds(analysis, runId);
+  const oletNodes = analysis.chainOfRun.get(runId)?.olets.map((o) => o.nodeId) ?? [];
+  for (const id of ids) deleteRun(drawing, id);
+  for (const nodeId of oletNodes) {
+    const node = drawing.nodes.find((n) => n.id === nodeId);
+    if (!node) continue;
+    node.olets = undefined;
+    node.olet = undefined;
+    if (node.fittingOverride === 'OLET') node.fittingOverride = undefined;
+  }
+}
+
+/**
+ * A hand dimension from an olet to a point on its own header can be typed:
+ * the olet slides along the header to that distance, the point stays. This
+ * is how an olet is placed "from its base" once it is on the pipe.
+ */
+export function measureOnOlet(drawing: Drawing, analysis: Analysis, measureId: string): { oletId: string; otherAlong: number; sign: number } | null {
+  const measure = (drawing.measures ?? []).find((m) => m.id === measureId);
+  if (!measure) return null;
+  for (const [oletId, otherId] of [[measure.a, measure.b], [measure.b, measure.a]]) {
+    const chain = analysis.chains.find((c) => c.olets.some((o) => o.nodeId === oletId));
+    if (!chain) continue;
+    const start = drawing.nodes.find((n) => n.id === chain.from);
+    const end = drawing.nodes.find((n) => n.id === chain.to);
+    const other = drawing.nodes.find((n) => n.id === otherId);
+    const dir = start && end ? direction(start.pos, end.pos) : null;
+    if (!start || !other || !dir) continue;
+    const rel = sub(other.pos, start.pos);
+    const along = rel.e * dir.e + rel.n * dir.n + rel.u * dir.u;
+    if (length3(sub(rel, scale3(dir, along))) > 0.5) continue;
+    const oletAlong = chain.olets.find((o) => o.nodeId === oletId)!.along;
+    return { oletId, otherAlong: along, sign: oletAlong >= along ? 1 : -1 };
+  }
+  return null;
+}
+
+export function applyMeasureToOlet(drawing: Drawing, analysis: Analysis, measureId: string, value: number): string | null {
+  const on = measureOnOlet(drawing, analysis, measureId);
+  if (!on) return 'A dimension between two points: move a point to change it.';
+  return applyChainDimension(drawing, analysis, `olet:${on.oletId}`, on.otherAlong + on.sign * value);
+}
+
 export function applyChainDimension(drawing: Drawing, analysis: Analysis, key: string, value: number): string | null {
   if (!(value > 0)) return 'A dimension has to be more than nothing.';
   const olet = key.match(/^olet:(.+)$/);

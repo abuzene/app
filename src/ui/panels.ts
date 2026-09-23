@@ -1,11 +1,11 @@
 import type { Axis, ComponentKind, EndType, Equipment, FittingKind, FlangeKind, JointType, TerminalKind } from '../model/types';
 import type { Host, TabId } from './types';
-import { COMPONENT_LABEL, DEFAULT_LOGO, ROOT_GAP, TERMINAL_LABEL, fittingLabel, fmtMm, isMark, isReducer, isSupport, isValve, oletLabel, oletLegs, oletMarks, pipeNetAt, reducerName, resolveEnds } from '../model/drawing';
+import { COMPONENT_LABEL, DEFAULT_LOGO, ROOT_GAP, TERMINAL_LABEL, fittingLabel, fmtMm, isMark, isReducer, isSupport, isValve, oletLabel, oletLegs, oletMarks, pipeNetAt, reducerName, resolveEnds, runGroupIds } from '../model/drawing';
 import { COMMAND_HELP } from '../model/commands';
 import { DN_LIST, SIZE_LABELS, defaultValveEnds, schedulesFor, sizeLabel } from '../model/pipe-data';
 import { AXES, AXIS_VECTOR, axisBetween } from '../model/iso';
 import { projectsOf } from '../model/library';
-import { applyReducer, deletePoint, deleteRun, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, runLength, setRunDashed, setRunDirect, setRunLength, setTerminal, splitRun } from '../model/edit';
+import { applyReducer, deletePoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, runLength, setGroupLength, deleteRunGroup, DASHED_NOTE, setRunDashed, setRunDirect, setRunLength, setTerminal, splitRun } from '../model/edit';
 import { setDriveClientId } from '../model/drive';
 import { reducerPreview } from './reducer-preview';
 
@@ -72,21 +72,26 @@ function runProperties(host: Host, runId: string): string {
   const { drawing, analysis } = host.state;
   const run = drawing.runs.find((r) => r.id === runId);
   if (!run) return '';
-  const lengths = analysis.runLengths.get(run.id);
+  // A header through olets is one pipe: its length end to end, cut summed.
+  const group = runGroupIds(analysis, run.id);
+  const header = group.length > 1 ? analysis.chainOfRun.get(run.id) : undefined;
+  const centre = header ? header.total : (analysis.runLengths.get(run.id)?.centre ?? 0);
+  const cut = group.reduce((sum, id) => sum + (analysis.runLengths.get(id)?.cut ?? 0), 0);
+  const oletCount = header?.olets.length ?? 0;
   return `
 <div class="section" data-editor="run" data-id="${run.id}">
-  <h3>Run — ${runDirection(host, run.id)}</h3>
-  <div class="row"><label>Length</label><input type="number" data-f="length" step="1" min="1" value="${Math.round(lengths?.centre ?? 0)}" /></div>
+  <h3>${header ? `Header — ${runDirection(host, run.id)}, one pipe with ${oletCount} olet${oletCount === 1 ? '' : 's'} on it` : `Run — ${runDirection(host, run.id)}`}</h3>
+  <div class="row"><label>Length</label><input type="number" data-f="length" step="1" min="1" value="${Math.round(centre)}" /></div>
   <div class="row"><label>Size</label><select data-f="dn">${options(DN_LIST, run.dn, SIZE_LABELS)}</select></div>
   <div class="row"><label>Schedule</label><select data-f="schedule">${options(schedulesFor(run.dn), run.schedule)}</select></div>
   <div class="row"><label>Line</label><select data-f="dashed">${options(['solid', 'dashed'], run.dashed ? 'dashed' : 'solid', { solid: 'Solid — pipe on this sheet', dashed: 'Dashed — continued on the next sheet' })}</select></div>
   <div class="row"><label>Note</label><input type="text" data-f="note" value="${esc(run.note ?? '')}" placeholder="${run.dashed ? 'CONT. ON NEXT SHEET' : 'optional, drawn beside the pipe'}" /></div>
   <div class="row"><label>Dimension</label><select data-f="nodim">${options(['show', 'hide'], run.noDim ? 'hide' : 'show')}</select></div>
-  <div class="row"><label>Pipe</label><select data-f="direct">${options(['pipe', 'touch'], run.direct ? 'touch' : 'pipe', { pipe: 'A pipe between the fittings', touch: 'None — fittings joined directly' })}</select></div>
-  <p class="empty-note">Cut length after take-outs: <strong>${mm(lengths?.cut ?? 0)} mm</strong></p>
+  ${header ? '' : `<div class="row"><label>Pipe</label><select data-f="direct">${options(['pipe', 'touch'], run.direct ? 'touch' : 'pipe', { pipe: 'A pipe between the fittings', touch: 'None — fittings joined directly' })}</select></div>`}
+  <p class="empty-note">Cut length after take-outs: <strong>${mm(cut)} mm</strong>${header ? '. The olets ride on it: place each by its own dimension from the header\'s start, or a hand dimension from the olet to any point on the header.' : ''}</p>
   <div class="btn-row">
-    <button class="btn-line" data-a="split">Split in half</button>
-    <button class="btn-line danger" data-a="delete-run">Delete pipe — this length only</button>
+    ${header ? '' : '<button class="btn-line" data-a="split">Split in half</button>'}
+    <button class="btn-line danger" data-a="delete-run">${header ? 'Delete this header' : 'Delete pipe — this length only'}</button>
   </div>
 </div>`;
 }
@@ -266,16 +271,21 @@ function runList(host: Host): string {
   if (drawing.runs.length === 0) {
     return `<div class="section"><h3>Runs</h3><p class="empty-note">No runs yet. Click the drawing to place the first point, then drag along one of the six isometric directions.</p></div>`;
   }
-  const rows = drawing.runs
+  // A header through olets is one pipe, so one row.
+  const shown = drawing.runs.filter((run) => runGroupIds(analysis, run.id)[0] === run.id);
+  const picked = selection?.kind === 'run' ? runGroupIds(analysis, selection.id) : [];
+  const rows = shown
     .map((run, i) => {
-      const lengths = analysis.runLengths.get(run.id);
-      const selected = selection?.kind === 'run' && selection.id === run.id;
+      const group = runGroupIds(analysis, run.id);
+      const centre = group.length > 1 ? (analysis.chainOfRun.get(run.id)?.total ?? 0) : (analysis.runLengths.get(run.id)?.centre ?? 0);
+      const cut = group.reduce((sum, id) => sum + (analysis.runLengths.get(id)?.cut ?? 0), 0);
+      const selected = picked.includes(run.id);
       return `<tr class="clickable${selected ? ' is-selected' : ''}" data-run-row="${run.id}">
   <td class="num">${i + 1}</td>
   <td>${runDirection(host, run.id)}</td>
   <td>${esc(sizeLabel(run.dn))}</td>
-  <td class="len num"><input type="number" step="1" min="1" data-run-len="${run.id}" value="${Math.round(lengths?.centre ?? 0)}" /></td>
-  <td class="num">${mm(lengths?.cut ?? 0)}</td>
+  <td class="len num"><input type="number" step="1" min="1" data-run-len="${run.id}" value="${Math.round(centre)}" /></td>
+  <td class="num">${mm(cut)}</td>
 </tr>`;
     })
     .join('');
@@ -742,7 +752,7 @@ function wire(body: HTMLElement, host: Host): void {
     input.addEventListener('change', () => {
       const value = Number(input.value);
       if (!Number.isFinite(value) || value <= 0) return;
-      host.edit('Change length', (d) => setRunLength(d, input.dataset.runLen!, value));
+      host.edit('Change length', (d) => setGroupLength(d, host.state.analysis, input.dataset.runLen!, value));
     });
   });
 
@@ -751,24 +761,24 @@ function wire(body: HTMLElement, host: Host): void {
   if (runEditor) {
     const id = runEditor.dataset.id!;
     const field = (name: string) => runEditor.querySelector<HTMLInputElement & HTMLSelectElement>(`[data-f="${name}"]`);
+    const group = runGroupIds(host.state.analysis, id);
     field('length')?.addEventListener('change', (e) => {
       const value = Number((e.target as HTMLInputElement).value);
-      if (value > 0) host.edit('Change length', (d) => setRunLength(d, id, value));
+      if (value > 0) host.edit('Change length', (d) => setGroupLength(d, host.state.analysis, id, value));
     });
     field('dn')?.addEventListener('change', (e) => {
       const value = (e.target as HTMLSelectElement).value;
       host.edit('Change size', (d) => {
-        const run = d.runs.find((r) => r.id === id);
-        if (!run) return;
-        run.dn = value;
-        if (!schedulesFor(value).includes(run.schedule)) run.schedule = schedulesFor(value)[0] ?? 'STD';
+        for (const run of d.runs.filter((r) => group.includes(r.id))) {
+          run.dn = value;
+          if (!schedulesFor(value).includes(run.schedule)) run.schedule = schedulesFor(value)[0] ?? 'STD';
+        }
       });
     });
     field('schedule')?.addEventListener('change', (e) => {
       const value = (e.target as HTMLSelectElement).value;
       host.edit('Change schedule', (d) => {
-        const run = d.runs.find((r) => r.id === id);
-        if (run) run.schedule = value;
+        for (const run of d.runs.filter((r) => group.includes(r.id))) run.schedule = value;
       });
     });
     field('note')?.addEventListener('change', (e) => {
@@ -780,7 +790,11 @@ function wire(body: HTMLElement, host: Host): void {
     });
     field('dashed')?.addEventListener('change', (e) => {
       const on = (e.target as HTMLSelectElement).value === 'dashed';
-      host.edit(on ? 'Dashed run' : 'Solid run', (d) => setRunDashed(d, id, on));
+      host.edit(on ? 'Dashed run' : 'Solid run', (d) => {
+        for (const runId of group) setRunDashed(d, runId, on);
+        // One note for the pipe, not one per stretch of it.
+        if (on) for (const run of d.runs.filter((r) => group.includes(r.id) && r.id !== id && r.note === DASHED_NOTE)) run.note = undefined;
+      });
     });
     field('nodim')?.addEventListener('change', (e) => {
       const value = (e.target as HTMLSelectElement).value;
@@ -812,7 +826,7 @@ function wire(body: HTMLElement, host: Host): void {
       });
     });
     runEditor.querySelector('[data-a="delete-run"]')?.addEventListener('click', () => {
-      host.edit('Delete run', (d) => deleteRun(d, id));
+      host.edit('Delete run', (d) => deleteRunGroup(d, host.state.analysis, id));
       host.select(null);
     });
   }

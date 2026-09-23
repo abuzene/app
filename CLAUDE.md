@@ -245,6 +245,19 @@ ships, and the decisions already taken, so they are not re-litigated.
   **Draw the branch from here** (`continueFrom` sets `currentDn` to the
   olet's size); HUD/panel **Remove olet** (`removeOlet` in edit.ts) joins
   the header back into one run. Never arm the pencil on placement.
+  **The header through olets is one pipe in every UI** (his complaint,
+  2026-09-23: "an olet still cuts the pipe in the middle; placing it must
+  not touch the header; no dimension on placing"): `runGroupIds` in
+  drawing.ts (the chain's runs, else the run alone) drives the selection
+  highlight (renderer; handles at the chain's two ends only), the run
+  panel (heading "Header — …, one pipe with n olets", length = chain
+  total via `setGroupLength`, size/schedule/dashed on all its runs, no
+  Split, no fittings-touch), the runs list (one row), and Delete pipe
+  (`deleteRunGroup`, clears the olet marks). Internally the olet is still
+  a point splitting the run (branches need a node). Placing an olet opens
+  **no** dimension. A **hand dimension from an olet to a point on its
+  header line** is typeable (`measureOnOlet`/`applyMeasureToOlet` →
+  `applyChainDimension('olet:…')`): the olet moves, the point stays.
 - **Several olets on one point** (`node.olets: {dir, dn}[]`; the old
   `node.olet` is still read through `oletMarks(node)`, never written):
   picking an olet with an olet point selected adds another mark (the

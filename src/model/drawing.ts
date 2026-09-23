@@ -610,6 +610,17 @@ export interface HeaderChain {
   olets: { nodeId: string; along: number }[];
 }
 
+/**
+ * The runs that make one pipe with this one: a header carried straight on
+ * through its olets is one pipe to pick, size, measure and delete (his
+ * complaint, 2026-09-23: "an olet still cuts the pipe in the middle").
+ * Any other run is a pipe of its own.
+ */
+export function runGroupIds(analysis: Analysis, runId: string): string[] {
+  const chain = analysis.chainOfRun.get(runId);
+  return chain && chain.runs.length > 1 ? chain.runs.map((leg) => leg.run.id) : [runId];
+}
+
 function headerChains(drawing: Drawing, nodeInfo: Map<string, NodeInfo>): HeaderChain[] {
   const runLen = (run: Run) => {
     const a = drawing.nodes.find((n) => n.id === run.from);

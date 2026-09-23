@@ -511,8 +511,11 @@ async function placeOlet(host: Host, joint: JointType): Promise<void> {
     host.notify('The run is too short for an olet.');
     return;
   }
+  // Nothing to type now: the olet rides on the header, which stays one
+  // pipe; its place is set whenever wanted by its dimension (his ask,
+  // 2026-09-23).
   host.select({ kind: 'node', id: nodeId });
-  if (!onNode) openDimensionUpTo(host, nodeId);
+  host.notify('Olet on the header. Place it later by its dimension, or a hand dimension from it.');
 }
 
 /** A dashed equipment box on the picked point, named there and then in its panel. */

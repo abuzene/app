@@ -1,6 +1,6 @@
 import type { Analysis } from '../model/drawing';
 import type { Axis, DimOverride, Drawing, FlangeKind, Run, Vec3 } from '../model/types';
-import { COMPONENT_LABEL, SYMBOL_MM, TERMINAL_LABEL, chainStops, dimensionStops, fittingLabel, isMark, isReducer, isSupport, isValve, itemAtEnd, oletEntries, oletLegs, resolveEnds } from '../model/drawing';
+import { COMPONENT_LABEL, SYMBOL_MM, TERMINAL_LABEL, chainStops, dimensionStops, fittingLabel, runGroupIds, isMark, isReducer, isSupport, isValve, itemAtEnd, oletEntries, oletLegs, resolveEnds } from '../model/drawing';
 import { componentTakeout, sizeLabel, valveFlangeKind } from '../model/pipe-data';
 import { AXIS_VECTOR, axisBetween, axisScreenDir, equals3, northArrowDir, project, scale3, add } from '../model/iso';
 import { componentSymbol, flangeHub, flangeSymbol, frameFor, gasketLine, groundSymbol, isFlange, jointMark, oletSymbol, supportCallout, supportSymbol, terminalSymbol, transitionSymbol, type Facing, type Frame } from './symbols';
@@ -364,7 +364,9 @@ export function renderDrawing(state: RenderState): string {
     const a = paper(run.from);
     const b = paper(run.to);
     if (!a || !b) continue;
-    const selected = sel?.kind === 'run' && sel.id === run.id;
+    const selectedGroup = sel?.kind === 'run' ? runGroupIds(analysis, sel.id) : [];
+    const selected = selectedGroup.includes(run.id);
+    const groupChain = selected && selectedGroup.length > 1 ? analysis.chainOfRun.get(run.id) : undefined;
 
     const lengths = analysis.runLengths.get(run.id);
     const total = lengths?.centre ?? 0;
@@ -380,6 +382,9 @@ export function renderDrawing(state: RenderState): string {
       // A picked run shows a handle at each end, dragged to make it longer or
       // shorter along its own line.
       for (const [p, which] of [[a, 'from'], [b, 'to']] as const) {
+        // A header through olets is one pipe: handles at its two ends only.
+        const endId = which === 'from' ? run.from : run.to;
+        if (groupChain && endId !== groupChain.from && endId !== groupChain.to) continue;
         handles +=
           `<circle class="run-handle" cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="${(hitR * 0.55).toFixed(2)}"/>` +
           `<circle class="hit-dot" data-run-end="${run.id}:${which}" cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="${(hitR * 1.3).toFixed(2)}"/>`;

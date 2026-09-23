@@ -3,12 +3,12 @@ import type { Axis, Drawing, Run, Vec3 } from './model/types';
 import type { Preview, Selection } from './render/renderer';
 import type { AppState, Host, OletAsk, OletChoice, ReducerAsk, ReducerChoice } from './ui/types';
 import { reducerPreview } from './ui/reducer-preview';
-import { analyse, chainStops, dimensionStops, drawnLength, emptyDrawing, minDrawnLength, oletLegs, oletMarks, uid } from './model/drawing';
+import { analyse, chainStops, dimensionStops, drawnLength, runGroupIds, emptyDrawing, minDrawnLength, oletLegs, oletMarks, uid } from './model/drawing';
 import { loadLibrary, removeDrawing, renumberProject, sheetNumber, upsertDrawing, worthKeeping } from './model/library';
 import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, noteRemovedFromLibrary, setDriveClientId, syncDrive } from './model/drive';
 import { AXES, AXIS_VECTOR, add, length3, scale3, sub } from './model/iso';
 import { initialCommandState, runCommands } from './model/commands';
-import { addMeasure, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, deleteRun, ensureNode, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, runLength, setRunDashed, setRunDirect, startFromEquipment, stretchRun } from './model/edit';
+import { addMeasure, applyMeasureToOlet, DASHED_NOTE, deleteRunGroup, measureOnOlet, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, ensureNode, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, runLength, setRunDashed, setRunDirect, startFromEquipment, stretchRun } from './model/edit';
 import { DN_LIST, schedulesFor, sizeLabel } from './model/pipe-data';
 import { northArrow, paperOf, toPaper } from './render/renderer';
 import { renderSheet, type SheetSize } from './render/sheet';
@@ -147,7 +147,9 @@ const host: Host = {
   notify(message) {
     toast = { message, until: Date.now() + 3200 };
     render();
-    setTimeout(render, 3400);
+    // Only the status line changes when the notice goes: redrawing the whole
+    // panel then threw away whatever was half typed in one of its fields.
+    setTimeout(renderHud, 3400);
   },
   stopDrawing() {
     stopDrawing();
@@ -287,12 +289,13 @@ function openDimensionEditor(key: string, clientX: number, clientY: number): voi
       const value = Number(text);
       if (!Number.isFinite(value) || value <= 0 || Math.round(value) === current) return;
       let refused: string | null = null;
-      if (measured) {
+      if (measured && !measureOnOlet(state.drawing, state.analysis, key.slice(5))) {
         host.notify('A dimension between two points: move a point to change it.');
         return;
       }
       host.edit('Set dimension', (d) => {
-        if (chained) refused = applyChainDimension(d, state.analysis, key, Math.round(value));
+        if (measured) refused = applyMeasureToOlet(d, state.analysis, key.slice(5), Math.round(value));
+        else if (chained) refused = applyChainDimension(d, state.analysis, key, Math.round(value));
         else {
           const [runId, indexText] = key.split(':');
           refused = applyDimension(d, runId, Number(indexText), Math.round(value));
@@ -991,7 +994,9 @@ function renderHud(): void {
     // Fitting welded straight to fitting, no pipe between: the run stays as
     // their centre-to-centre, but there is nothing to cut and one weld.
     const run = state.drawing.runs.find((r) => r.id === sel.id);
-    if (run) parts.push(`<button class="hud-stop" id="hud-direct" type="button">${run.direct ? 'Pipe here after all' : 'No pipe — fittings touch'}</button>`);
+    // A header through olets is one pipe: its fittings never touch.
+    const header = runGroupIds(state.analysis, sel.id).length > 1;
+    if (run && !header) parts.push(`<button class="hud-stop" id="hud-direct" type="button">${run.direct ? 'Pipe here after all' : 'No pipe — fittings touch'}</button>`);
     if (run) parts.push(`<button class="hud-stop" id="hud-dashed" type="button">${run.dashed ? 'Solid line' : 'Dashed — next sheet'}</button>`);
   }
   if (sel && sel.kind !== 'weld') {
@@ -1027,7 +1032,11 @@ function renderHud(): void {
     if (state.selection?.kind !== 'run') return;
     const id = state.selection.id;
     const on = !state.drawing.runs.find((r) => r.id === id)?.dashed;
-    host.edit(on ? 'Dashed run' : 'Solid run', (d) => setRunDashed(d, id, on));
+    const group = runGroupIds(state.analysis, id);
+    host.edit(on ? 'Dashed run' : 'Solid run', (d) => {
+      for (const runId of group) setRunDashed(d, runId, on);
+      if (on) for (const run of d.runs.filter((r) => group.includes(r.id) && r.id !== id && r.note === DASHED_NOTE)) run.note = undefined;
+    });
     host.notify(on ? 'Drawn dashed, carried on to the next sheet: not on this sheet\'s list. Tap the note beside it to type it over, or drag it.' : 'A solid line again.');
   });
   hudEl.querySelector('#hud-update')?.addEventListener('click', () => location.reload());
@@ -2194,7 +2203,7 @@ function deleteSelection(): void {
   // A plain point along a line just goes, and the pipe runs on through.
   const plain = sel.kind === 'node' && isPlainPoint(state.drawing, sel.id);
   host.edit(flanged ? 'Remove flanges' : olet ? 'Remove olet' : plain ? 'Remove point' : 'Delete', (d) => {
-    if (sel.kind === 'run') deleteRun(d, sel.id);
+    if (sel.kind === 'run') deleteRunGroup(d, state.analysis, sel.id);
     else if (sel.kind === 'equipment') removeEquipment(d, sel.id);
     else if (sel.kind === 'node' && flanged) removeFlangeJoint(d, sel.id);
     else if (sel.kind === 'node' && olet) removeOlet(d, sel.id);

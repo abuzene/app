@@ -2382,6 +2382,66 @@ check('taken off again, the point comes back in', await page.evaluate(() => Math
 await page.keyboard.press('Escape');
 await page.waitForTimeout(150);
 
+/* ------------------------------ an olet leaves its header one pipe */
+
+// "An olet still cuts the pipe in the middle; adding it must not touch the
+// header, no dimension on placing it, just let me dimension from its base"
+// (2026-09-23). The header through an olet is one pipe to pick, list,
+// size and delete; placing the olet opens nothing; a hand dimension from
+// the olet to a point on its header is typed and moves the olet alone.
+{
+  await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 4000\nN 2000');
+  const headerRun = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).runs[0].id);
+  const pickRun = async (id) => {
+    const el = page.locator(`#canvas [data-run="${id}"]`).first();
+    await el.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+    await el.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+    await page.waitForTimeout(300);
+  };
+  await pickRun(headerRun);
+  await page.locator('.tool[data-olet="BW"]').click();
+  await page.waitForTimeout(300);
+  await page.click('.dialog [data-confirm]');
+  await page.waitForTimeout(400);
+  check('placing an olet opens no dimension to type', await page.locator('.dim-editor').count(), (v) => v === 0, '0');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(150);
+  const firstHalf = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).runs[0].id);
+  await pickRun(firstHalf);
+  check('picking the header lights it end to end, with handles at its two ends only', `${await page.locator('#canvas line.pipe.selected').count()} ${await page.locator('#canvas [data-run-end]').count()}`, (v) => v === '2 2', '2 2');
+  check('its panel reads one header of 4000', `${await page.locator('#tab-body [data-f="length"]').inputValue()} ${(await page.locator('#tab-body h3').first().innerText()).toUpperCase()}`, (v) => v.startsWith('4000 HEADER'), '4000 HEADER');
+  check('and the runs list has it as one row', await page.locator('#tab-body .run-list tbody tr').count(), (v) => v === 2, '2 rows: header and the N run');
+  await page.fill('#tab-body [data-f="length"]', '5000');
+  await page.keyboard.press('Tab');
+  await page.waitForTimeout(400);
+  const oletNode = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).nodes.find((n) => n.olets).id);
+  check('typing the header length moves its far end, the olet stays', `${(await nodesAt()).find((p) => p[0] === oletNode)[1]} ${Math.max(...(await nodesAt()).map((p) => p[1]))}`, (v) => v === '2000 5000', '2000 5000');
+  await page.keyboard.press('Escape');
+  await tapNode(oletNode);
+  await page.click('#hud-measure');
+  await page.waitForTimeout(200);
+  const originNode = (await nodesAt()).find((p) => p[1] === 0 && p[2] === 0)[0];
+  await tapNode(originNode);
+  const measureId = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).measures[0].id);
+  const fig = page.locator(`#canvas [data-dim="meas:${measureId}"]`).first();
+  const fb = await fig.boundingBox();
+  const at = { bubbles: true, pointerId: 11, pointerType: 'mouse', button: 0, clientX: fb.x + fb.width / 2, clientY: fb.y + fb.height / 2, isPrimary: true };
+  await fig.dispatchEvent('pointerdown', at);
+  await page.waitForTimeout(100);
+  await fig.dispatchEvent('pointerup', at);
+  await page.waitForTimeout(300);
+  await page.keyboard.press('Control+A');
+  await page.keyboard.type('1200');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(400);
+  check('a hand dimension from the olet to the header start is typed, and moves the olet alone', `${(await nodesAt()).find((p) => p[0] === oletNode)[1]} ${Math.max(...(await nodesAt()).map((p) => p[1]))}`, (v) => v === '1200 5000', '1200 5000');
+  await page.keyboard.press('Escape');
+  await pickRun(await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).runs[0].id));
+  await page.click('#hud-delete');
+  await page.waitForTimeout(300);
+  check('Delete pipe on the header takes the whole header', `${await runCount()} ${await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).nodes.some((n) => n.olets?.length))}`, (v) => v === '1 false', '1 false');
+}
+
 /* -------------------------- a long run not to scale: drawn short, measured long */
 
 // "Pipe B is about 19 m; the sheet is not to scale, and when I shorten it
