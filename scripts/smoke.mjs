@@ -2382,6 +2382,56 @@ check('taken off again, the point comes back in', await page.evaluate(() => Math
 await page.keyboard.press('Escape');
 await page.waitForTimeout(150);
 
+/* ------------------------------ flange + reducer + flange, joined together */
+
+// "I want to draw a flange at the large size, a reducer, and a flange at the
+// small size, the fittings joined together, but the app won't let me"
+// (2026-09-23). A reducer against the start flange leaves a stub of pipe
+// up to the end flange, with two welds on it. No pipe — fittings touch on
+// that stub puts the end flange straight on the reducer's face: the stub
+// goes, the face wears the flange, one weld each side of the reducer.
+{
+  await routeLine('4"\nSTD\nORIGIN 0 0 0\nE 300');
+  const first = (await nodesAt()).find((p) => p[1] === 0)[0];
+  const last = (await nodesAt()).find((p) => p[1] === 300)[0];
+  await tapNode(first);
+  await page.locator('.tool[data-kind="FLG_WN"]').click();
+  await page.waitForTimeout(300);
+  await tapNode(first);
+  await page.locator('.tool[data-kind="RED_CONC"]').click();
+  await page.waitForTimeout(300);
+  await page.selectOption('.dialog [data-f="red-small"]', 'DN50');
+  await page.click('.dialog [data-confirm]');
+  await page.waitForTimeout(400);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(150);
+  await tapNode(last);
+  await page.locator('.tool[data-kind="FLG_WN"]').click();
+  await page.waitForTimeout(300);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(150);
+  const stubRun = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).runs.find((r) => r.inline.length === 0).id);
+  check('a flange on the end of the reducer\'s run leaves a stub of pipe with two welds', `${await runCount()} ${(await page.locator('#tab-body').innerText()).length > 0}`, (v) => v.startsWith('2 '), '2 runs');
+  const stubEl = page.locator(`#canvas [data-run="${stubRun}"]`).first();
+  await stubEl.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await stubEl.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await page.waitForTimeout(300);
+  await page.click('#hud-direct');
+  await page.waitForTimeout(400);
+  check('fittings touch on the stub takes it out and puts the flange on the reducer\'s face', `${await runCount()} ${(await nodesAt()).map((p) => p[1]).sort((a, b) => a - b).join(',')}`, (v) => /^1 0,\d+$/.test(v) && Number(v.split(',')[1]) > 200, 'one run, the far point moved out by the flange');
+  await page.click('#tabs button:has-text("Welds")');
+  await page.waitForTimeout(200);
+  const sandwich = await page.locator('#tab-body table tbody tr').allInnerTexts();
+  check('two welds, the reducer to a flange each side, one at each size', sandwich.filter((r) => /CON RED 4" X 2" \/ WELD NECK FLANGE/.test(r)).map((r) => r.split('\t')[1]).sort().join(','), (v) => v === '2",4"', '2",4"');
+  check('and no pipe weld at all', sandwich.length, (v) => v === 2, '2');
+  await page.click('#tabs button:has-text("Items")');
+  await page.waitForTimeout(200);
+  check('the list has a flange at each size', (await page.locator('#tab-body table tbody tr').allInnerTexts()).filter((r) => /WELD NECK FLANGE/.test(r)).map((r) => r.split('\t')[2]).sort().join(','), (v) => v === '2",4"', '2",4"');
+  await page.click('#tabs button:has-text("Route")');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(150);
+}
+
 /* ------------------------------------------ a plain point removed, the pipe joined */
 
 // A plain point along a line — a weld put in, the face a reducer was drawn

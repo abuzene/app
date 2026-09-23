@@ -357,13 +357,61 @@ export function splitRun(drawing: Drawing, runId: string, distance: number): str
  * as the fittings' centre-to-centre distance, and is pulled in to exactly
  * that: the sum of the two take-outs. Off again, the run is a pipe as before.
  */
-export function setRunDirect(drawing: Drawing, analysis: Analysis, runId: string, direct: boolean): void {
+/**
+ * A short length of pipe between an item's face and the line's end piece —
+ * the stub left beyond a reducer when a flange goes on the end of its run.
+ * Joining the fittings directly here means the end piece goes straight on
+ * the face, so the stub and its point go and the face wears the end piece.
+ */
+function terminalStub(drawing: Drawing, run: Run): { endNode: IsoNode; faceNode: IsoNode } | null {
+  if (run.inline.length > 0) return null;
+  const a = drawing.nodes.find((n) => n.id === run.from);
+  const b = drawing.nodes.find((n) => n.id === run.to);
+  if (!a || !b) return null;
+  const isEnd = (node: IsoNode) => {
+    const kind = node.terminal?.kind;
+    return !!kind && kind !== 'OPEN' && kind !== 'CONTINUATION' && kind !== 'EQUIPMENT' && drawing.runs.filter((r) => r.from === node.id || r.to === node.id).length === 1;
+  };
+  for (const [endNode, faceNode] of [[a, b], [b, a]] as const) {
+    if (!isEnd(endNode) || !isPlainPoint(drawing, faceNode.id)) continue;
+    const other = drawing.runs.find((r) => r.id !== run.id && (r.from === faceNode.id || r.to === faceNode.id));
+    if (!other || !itemAtEnd(drawing, other, other.from === faceNode.id)) continue;
+    return { endNode, faceNode };
+  }
+  return null;
+}
+
+/**
+ * Marks a run as fittings joined directly, and pulls it in to fit. Returns
+ * the point that now wears the end piece when the run was a stub between an
+ * item's face and the end piece: that run is gone, and the end piece sits on
+ * the face (2026-09-23, "flange + reducer + flange, joined together").
+ */
+export function setRunDirect(drawing: Drawing, analysis: Analysis, runId: string, direct: boolean): string | null {
   const run = drawing.runs.find((r) => r.id === runId);
-  if (!run) return;
+  if (!run) return null;
   run.direct = direct || undefined;
-  if (!direct) return;
+  if (!direct) return null;
+  const stub = terminalStub(drawing, run);
+  if (stub) {
+    const { endNode, faceNode } = stub;
+    const terminal = endNode.terminal!;
+    drawing.runs = drawing.runs.filter((r) => r.id !== run.id);
+    drawing.nodes = drawing.nodes.filter((n) => n.id !== endNode.id);
+    if (drawing.weldOverrides) {
+      const was = drawing.weldOverrides[`n:${endNode.id}:term`];
+      delete drawing.weldOverrides[`n:${endNode.id}:term`];
+      if (was) drawing.weldOverrides[`n:${faceNode.id}:term`] = was;
+    }
+    if (drawing.dimOverrides) {
+      for (const key of Object.keys(drawing.dimOverrides)) if (key.startsWith(`${run.id}:`)) delete drawing.dimOverrides[key];
+    }
+    setTerminal(drawing, faceNode.id, terminal.kind, terminal.note);
+    return faceNode.id;
+  }
   const touch = fittingsTouchLength(drawing, analysis, run);
   if (touch > 0 && Math.abs(runLength(drawing, run) - touch) > 0.5) stretchRun(drawing, runId, touch, 'to');
+  return null;
 }
 
 export function setRunLength(drawing: Drawing, runId: string, length: number): boolean {

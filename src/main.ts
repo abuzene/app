@@ -997,8 +997,14 @@ function renderHud(): void {
     if (state.selection?.kind !== 'run') return;
     const id = state.selection.id;
     const on = !state.drawing.runs.find((r) => r.id === id)?.direct;
-    host.edit(on ? 'Fittings touch' : 'Pipe between fittings', (d) => setRunDirect(d, state.analysis, id, on));
-    host.notify(on ? 'The fittings are joined directly: one weld, no pipe to cut.' : 'A pipe between the fittings again.');
+    let onFace: string | null = null;
+    host.edit(on ? 'Fittings touch' : 'Pipe between fittings', (d) => {
+      onFace = setRunDirect(d, state.analysis, id, on);
+    });
+    if (onFace) {
+      host.select({ kind: 'node', id: onFace });
+      host.notify('The end piece sits straight on the fitting: the pipe between them is gone.');
+    } else host.notify(on ? 'The fittings are joined directly: one weld, no pipe to cut.' : 'A pipe between the fittings again.');
   });
   hudEl.querySelector('#hud-update')?.addEventListener('click', () => location.reload());
   hudEl.querySelector('#hud-measure')?.addEventListener('click', () => {

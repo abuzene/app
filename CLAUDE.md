@@ -200,6 +200,14 @@ ships, and the decisions already taken, so they are not re-litigated.
   dropped, the flange takes that size on the list (`endDn`), and the
   symbol is drawn with its face on the flange hub. A pipe size with
   nothing cut in it (the reducer's own run) gets no list line.
+  **Flange + reducer + flange with no pipe** (his ask, 2026-09-23): a
+  flange put on the end of the reducer's run leaves a stub of pipe past
+  the face with two welds; "No pipe — fittings touch" on that stub
+  (`terminalStub` in `setRunDirect`, edit.ts) removes the stub and its
+  point and puts the end piece on the face through `setTerminal`, which
+  moves the point out; `setRunDirect` returns that point and the HUD/panel
+  select it. Delete pipe on the stub and then a flange on the face gives
+  the same. Weld overrides on `n:<end>:term` are carried to the face.
 - **List names typed over** (Items tab, `[data-bom-name]` inputs;
   `drawing.bomNames[lineKey]`, applied at the end of `analyse` after the
   sort, so item numbers stay put): capitalised, printed on the sheet's

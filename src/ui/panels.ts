@@ -792,7 +792,11 @@ function wire(body: HTMLElement, host: Host): void {
     });
     field('direct')?.addEventListener('change', (e) => {
       const on = (e.target as HTMLSelectElement).value === 'touch';
-      host.edit(on ? 'Fittings touch' : 'Pipe between fittings', (d) => setRunDirect(d, host.state.analysis, id, on));
+      let onFace: string | null = null;
+      host.edit(on ? 'Fittings touch' : 'Pipe between fittings', (d) => {
+        onFace = setRunDirect(d, host.state.analysis, id, on);
+      });
+      if (onFace) host.select({ kind: 'node', id: onFace });
     });
     runEditor.querySelector('[data-a="split"]')?.addEventListener('click', () => {
       const run = drawing.runs.find((r) => r.id === id);
