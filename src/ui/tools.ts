@@ -293,7 +293,7 @@ function place(host: Host, kind: ComponentKind): void {
 
   // A blind picked with a flanged valve on the open end — the valve itself,
   // or the end point it stands on — bolts straight on the valve's last face.
-  if (kind === 'FLG_BLIND') {
+  if (kind === 'FLG_BLIND' || kind === 'FLG_WN' || kind === 'FLG_SW' || kind === 'FLG_THD') {
     const valveAtEnd = (() => {
       const { drawing } = host.state;
       if (selection?.kind === 'component') {
@@ -311,10 +311,22 @@ function place(host: Host, kind: ComponentKind): void {
       }
       return null;
     })();
-    if (valveAtEnd) {
+    if (valveAtEnd && kind === 'FLG_BLIND') {
       host.edit('Blind on the valve', (d) => setLastFlange(d, valveAtEnd, 'blind'));
       host.select({ kind: 'component', id: valveAtEnd });
       host.notify('A blind bolted on the valve\'s last face, in place of its flange.');
+      return;
+    }
+    // A flange picked with a bare valve on the end goes on the valve's face.
+    if (valveAtEnd) {
+      const comp = host.state.drawing.runs.flatMap((r) => r.inline).find((c) => c.id === valveAtEnd);
+      if (comp?.lastFlange) {
+        host.edit('Flange on the valve', (d) => setLastFlange(d, valveAtEnd, 'flange'));
+        host.select({ kind: 'component', id: valveAtEnd });
+        host.notify('A flange on the valve\'s last face.');
+      } else {
+        host.notify('The valve already has its flange on that face.');
+      }
       return;
     }
   }
@@ -391,6 +403,9 @@ function place(host: Host, kind: ComponentKind): void {
         const offset = target.from === nodeId ? (onEnd ? half : 0) : onEnd ? total - half : total;
         const comp = addComponent(d, target.id, kind, offset, kind === 'SPECTACLE' ? 'FLG' : undefined);
         addedId = comp?.id ?? null;
+        // A valve on the open end of the pipe: its flange on the pipe side,
+        // nothing on its far face until something is put there by hand.
+        if (comp && onEnd && isValve(kind) && half > 0) setLastFlange(d, comp.id, 'none');
       });
       if (addedId) host.select({ kind: 'component', id: addedId });
       return;

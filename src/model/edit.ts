@@ -769,9 +769,10 @@ export function setLastFlange(drawing: Drawing, compId: string, state: 'flange' 
  * no pipe between (his ask, 2026-09-23: "fittings one after another").
  * On an end flange, that flange becomes the valve's own flange on that
  * side and the line grows by the valve; on a valve already on the open
- * end, the two bolt face to face with no flanges between. Returns the new
- * valve's id, or null when the end holds neither (the caller places it as
- * before).
+ * end, the two bolt face to face with no flanges between. The new valve's
+ * far face is left bare (`lastFlange: 'none'`): a flange there is put on
+ * by hand. Returns the new valve's id, or null when the end holds neither
+ * (the caller places it as before).
  */
 export function boltValveOnEnd(drawing: Drawing, nodeId: string, kind: ComponentKind): string | null {
   const node = drawing.nodes.find((n) => n.id === nodeId);
@@ -809,7 +810,9 @@ export function boltValveOnEnd(drawing: Drawing, nodeId: string, kind: Component
     prev.lastFlange = undefined;
     bareNew = atTo ? 0 : 1;
   }
-  const reach = centre + half;
+  // Only the valve goes on: nothing on its far face until something is put
+  // there by hand — a flange, another valve, equipment (his ask, 2026-09-23).
+  const reach = centre + faceHalf;
   if (atTo) b.pos = add(b.pos, scale3(dir, reach));
   else {
     a.pos = add(a.pos, scale3(dir, -reach));
@@ -817,6 +820,7 @@ export function boltValveOnEnd(drawing: Drawing, nodeId: string, kind: Component
   }
   const comp: InlineComponent = { id: uid('c'), kind, offset: atTo ? total + centre : reach - centre };
   if (bareNew !== undefined) comp.bare = bareNew;
+  comp.lastFlange = 'none';
   run.inline.push(comp);
   run.inline.sort((x, y) => x.offset - y.offset);
   if (weldKey && drawing.weldOverrides?.[weldKey]) {

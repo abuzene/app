@@ -359,7 +359,16 @@ ships, and the decisions already taken, so they are not re-litigated.
   the list, a gasket line only), the renderer draws each bolted valve with
   its bare face on the true joint so no pipe shows between. On the open
   end the drawn pipe stops at the valve (at the outer flange's weld, or
-  its face with no flange). Anything else on an end: placed as before.
+  its face with no flange). **A valve put on any end comes without its
+  far flange** (`lastFlange: 'none'`; his complaint, 2026-09-23: "an extra
+  flange came in with the valve; on a flange end I want the valve alone,
+  I add what goes on it by hand — a flange, another valve, equipment"):
+  bolted on a flange or valve, or on an open pipe end (its pipe-side
+  flange stays, it is welded to the pipe). A WN/SW/THD flange picked with
+  that valve or its end point selected goes on the valve face
+  (`setLastFlange(…, 'flange')`), Blind bolts a blind there, another
+  valve bolts face to face. A valve dropped **along** a line still comes
+  with both flanges.
 - **Run note removal**: the note's keypad has "Remove this text"
   (clears `run.note` and its drag offset); a dashed run stays dashed.
 - **Hand dimensions along one straight line are typeable**

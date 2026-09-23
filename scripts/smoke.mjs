@@ -2414,15 +2414,22 @@ await page.waitForTimeout(150);
   await page.waitForTimeout(300);
   const afterOne = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')));
   check('a valve on the end flange bolts on: the flange is its own, the line grows by the valve', `${afterOne.runs.length} ${afterOne.runs[0].inline.length} ${afterOne.nodes.find((n) => n.pos.e > 0).terminal ? 'end flange kept' : 'no end flange'} ${afterOne.nodes.find((n) => n.pos.e > 0).pos.e > 2000}`, (v) => v === '1 1 no end flange true', '1 1 no end flange true');
-  check('three flanges and three welds, the pipe unchanged', `${await listCount('WELD NECK FLANGE')} ${await weldCount()} ${await listCount('PIPE, SMLS')}`, (v) => v === '3 3 1.86', '3 flanges, 3 welds, 1.86 m of pipe');
+  // Only the valve goes on: no flange on its far face until one is put there.
+  check('only the valve goes on: two flanges and two welds, the pipe unchanged', `${await listCount('WELD NECK FLANGE')} ${await weldCount()} ${await listCount('PIPE, SMLS')}`, (v) => v === '2 2 1.86', '2 flanges, 2 welds, 1.86 m of pipe');
   await page.keyboard.press('Escape');
   await tapNode(await boltEnd());
   await page.locator('.tool[data-kind="BALL_ACT"]').click();
   await page.waitForTimeout(300);
   const afterTwo = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).runs[0].inline.map((c) => `${c.kind}:${c.bare}`).join(' '));
   check('an actuated valve on that valve bolts face to face, no flanges between', afterTwo, (v) => v === 'BALL:1 BALL_ACT:0', 'BALL:1 BALL_ACT:0');
-  check('still three flanges and three welds, the pipe unchanged', `${await listCount('WELD NECK FLANGE')} ${await weldCount()} ${await listCount('PIPE, SMLS')}`, (v) => v === '3 3 1.86', '3 flanges, 3 welds, 1.86 m of pipe');
+  check('still two flanges and two welds, the pipe unchanged', `${await listCount('WELD NECK FLANGE')} ${await weldCount()} ${await listCount('PIPE, SMLS')}`, (v) => v === '2 2 1.86', '2 flanges, 2 welds, 1.86 m of pipe');
   check('the last valve offers its last flange', await page.locator('#tab-body [data-f="last-flange"]').count(), (v) => v === 1, '1');
+  await page.keyboard.press('Escape');
+  // A flange wanted on the valve's far face is put there by hand.
+  await tapNode(await boltEnd());
+  await page.locator('.tool[data-kind="FLG_WN"]').click();
+  await page.waitForTimeout(300);
+  check('a weld neck flange picked on the end goes on the valve face', `${await listCount('WELD NECK FLANGE')} ${await weldCount()} ${await page.evaluate(() => JSON.stringify(JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).nodes.find((n) => n.pos.e > 0).terminal ?? null))}`, (v) => v === '3 3 null', '3 3 null');
   await page.keyboard.press('Escape');
 }
 
