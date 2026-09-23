@@ -8,7 +8,7 @@ import { loadLibrary, removeDrawing, renumberProject, sheetNumber, upsertDrawing
 import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, noteRemovedFromLibrary, setDriveClientId, syncDrive } from './model/drive';
 import { AXES, AXIS_VECTOR, add, length3, scale3, sub } from './model/iso';
 import { initialCommandState, runCommands } from './model/commands';
-import { addMeasure, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, deleteRun, ensureNode, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, setRunDirect, startFromEquipment, stretchRun } from './model/edit';
+import { addMeasure, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, deleteRun, ensureNode, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, setRunDashed, setRunDirect, startFromEquipment, stretchRun } from './model/edit';
 import { DN_LIST, schedulesFor, sizeLabel } from './model/pipe-data';
 import { northArrow, paperOf, toPaper } from './render/renderer';
 import { renderSheet, type SheetSize } from './render/sheet';
@@ -632,6 +632,22 @@ const canvas = new Canvas(svg, {
       });
     });
   },
+  onEditRunNote(runId, clientX, clientY) {
+    const run = state.drawing.runs.find((r) => r.id === runId);
+    if (!run) return;
+    const current = run.note ?? '';
+    openInlineEditor(current, 'text', clientX, clientY, (text) => {
+      const note = text.trim().toUpperCase();
+      if (note === current) return;
+      host.edit('Edit note', (d) => {
+        const target = d.runs.find((r) => r.id === runId);
+        if (target) target.note = note || undefined;
+      });
+    });
+  },
+  onStopDrawing() {
+    stopDrawing();
+  },
   onEditWeld(key, clientX, clientY) {
     openWeldEditor(key, clientX, clientY);
   },
@@ -704,7 +720,7 @@ const canvas = new Canvas(svg, {
     const balloon = key.startsWith('item:') ? key.slice(5) : null;
     // A support's name opened for typing on the touch; a drag means it was
     // being moved, not typed, so the box goes away.
-    if (balloon?.startsWith('sup:')) closeDimensionEditor();
+    if (balloon?.startsWith('sup:') || balloon?.startsWith('rn:')) closeDimensionEditor();
     const apply = (d: Drawing) => {
       if (balloon) {
         d.itemOverrides = { ...d.itemOverrides, [balloon]: { dx: offset.dx, dy: offset.dy } };
@@ -976,6 +992,7 @@ function renderHud(): void {
     // their centre-to-centre, but there is nothing to cut and one weld.
     const run = state.drawing.runs.find((r) => r.id === sel.id);
     if (run) parts.push(`<button class="hud-stop" id="hud-direct" type="button">${run.direct ? 'Pipe here after all' : 'No pipe — fittings touch'}</button>`);
+    if (run) parts.push(`<button class="hud-stop" id="hud-dashed" type="button">${run.dashed ? 'Solid line' : 'Dashed — next sheet'}</button>`);
   }
   if (sel && sel.kind !== 'weld') {
     const flanged = sel.kind === 'node' && !!state.drawing.nodes.find((n) => n.id === sel.id)?.flange;
@@ -1005,6 +1022,13 @@ function renderHud(): void {
       host.select({ kind: 'node', id: onFace });
       host.notify('The end piece sits straight on the fitting: the pipe between them is gone.');
     } else host.notify(on ? 'The fittings are joined directly: one weld, no pipe to cut.' : 'A pipe between the fittings again.');
+  });
+  hudEl.querySelector('#hud-dashed')?.addEventListener('click', () => {
+    if (state.selection?.kind !== 'run') return;
+    const id = state.selection.id;
+    const on = !state.drawing.runs.find((r) => r.id === id)?.dashed;
+    host.edit(on ? 'Dashed run' : 'Solid run', (d) => setRunDashed(d, id, on));
+    host.notify(on ? 'Drawn dashed, carried on to the next sheet: not on this sheet\'s list. Tap the note beside it to type it over, or drag it.' : 'A solid line again.');
   });
   hudEl.querySelector('#hud-update')?.addEventListener('click', () => location.reload());
   hudEl.querySelector('#hud-measure')?.addEventListener('click', () => {

@@ -1041,7 +1041,7 @@ export function analyse(drawing: Drawing): Analysis {
   for (const run of drawing.runs) {
     const a = nodeById.get(run.from);
     const b = nodeById.get(run.to);
-    if (!a || !b || touching.has(run.id)) continue;
+    if (!a || !b || touching.has(run.id) || run.dashed) continue;
     const idx = runIndex.get(run.id) ?? 0;
     const total = length3(sub(b.pos, a.pos));
     const terminalBack = (node: IsoNode) => terminalTakeout(node, endDn(drawing, run, node.id === run.from));
@@ -1149,6 +1149,8 @@ export function analyse(drawing: Drawing): Analysis {
   const pipeKey = (dn: string, schedule: string) => `PIPE|${dn}|${schedule}`;
   const pipeTotals = new Map<string, number>();
   for (const { run, cut } of runLengths.values()) {
+    // Pipe drawn dashed is carried on to the next sheet: listed and cut there.
+    if (run.dashed) continue;
     const key = `${run.dn}|${run.schedule}`;
     pipeTotals.set(key, (pipeTotals.get(key) ?? 0) + cut);
     const a = nodeById.get(run.from);

@@ -171,7 +171,13 @@ export interface Run {
    * between: one weld where they meet, no cut length, no pipe on the list.
    */
   direct?: boolean;
+  /** Text beside the run on the drawing: "CONT. ON NEXT SHEET" on a dashed run. */
   note?: string;
+  /**
+   * Drawn dashed: pipe carried on from this sheet to the next (or existing
+   * pipe), so not this sheet's material: no pipe on the list, no cut length.
+   */
+  dashed?: boolean;
   /**
    * How long the run is drawn when the sheet is not to scale, in the same
    * units as its true length. Set from where the pencil put the end down, so

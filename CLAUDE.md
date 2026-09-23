@@ -203,11 +203,14 @@ ships, and the decisions already taken, so they are not re-litigated.
   **Flange + reducer + flange with no pipe** (his ask, 2026-09-23): a
   flange put on the end of the reducer's run leaves a stub of pipe past
   the face with two welds; "No pipe — fittings touch" on that stub
-  (`terminalStub` in `setRunDirect`, edit.ts) removes the stub and its
-  point and puts the end piece on the face through `setTerminal`, which
-  moves the point out; `setRunDirect` returns that point and the HUD/panel
-  select it. Delete pipe on the stub and then a flange on the face gives
-  the same. Weld overrides on `n:<end>:term` are carried to the face.
+  (`terminalStub` → `joinTerminalStub` in edit.ts, used by `setRunDirect`
+  **and `deleteRun`**) removes the stub and puts the end piece on the face
+  through `setTerminal`. **The end piece stays where it was** (a flange on
+  an equipment nozzle is the datum) and everything on the face's side
+  slides up to it (his complaint: "the flange must stay fixed and the
+  reducer moves onto it, not the other way round"). `setRunDirect` returns
+  that point and the HUD/panel select it. Weld overrides on
+  `n:<end>:term` are carried to the face.
 - **List names typed over** (Items tab, `[data-bom-name]` inputs;
   `drawing.bomNames[lineKey]`, applied at the end of `analyse` after the
   sort, so item numbers stay put): capitalised, printed on the sheet's
@@ -291,6 +294,20 @@ ships, and the decisions already taken, so they are not re-litigated.
   carry on drawing after the equipment" (2026-09-23). The box's hit
   polygon is in the **first** hits group, under the pipe, points and
   tags, so the point it stands on can still be picked.
+- **Dashed run** (`run.dashed`, `setRunDashed` in edit.ts, HUD
+  `#hud-dashed` "Dashed — next sheet"/"Solid line", panel Line select
+  `[data-f="dashed"]`; his ask, 2026-09-23): drawn dashed (`.pipe.dashed`
+  in style.ts, the elbow arc too when both runs are dashed), its pipe
+  **left off** the material list, the pieces and the cut list (it is the
+  next sheet's pipe); its welds stay. Made dashed it gets `run.note` =
+  `DASHED_NOTE` ("CONT. ON NEXT SHEET") unless a note is already there;
+  solid again, that default note goes. **Run notes are drawn** beside the
+  run's middle on the side away from the dimension (`.run-note`, upper
+  case), draggable via `itemOverrides['rn:<runId>']` (leader once moved)
+  and typed over on the touch (`data-balloon="rn:<id>"` →
+  `onEditRunNote`, like a support's callout) or in the panel's Note field.
+- **Right click while drawing** puts the pencil down (`onStopDrawing`
+  from canvas.ts; the right button still pans when not drawing).
 - Supports and the AG/UG mark are **notes, not material**: no BOM line, no
   welds. Supports are numbered along the line unless named.
 - Printing happens from the page itself (`#print-root`, `@page` size); a

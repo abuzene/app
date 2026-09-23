@@ -2382,6 +2382,73 @@ check('taken off again, the point comes back in', await page.evaluate(() => Math
 await page.keyboard.press('Escape');
 await page.waitForTimeout(150);
 
+/* ---------------------------- a dashed run carried on to the next sheet */
+
+// "Turn a pipe line dashed, and once it is, write CONT. ON NEXT SHEET
+// beside it, editable, and let me move the text" (2026-09-23). A picked
+// run's HUD offers Dashed — next sheet: the run is drawn dashed with the
+// note beside it, off the list and the cut list, and the note drags and
+// is typed over on the drawing or in the panel. A right click while
+// drawing puts the pencil down.
+{
+  await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 3000\nN 2000\nE 2500');
+  const lastRun = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).runs[2].id);
+  const runEl = page.locator(`#canvas [data-run="${lastRun}"]`).first();
+  await runEl.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await runEl.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await page.waitForTimeout(300);
+  check('a picked run offers to be drawn dashed', await page.locator('#hud-dashed').innerText(), (v) => v === 'Dashed — next sheet', 'Dashed — next sheet');
+  await page.click('#hud-dashed');
+  await page.waitForTimeout(300);
+  check('made dashed, it is drawn so with the note beside it', `${await page.locator('#canvas line.pipe.dashed').count()} ${await page.locator('#canvas .run-note text').evaluate((e) => e.textContent)}`, (v) => v === '1 CONT. ON NEXT SHEET', '1 CONT. ON NEXT SHEET');
+  check('the panel shows it dashed', await page.locator('#tab-body [data-f="dashed"]').inputValue(), (v) => v === 'dashed', 'dashed');
+  await page.click('#tabs button:has-text("Items")');
+  await page.waitForTimeout(200);
+  check('and its pipe is not on this sheet\'s list', await page.locator('#tab-body').innerText(), (v) => /PIPE, SMLS, 3" x STD\t3"\tSTD\t4\.66/.test(v), '4.66 m: the two solid runs only');
+  await page.click('#tabs button:has-text("Welds")');
+  await page.waitForTimeout(200);
+  check('the cut list has no letter for it', (await page.locator('#tab-body table tbody tr').allInnerTexts()).filter((r) => /\t[C-Z] \d/.test(r)).length, (v) => v === 0, 'no piece C');
+  await page.click('#tabs button:has-text("Route")');
+  await page.click('#fit');
+  await page.waitForTimeout(300);
+  const noteHit = page.locator('#canvas [data-balloon^="rn:"]');
+  const nb = await noteHit.boundingBox();
+  await page.mouse.move(nb.x + nb.width / 2, nb.y + nb.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(nb.x + nb.width / 2 + 60, nb.y + nb.height / 2 - 70, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  check('the note drags, and gets a leader to the pipe', `${!!(await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).itemOverrides?.['rn:' + JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).runs[2].id]))} ${await page.locator('#canvas .run-note .balloon-leader').count()}`, (v) => v === 'true 1', 'true 1');
+  const nb2 = await noteHit.boundingBox();
+  await penTap(nb2.x + nb2.width / 2, nb2.y + nb2.height / 2);
+  check('tapped, the note opens for typing', await page.locator('.dim-editor').count(), (v) => v === 1, '1');
+  await page.keyboard.press('Control+A');
+  await page.keyboard.type('cont. on sh.2');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(300);
+  check('and reads as typed, in capitals', await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).runs[2].note), (v) => v === 'CONT. ON SH.2', 'CONT. ON SH.2');
+  await page.click('#print');
+  await page.waitForTimeout(250);
+  await page.click('[data-x="preview"]');
+  await page.waitForTimeout(600);
+  const dashedSheet = await page.locator('.sheet-preview').innerHTML();
+  check('the printed sheet has the dashed run and the note', `${(dashedSheet.match(/class="pipe dashed"/g) || []).length} ${dashedSheet.includes('CONT. ON SH.2')}`, (v) => v === '1 true', '1 true');
+  await page.click('[data-close]');
+  await page.waitForTimeout(250);
+  // A right click while drawing puts the pencil down.
+  const dashStart = (await nodesAt()).find((p) => p[1] === 0 && p[2] === 0)[0];
+  await tapNode(dashStart);
+  await page.click('#tab-body [data-a="draw-from"]');
+  await page.waitForTimeout(200);
+  check('drawing from a point', await page.locator('#hud').innerText(), (v) => /drawing/.test(v), 'the drawing prompt');
+  const canvasBox = await page.locator('#canvas').boundingBox();
+  await page.mouse.click(canvasBox.x + canvasBox.width * 0.5, canvasBox.y + canvasBox.height * 0.12, { button: 'right' });
+  await page.waitForTimeout(300);
+  check('a right click puts the pencil down without drawing', `${/drawing/.test(await page.locator('#hud').innerText())} ${await runCount()}`, (v) => v === 'false 3', 'false 3');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(150);
+}
+
 /* ------------------------------ flange + reducer + flange, joined together */
 
 // "I want to draw a flange at the large size, a reducer, and a flange at the
@@ -2418,7 +2485,9 @@ await page.waitForTimeout(150);
   await page.waitForTimeout(300);
   await page.click('#hud-direct');
   await page.waitForTimeout(400);
-  check('fittings touch on the stub takes it out and puts the flange on the reducer\'s face', `${await runCount()} ${(await nodesAt()).map((p) => p[1]).sort((a, b) => a - b).join(',')}`, (v) => /^1 0,\d+$/.test(v) && Number(v.split(',')[1]) > 200, 'one run, the far point moved out by the flange');
+  // The end flange stays where it was (an equipment nozzle is the datum) and
+  // the reducer, with its start flange, comes up to it (his complaint).
+  check('fittings touch on the stub takes it out and puts the flange on the reducer\'s face, the flange staying put', `${await runCount()} ${(await nodesAt()).map((p) => p[1]).sort((a, b) => a - b).join(',')}`, (v) => /^1 \d+,300$/.test(v) && Number(v.split(' ')[1].split(',')[0]) > 0, 'one run, ending at 300 still, the start moved up');
   await page.click('#tabs button:has-text("Welds")');
   await page.waitForTimeout(200);
   const sandwich = await page.locator('#tab-body table tbody tr').allInnerTexts();

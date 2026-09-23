@@ -5,7 +5,7 @@ import { COMMAND_HELP } from '../model/commands';
 import { DN_LIST, SIZE_LABELS, defaultValveEnds, schedulesFor, sizeLabel } from '../model/pipe-data';
 import { AXES, AXIS_VECTOR, axisBetween } from '../model/iso';
 import { projectsOf } from '../model/library';
-import { applyReducer, deletePoint, deleteRun, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, runLength, setRunDirect, setRunLength, setTerminal, splitRun } from '../model/edit';
+import { applyReducer, deletePoint, deleteRun, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, runLength, setRunDashed, setRunDirect, setRunLength, setTerminal, splitRun } from '../model/edit';
 import { setDriveClientId } from '../model/drive';
 import { reducerPreview } from './reducer-preview';
 
@@ -79,7 +79,8 @@ function runProperties(host: Host, runId: string): string {
   <div class="row"><label>Length</label><input type="number" data-f="length" step="1" min="1" value="${Math.round(lengths?.centre ?? 0)}" /></div>
   <div class="row"><label>Size</label><select data-f="dn">${options(DN_LIST, run.dn, SIZE_LABELS)}</select></div>
   <div class="row"><label>Schedule</label><select data-f="schedule">${options(schedulesFor(run.dn), run.schedule)}</select></div>
-  <div class="row"><label>Note</label><input type="text" data-f="note" value="${esc(run.note ?? '')}" placeholder="optional" /></div>
+  <div class="row"><label>Line</label><select data-f="dashed">${options(['solid', 'dashed'], run.dashed ? 'dashed' : 'solid', { solid: 'Solid — pipe on this sheet', dashed: 'Dashed — continued on the next sheet' })}</select></div>
+  <div class="row"><label>Note</label><input type="text" data-f="note" value="${esc(run.note ?? '')}" placeholder="${run.dashed ? 'CONT. ON NEXT SHEET' : 'optional, drawn beside the pipe'}" /></div>
   <div class="row"><label>Dimension</label><select data-f="nodim">${options(['show', 'hide'], run.noDim ? 'hide' : 'show')}</select></div>
   <div class="row"><label>Pipe</label><select data-f="direct">${options(['pipe', 'touch'], run.direct ? 'touch' : 'pipe', { pipe: 'A pipe between the fittings', touch: 'None — fittings joined directly' })}</select></div>
   <p class="empty-note">Cut length after take-outs: <strong>${mm(lengths?.cut ?? 0)} mm</strong></p>
@@ -771,11 +772,15 @@ function wire(body: HTMLElement, host: Host): void {
       });
     });
     field('note')?.addEventListener('change', (e) => {
-      const value = (e.target as HTMLInputElement).value;
+      const value = (e.target as HTMLInputElement).value.trim().toUpperCase();
       host.edit('Edit note', (d) => {
         const run = d.runs.find((r) => r.id === id);
         if (run) run.note = value || undefined;
       }, { keepPanel: true });
+    });
+    field('dashed')?.addEventListener('change', (e) => {
+      const on = (e.target as HTMLSelectElement).value === 'dashed';
+      host.edit(on ? 'Dashed run' : 'Solid run', (d) => setRunDashed(d, id, on));
     });
     field('nodim')?.addEventListener('change', (e) => {
       const value = (e.target as HTMLSelectElement).value;

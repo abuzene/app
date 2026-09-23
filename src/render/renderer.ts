@@ -386,6 +386,31 @@ export function renderDrawing(state: RenderState): string {
       }
     }
     hits += `<line class="hit" data-run="${run.id}" x1="${a.x.toFixed(2)}" y1="${a.y.toFixed(2)}" x2="${b.x.toFixed(2)}" y2="${b.y.toFixed(2)}"/>`;
+
+    // The run's note — "CONT. ON NEXT SHEET" beside a dashed run — sits off
+    // the middle of the pipe, above it; dragged wherever it reads best (a
+    // leader appears once it is moved) and typed over on the touch.
+    if (run.note) {
+      const mx = (a.x + b.x) / 2;
+      const my = (a.y + b.y) / 2;
+      const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+      // The dimension goes away from the middle of the drawing; the note
+      // takes the other side of the pipe, so the two never sit on each other.
+      let px = -(b.y - a.y) / len;
+      let py = (b.x - a.x) / len;
+      if ((mx - centroid.x) * px + (my - centroid.y) * py > 0) { px = -px; py = -py; }
+      const placed = drawing.itemOverrides?.[`rn:${run.id}`];
+      const nx = placed ? mx + placed.dx : mx + px * size * 2.2;
+      const ny = placed ? my + placed.dy : my + py * size * 2.2;
+      const t = placed ? Math.max(0, Math.min(1, ((nx - a.x) * (b.x - a.x) + (ny - a.y) * (b.y - a.y)) / (len * len))) : 0.5;
+      const lead = placed ? { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t } : null;
+      callouts +=
+        `<g class="callout run-note">` +
+        (lead ? `<line class="balloon-leader" x1="${lead.x.toFixed(2)}" y1="${lead.y.toFixed(2)}" x2="${nx.toFixed(2)}" y2="${ny.toFixed(2)}"/>` : '') +
+        `<text class="sym-text callout-text" x="${nx.toFixed(2)}" y="${ny.toFixed(2)}" text-anchor="middle" dominant-baseline="middle" font-size="${(size * 1.0).toFixed(2)}">${escapeText(run.note)}</text>` +
+        `</g>`;
+      calloutHits += `<circle class="hit-dot" data-balloon="rn:${run.id}" data-ax="${mx.toFixed(2)}" data-ay="${my.toFixed(2)}" cx="${nx.toFixed(2)}" cy="${ny.toFixed(2)}" r="${Math.max(size * 1.4, hitR * 0.6).toFixed(2)}"/>`;
+    }
     const along = (mm: number): Pt => {
       const t = total > 0 ? Math.max(0, Math.min(1, mm / total)) : 0.5;
       return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
@@ -578,7 +603,7 @@ export function renderDrawing(state: RenderState): string {
     }
   }
   for (const piece of straights) {
-    const cls = `pipe${piece.selected ? ' selected' : ''}`;
+    const cls = `pipe${piece.run.dashed ? ' dashed' : ''}${piece.selected ? ' selected' : ''}`;
     const len = Math.hypot(piece.pb.x - piece.pa.x, piece.pb.y - piece.pa.y);
     const half = len > 0 ? (size * 0.7) / len : 0;
     let t0 = 0;
@@ -605,7 +630,8 @@ export function renderDrawing(state: RenderState): string {
       ends.push(towards(c, q, FITTING_REACH));
     }
     if (ends.length !== 2) continue;
-    pipes += `<path class="pipe" d="M ${ends[0].x.toFixed(2)} ${ends[0].y.toFixed(2)} Q ${c.x.toFixed(2)} ${c.y.toFixed(2)} ${ends[1].x.toFixed(2)} ${ends[1].y.toFixed(2)}"/>`;
+    const dashedBend = info.runs.every((run) => run.dashed);
+    pipes += `<path class="pipe${dashedBend ? ' dashed' : ''}" d="M ${ends[0].x.toFixed(2)} ${ends[0].y.toFixed(2)} Q ${c.x.toFixed(2)} ${c.y.toFixed(2)} ${ends[1].x.toFixed(2)} ${ends[1].y.toFixed(2)}"/>`;
   }
 
   // Nodes: fitting corners, terminals and labels.

@@ -38,6 +38,7 @@ export function contentCss({ k, u, symbol = 4, dark = false }: ContentStyleOptio
 .grid line { stroke: ${faint}; stroke-width: ${w(0.6)}; }
 .pipe { stroke: ${ink}; stroke-width: ${w(2.4)}; stroke-linecap: round; fill: none; }
 .pipe.selected { stroke: ${accent}; stroke-width: ${w(4)}; }
+.pipe.dashed { stroke-dasharray: ${w(9)} ${w(5)}; }
 .preview { stroke: ${accent}; stroke-width: ${w(2)}; stroke-dasharray: ${w(8)} ${w(5)}; fill: none; }
 .preview-text { fill: ${accent}; font-size: ${w(12)}px; text-anchor: middle; font-weight: 600; }
 .hit { stroke: transparent; stroke-width: ${w(16)}; fill: none; cursor: pointer; }

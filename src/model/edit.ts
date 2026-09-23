@@ -234,6 +234,13 @@ export function pruneNodes(drawing: Drawing): void {
 
 export function deleteRun(drawing: Drawing, runId: string): void {
   const run = drawing.runs.find((r) => r.id === runId);
+  // The stub between an item's face and the line's end piece: the pipe goes,
+  // the end piece stays put and the item comes up to it.
+  const stub = run ? terminalStub(drawing, run) : null;
+  if (run && stub) {
+    joinTerminalStub(drawing, run, stub);
+    return;
+  }
   drawing.runs = drawing.runs.filter((r) => r.id !== runId);
   pruneNodes(drawing);
   if (run) settleEnds(drawing, [run.from, run.to]);
@@ -382,6 +389,55 @@ function terminalStub(drawing: Drawing, run: Run): { endNode: IsoNode; faceNode:
 }
 
 /**
+ * The stub goes and the end piece sits straight on the item's face. The end
+ * piece stays where it is — a flange on an equipment nozzle is the datum —
+ * and everything on the face's side slides up to it (his complaint,
+ * 2026-09-23: "the flange must stay fixed and the reducer moves onto it").
+ * Returns the point that now wears the end piece.
+ */
+function joinTerminalStub(drawing: Drawing, run: Run, stub: { endNode: IsoNode; faceNode: IsoNode }): string {
+  const { endNode, faceNode } = stub;
+  const terminal = endNode.terminal!;
+  const kind = terminal.kind;
+  drawing.runs = drawing.runs.filter((r) => r.id !== run.id);
+  // Everything joined to the face, now the stub is gone: the piece to slide.
+  const side = new Set<string>([faceNode.id]);
+  const queue = [faceNode.id];
+  while (queue.length > 0) {
+    const id = queue.shift()!;
+    for (const r of drawing.runs) {
+      const next = r.from === id ? r.to : r.to === id ? r.from : null;
+      if (next && !side.has(next)) {
+        side.add(next);
+        queue.push(next);
+      }
+    }
+  }
+  // Where the face must end up so that, moved out by the end piece's length,
+  // the point lands exactly where the end piece stood.
+  const other = drawing.runs.find((r) => r.from === faceNode.id || r.to === faceNode.id);
+  const meets = other ? itemAtEnd(drawing, other, other.from === faceNode.id) : null;
+  const out = direction(faceNode.pos, endNode.pos);
+  if (out) {
+    const back = terminalTakeoutOf(kind, meets?.dn ?? other?.dn ?? '');
+    const target = sub(endNode.pos, scale3(out, back));
+    const delta = sub(target, faceNode.pos);
+    for (const node of drawing.nodes) if (side.has(node.id)) node.pos = add(node.pos, delta);
+  }
+  drawing.nodes = drawing.nodes.filter((n) => n.id !== endNode.id);
+  if (drawing.weldOverrides) {
+    const was = drawing.weldOverrides[`n:${endNode.id}:term`];
+    delete drawing.weldOverrides[`n:${endNode.id}:term`];
+    if (was) drawing.weldOverrides[`n:${faceNode.id}:term`] = was;
+  }
+  if (drawing.dimOverrides) {
+    for (const key of Object.keys(drawing.dimOverrides)) if (key.startsWith(`${run.id}:`)) delete drawing.dimOverrides[key];
+  }
+  setTerminal(drawing, faceNode.id, kind, terminal.note);
+  return faceNode.id;
+}
+
+/**
  * Marks a run as fittings joined directly, and pulls it in to fit. Returns
  * the point that now wears the end piece when the run was a stub between an
  * item's face and the end piece: that run is gone, and the end piece sits on
@@ -393,25 +449,25 @@ export function setRunDirect(drawing: Drawing, analysis: Analysis, runId: string
   run.direct = direct || undefined;
   if (!direct) return null;
   const stub = terminalStub(drawing, run);
-  if (stub) {
-    const { endNode, faceNode } = stub;
-    const terminal = endNode.terminal!;
-    drawing.runs = drawing.runs.filter((r) => r.id !== run.id);
-    drawing.nodes = drawing.nodes.filter((n) => n.id !== endNode.id);
-    if (drawing.weldOverrides) {
-      const was = drawing.weldOverrides[`n:${endNode.id}:term`];
-      delete drawing.weldOverrides[`n:${endNode.id}:term`];
-      if (was) drawing.weldOverrides[`n:${faceNode.id}:term`] = was;
-    }
-    if (drawing.dimOverrides) {
-      for (const key of Object.keys(drawing.dimOverrides)) if (key.startsWith(`${run.id}:`)) delete drawing.dimOverrides[key];
-    }
-    setTerminal(drawing, faceNode.id, terminal.kind, terminal.note);
-    return faceNode.id;
-  }
+  if (stub) return joinTerminalStub(drawing, run, stub);
   const touch = fittingsTouchLength(drawing, analysis, run);
   if (touch > 0 && Math.abs(runLength(drawing, run) - touch) > 0.5) stretchRun(drawing, runId, touch, 'to');
   return null;
+}
+
+/** What a run made dashed says beside it unless typed over. */
+export const DASHED_NOTE = 'CONT. ON NEXT SHEET';
+
+/**
+ * Draws a run dashed — pipe continued on the next sheet — with a note beside
+ * it that can be typed over; solid again, a note of its own is kept.
+ */
+export function setRunDashed(drawing: Drawing, runId: string, dashed: boolean): void {
+  const run = drawing.runs.find((r) => r.id === runId);
+  if (!run) return;
+  run.dashed = dashed || undefined;
+  if (dashed && !run.note) run.note = DASHED_NOTE;
+  if (!dashed && run.note === DASHED_NOTE) run.note = undefined;
 }
 
 export function setRunLength(drawing: Drawing, runId: string, length: number): boolean {

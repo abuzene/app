@@ -24,6 +24,10 @@ export interface CanvasCallbacks {
   onEditWeld(key: string, clientX: number, clientY: number): void;
   /** A support's name was tapped, to be typed over. */
   onEditSupport(componentId: string, clientX: number, clientY: number): void;
+  /** A run's note was tapped, to be typed over. */
+  onEditRunNote(runId: string, clientX: number, clientY: number): void;
+  /** The right mouse button while drawing: the pencil is put down. */
+  onStopDrawing(): void;
   /** Drags one end of a run along the run's own line. */
   onStretchRun(runId: string, end: 'from' | 'to', paper: { x: number; y: number }, commit: boolean): void;
   /** Moves a weld number tag; the offset is from the weld, in paper units. */
@@ -246,6 +250,12 @@ export class Canvas {
     const handleEl = target?.closest('[data-run-end]');
 
     const startView = { ...this.view };
+    // A right click while drawing puts the pencil down, as Escape does.
+    if (event.button === 2 && this.anchor) {
+      event.preventDefault();
+      this.cb.onStopDrawing();
+      return;
+    }
     const panRequested = fingers || event.button === 1 || event.button === 2 || event.shiftKey;
 
     // A finger drag moves the sheet; a finger tap selects whatever is under it.
@@ -363,6 +373,10 @@ export class Canvas {
         this.capture(event.pointerId);
         this.drag.opened = true;
         this.cb.onEditSupport(key.slice(4), event.clientX, event.clientY);
+      } else if (key.startsWith('rn:')) {
+        this.capture(event.pointerId);
+        this.drag.opened = true;
+        this.cb.onEditRunNote(key.slice(3), event.clientX, event.clientY);
       }
       return;
     }
