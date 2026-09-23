@@ -317,6 +317,7 @@ function equipmentProperties(host: Host, id: string): string {
   <div class="row"><label>Up</label><input type="number" data-f="u" step="1" value="${Math.round(box.at.u)}" /></div>
   <p class="empty-note">A dashed box with a name in it, in millimetres: it stands on this point and reaches away from the line, its width centred. Drag it on the drawing to where it reads best. A note, not material: nothing on the list, no welds.</p>
   <div class="btn-row">
+    <button class="btn-line solid" data-a="equip-draw">Draw on from the far side</button>
     <button class="btn-line danger" data-a="delete-equipment">Delete equipment</button>
   </div>
 </div>`;
@@ -939,6 +940,8 @@ function wire(body: HTMLElement, host: Host): void {
         if (Number.isFinite(value)) withBox('Move equipment', (q) => { q.at[key] = value; });
       });
     }
+    // What goes in one side comes out the other: a new line from the far face.
+    equipEditor.querySelector('[data-a="equip-draw"]')?.addEventListener('click', () => host.startFromEquipment(id));
     equipEditor.querySelector('[data-a="delete-equipment"]')?.addEventListener('click', () => {
       host.edit('Delete equipment', (d) => removeEquipment(d, id));
       host.select(null);

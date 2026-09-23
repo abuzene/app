@@ -957,6 +957,7 @@ export function renderDrawing(state: RenderState): string {
   // Equipment: a dashed box with its name, standing on a point of the
   // drawing and dragged wherever it reads best.
   let equipment = '';
+  let equipmentHits = '';
   for (const box of drawing.equipment ?? []) {
     const at = toPaper(box.at, drawing);
     const along = AXIS_VECTOR[box.axis];
@@ -979,7 +980,9 @@ export function renderDrawing(state: RenderState): string {
       `<polygon class="equip-box" points="${points}"/>` +
       `<text class="equip-text" x="${cx.toFixed(2)}" y="${(cy + size * 0.36).toFixed(2)}" text-anchor="middle">${escapeText(box.name || 'EQUIPMENT')}</text>` +
       `</g>`;
-    weldHits += `<polygon class="hit-box" data-equipment="${box.id}" data-ax="${at.x.toFixed(2)}" data-ay="${at.y.toFixed(2)}" points="${points}"/>`;
+    // Under the pipe, its points and every tag: the box only takes a tap on
+    // its empty inside, so the point it stands on can still be drawn from.
+    equipmentHits += `<polygon class="hit-box" data-equipment="${box.id}" data-ax="${at.x.toFixed(2)}" data-ay="${at.y.toFixed(2)}" points="${points}"/>`;
   }
 
   welds = olets + tees + equipment + welds + balloons + callouts;
@@ -1002,7 +1005,7 @@ export function renderDrawing(state: RenderState): string {
   // drag starting on a point is never swallowed by the run beneath it.
   // Dimension targets sit under the things on the pipe, so a figure close to
   // a valve never takes the tap meant for the valve.
-  return grid + dims + pipes + `<g class="hits">${dimHits}${hits}</g>` + comps + nodes + welds + handles + `<g class="hits">${weldHits}</g>` + preview;
+  return grid + dims + pipes + `<g class="hits">${equipmentHits}${dimHits}${hits}</g>` + comps + nodes + welds + handles + `<g class="hits">${weldHits}</g>` + preview;
 }
 
 /**

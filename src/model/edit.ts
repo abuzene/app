@@ -1,5 +1,5 @@
 import type { Axis, ComponentKind, Drawing, EndType, Equipment, FlangeKind, InlineComponent, IsoNode, Measure, Run, TerminalKind, Vec3 } from './types';
-import { add, axisBetween, direction, equals3, length3, scale3, step, sub } from './iso';
+import { AXIS_VECTOR, add, axisBetween, direction, equals3, length3, scale3, step, sub } from './iso';
 import { chainStops, dimensionStops, fittingsTouchLength, isValve, itemAtEnd, oletMarks, terminalTakeoutOf, uid, type Analysis } from './drawing';
 import { componentTakeout } from './pipe-data';
 
@@ -722,6 +722,21 @@ export function addEquipment(drawing: Drawing, nodeId: string, name: string): Eq
   const box: Equipment = { id: uid('q'), at: { ...node.pos }, axis, across, length: 1500, width: 1000, name };
   drawing.equipment = [...(drawing.equipment ?? []), box];
   return box;
+}
+
+/** The middle of the box's far face: where a line leaves the equipment. */
+export function equipmentFarSide(box: Equipment): Vec3 {
+  return add(box.at, scale3(AXIS_VECTOR[box.axis], box.length));
+}
+
+/**
+ * Puts a point on the far side of an equipment box for a new line to start
+ * from: what goes in one side of a pump or a vessel comes out the other.
+ */
+export function startFromEquipment(drawing: Drawing, id: string): string | null {
+  const box = (drawing.equipment ?? []).find((q) => q.id === id);
+  if (!box) return null;
+  return ensureNode(drawing, equipmentFarSide(box));
 }
 
 export function removeEquipment(drawing: Drawing, id: string): void {

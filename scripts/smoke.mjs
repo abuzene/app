@@ -2728,6 +2728,11 @@ await page.locator('.tool[data-equipment]').click();
 await page.waitForTimeout(300);
 check('an equipment box stands on the picked point, reaching on past the line end', await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).equipment.map((q) => `${q.at.e} ${q.axis} ${q.length}x${q.width}`).join()), (v) => v === '3000 E 1500x1000', '3000 E 1500x1000');
 check('drawn dashed, and picked', `${await page.locator('#canvas .equipment.selected .equip-box').count()} ${await page.locator('#hud-delete').innerText()}`, (v) => v === '1 Delete equipment', '1 Delete equipment');
+// The box's touch target sits under the pipe and its points (2026-09-23: "no
+// way to carry on drawing after the equipment"), so the point it stands on
+// can still be picked.
+const eqEndBox = await page.locator(`#canvas circle.hit-dot[data-node="${eqEnd}"]`).boundingBox();
+check('the point the box stands on is not under the box', await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.getAttribute('data-equipment') ?? 'not the box', [eqEndBox.x + eqEndBox.width / 2 - 6, eqEndBox.y + eqEndBox.height / 2 + 4]), (v) => v === 'not the box', 'not the box');
 await page.fill('#tab-body [data-f="name"]', 'p-101 pump');
 await page.keyboard.press('Tab');
 await page.fill('#tab-body [data-f="length"]', '2000');
@@ -2755,6 +2760,25 @@ await page.click('.dialog [data-close]');
 await page.waitForTimeout(200);
 await page.click('#tabs button:has-text("Route")');
 await page.waitForTimeout(200);
+await page.locator('#canvas [data-equipment]').click({ force: true });
+await page.waitForTimeout(200);
+
+// "There is no way to carry on drawing after the equipment" (2026-09-23):
+// what goes in one side comes out the other. The box offers a start on its
+// far side, and the box's own touch target sits under the pipe and its
+// points, so the point it stands on can still be picked.
+check('the picked box offers a start on its far side', `${await page.locator('#hud-equip-draw').count()} ${await page.locator('#tab-body [data-a="equip-draw"]').count()}`, (v) => v === '1 1', '1 1');
+await page.click('#tab-body [data-a="equip-draw"]');
+await page.waitForTimeout(300);
+check('a point is put on the far side, and the pencil armed there', `${(await nodesAt()).some((p) => p[1] === 5000 && p[2] === 0)} ${(await page.locator('#hud').innerText()).includes('drawing')}`, (v) => v === 'true true', 'true true');
+await page.click('#tabs button:has-text("Command")');
+await page.fill('#command-text', 'E 1000');
+await page.click('[data-a="run-commands"]');
+await page.waitForTimeout(400);
+await page.keyboard.press('Escape');
+await page.click('#tabs button:has-text("Route")');
+await page.waitForTimeout(200);
+check('and the pipe drawn from it is a line of its own beyond the box', `${await runCount()} ${(await nodesAt()).some((p) => p[1] === 6000)}`, (v) => v === '2 true', '2 true');
 await page.locator('#canvas [data-equipment]').click({ force: true });
 await page.waitForTimeout(200);
 await page.click('#tab-body [data-a="delete-equipment"]');

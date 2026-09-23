@@ -8,7 +8,7 @@ import { loadLibrary, removeDrawing, renumberProject, sheetNumber, upsertDrawing
 import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, noteRemovedFromLibrary, setDriveClientId, syncDrive } from './model/drive';
 import { AXES, AXIS_VECTOR, add, length3, scale3, sub } from './model/iso';
 import { initialCommandState, runCommands } from './model/commands';
-import { addMeasure, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, deleteRun, ensureNode, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, setRunDirect, stretchRun } from './model/edit';
+import { addMeasure, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, deleteRun, ensureNode, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, setRunDirect, startFromEquipment, stretchRun } from './model/edit';
 import { DN_LIST, schedulesFor, sizeLabel } from './model/pipe-data';
 import { northArrow, paperOf, toPaper } from './render/renderer';
 import { renderSheet, type SheetSize } from './render/sheet';
@@ -134,6 +134,15 @@ const host: Host = {
     }
     render();
     host.notify(pending ? `Tap where the branch goes: ${sizeLabel(pending.dn)} from the olet, ${AXIS_NAMES[pending.dir].toLowerCase()}.` : 'Carry on clicking to continue the line.');
+  },
+  startFromEquipment(id) {
+    let started: string | null = null;
+    host.edit('Start from equipment', (d) => {
+      started = startFromEquipment(d, id);
+    });
+    if (!started) return;
+    host.continueFrom(started);
+    host.notify('A point on the far side of the equipment — tap where the pipe goes from it.');
   },
   notify(message) {
     toast = { message, until: Date.now() + 3200 };
@@ -961,6 +970,7 @@ function renderHud(): void {
   }
   if (state.measureFrom) parts.push('<span>dimension — tap the other point</span>');
   else if (sel?.kind === 'node') parts.push('<button class="hud-stop" id="hud-measure" type="button">Dimension from here</button>');
+  if (sel?.kind === 'equipment') parts.push('<button class="hud-stop" id="hud-equip-draw" type="button">Draw on from the far side</button>');
   if (sel?.kind === 'run') {
     // Fitting welded straight to fitting, no pipe between: the run stays as
     // their centre-to-centre, but there is nothing to cut and one weld.
@@ -993,6 +1003,9 @@ function renderHud(): void {
   hudEl.querySelector('#hud-update')?.addEventListener('click', () => location.reload());
   hudEl.querySelector('#hud-measure')?.addEventListener('click', () => {
     if (state.selection?.kind === 'node') host.measureFrom(state.selection.id);
+  });
+  hudEl.querySelector('#hud-equip-draw')?.addEventListener('click', () => {
+    if (state.selection?.kind === 'equipment') host.startFromEquipment(state.selection.id);
   });
   hudEl.querySelector('#hud-draw-from')?.addEventListener('click', () => {
     if (state.selection?.kind === 'node') host.continueFrom(state.selection.id);

@@ -275,6 +275,14 @@ ships, and the decisions already taken, so they are not re-litigated.
   `across`, in mm. Panel: name (capitalised), length, width, axes, E/N/U;
   dragged as a whole on the drawing (paper offset `itemOverrides['eq:<id>']`,
   relative drag). Selection kind `equipment`; a note, not material.
+  **Draw on from the far side** (HUD `#hud-equip-draw`, panel
+  `[data-a="equip-draw"]`, `host.startFromEquipment` → `startFromEquipment`
+  in edit.ts, `equipmentFarSide` = `at + axis × length`): puts a point on
+  the middle of the far face and arms the pencil there, a new piece (a
+  line otherwise only starts on an empty sheet). His complaint: "no way to
+  carry on drawing after the equipment" (2026-09-23). The box's hit
+  polygon is in the **first** hits group, under the pipe, points and
+  tags, so the point it stands on can still be picked.
 - Supports and the AG/UG mark are **notes, not material**: no BOM line, no
   welds. Supports are numbered along the line unless named.
 - Printing happens from the page itself (`#print-root`, `@page` size); a

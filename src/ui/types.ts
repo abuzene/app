@@ -48,6 +48,8 @@ export interface Host {
   pickLogo(): void;
   /** Leaves the route ready to carry on from this point. */
   continueFrom(nodeId: string): void;
+  /** Puts a point on the far side of an equipment box and arms the pencil there. */
+  startFromEquipment(id: string): void;
   /** Opens a dimension on the drawing for typing: the run and which piece of it. */
   /** Opens a dimension's figure to be typed over: "runId:index", "chain:runId:index" or "olet:nodeId". */
   editDimension(key: string): void;
