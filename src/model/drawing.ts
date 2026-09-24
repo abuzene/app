@@ -584,11 +584,37 @@ function layout(drawing: Drawing, nodeById: Map<string, IsoNode>, adjacency: Map
   // cannot stay closed under that distortion, so the first path to reach a node
   // wins and the loop is left to close visually as best it can.
   const remaining = new Set(drawing.nodes.map((n) => n.id));
+  // The points of lines drawn on from an equipment box's far side: laid out
+  // after the line the box stands on, from the box.
+  const beyondBoxes = new Set<string>();
+  for (const box of drawing.equipment ?? []) {
+    if (!box.next || !nodeById.has(box.next)) continue;
+    const queue = [box.next];
+    beyondBoxes.add(box.next);
+    while (queue.length > 0) {
+      const id = queue.shift()!;
+      for (const run of adjacency.get(id) ?? []) {
+        const other = run.from === id ? run.to : run.from;
+        if (!beyondBoxes.has(other)) {
+          beyondBoxes.add(other);
+          queue.push(other);
+        }
+      }
+    }
+  }
   while (remaining.size > 0) {
-    // Each piece starts from where it really is, so two pieces — a line and
-    // the one drawn on from the far side of its equipment — keep apart.
-    const startId = [...remaining][0];
-    display.set(startId, { ...nodeById.get(startId)!.pos });
+    // Each piece starts from where it really is, so two pieces keep apart —
+    // except a line drawn on from the far side of an equipment box, which
+    // starts from the box's far face as drawn, the box standing on its
+    // point where that point is drawn.
+    const beyond = (drawing.equipment ?? []).find((box) => box.next && remaining.has(box.next) && box.stand && display.has(box.stand));
+    const startId = beyond?.next ?? [...remaining].find((id) => !beyondBoxes.has(id)) ?? [...remaining][0];
+    display.set(
+      startId,
+      beyond
+        ? add(add(display.get(beyond.stand!)!, sub(beyond.at, nodeById.get(beyond.stand!)!.pos)), scale3(AXIS_VECTOR[beyond.axis], beyond.length))
+        : { ...nodeById.get(startId)!.pos },
+    );
     remaining.delete(startId);
 
     const queue = [startId];

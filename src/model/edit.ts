@@ -1046,7 +1046,7 @@ export function addEquipment(drawing: Drawing, nodeId: string, name: string): Eq
   // Away from the pipe: on along the line's last leg; east when there is none.
   const axis: Axis = other ? axisBetween(other.pos, node.pos) ?? 'E' : 'E';
   const across: Axis = axis === 'U' || axis === 'D' ? 'E' : axis === 'E' || axis === 'W' ? 'N' : 'E';
-  const box: Equipment = { id: uid('q'), at: { ...node.pos }, axis, across, length: 1500, width: 1000, name };
+  const box: Equipment = { id: uid('q'), at: { ...node.pos }, axis, across, length: 1500, width: 1000, name, stand: node.id, standPos: { ...node.pos } };
   drawing.equipment = [...(drawing.equipment ?? []), box];
   return box;
 }
@@ -1063,7 +1063,84 @@ export function equipmentFarSide(box: Equipment): Vec3 {
 export function startFromEquipment(drawing: Drawing, id: string): string | null {
   const box = (drawing.equipment ?? []).find((q) => q.id === id);
   if (!box) return null;
-  return ensureNode(drawing, equipmentFarSide(box));
+  const nodeId = ensureNode(drawing, equipmentFarSide(box));
+  box.next = nodeId;
+  return nodeId;
+}
+
+/** Every point joined to this one by pipe, itself included. */
+function pieceOf(drawing: Drawing, nodeId: string): Set<string> {
+  const seen = new Set<string>([nodeId]);
+  const queue = [nodeId];
+  while (queue.length > 0) {
+    const id = queue.shift()!;
+    for (const run of drawing.runs) {
+      const next = run.from === id ? run.to : run.to === id ? run.from : null;
+      if (next && !seen.has(next)) {
+        seen.add(next);
+        queue.push(next);
+      }
+    }
+  }
+  return seen;
+}
+
+/**
+ * Keeps each equipment box with the point it stands on, and the line drawn
+ * on from its far side with the box: the point moved (a dimension typed
+ * upstream), the box goes with it; the box made shorter or longer or
+ * turned, the line beyond it moves to its new far side (his complaint,
+ * 2026-09-24: the line after the equipment stayed where the first, longer
+ * box had put it, and could not be brought in). Run after every edit.
+ */
+export function syncEquipment(drawing: Drawing): void {
+  for (const box of drawing.equipment ?? []) {
+    // Boxes put down before this was kept: the point under them, and a line
+    // starting on their own axis beyond them, are theirs.
+    if (!box.stand) {
+      const under = drawing.nodes.find((n) => length3(sub(n.pos, box.at)) < 0.5);
+      if (under) {
+        box.stand = under.id;
+        box.standPos = { ...under.pos };
+      }
+    }
+    const stand = box.stand ? drawing.nodes.find((n) => n.id === box.stand) : undefined;
+    if (box.stand && !stand) {
+      box.stand = undefined;
+      box.standPos = undefined;
+    }
+    const own = stand ? pieceOf(drawing, stand.id) : new Set<string>();
+    if (!box.next) {
+      const axis = AXIS_VECTOR[box.axis];
+      let best: { id: string; t: number } | null = null;
+      for (const node of drawing.nodes) {
+        if (own.has(node.id)) continue;
+        const d = sub(node.pos, box.at);
+        const t = d.e * axis.e + d.n * axis.n + d.u * axis.u;
+        if (t <= 0.5 || length3(sub(d, scale3(axis, t))) > 0.5) continue;
+        if (drawing.runs.filter((r) => r.from === node.id || r.to === node.id).length > 1) continue;
+        if (!best || t < best.t) best = { id: node.id, t };
+      }
+      if (best) box.next = best.id;
+    }
+    // The box goes with its point.
+    if (stand) {
+      const moved = box.standPos ? sub(stand.pos, box.standPos) : { e: 0, n: 0, u: 0 };
+      if (length3(moved) > 1e-6) box.at = add(box.at, moved);
+      box.standPos = { ...stand.pos };
+    }
+    // The line beyond goes with the box, unless it has been joined back to
+    // the line the box stands on.
+    const next = box.next ? drawing.nodes.find((n) => n.id === box.next) : undefined;
+    if (box.next && !next) box.next = undefined;
+    if (next && !own.has(next.id)) {
+      const shift = sub(equipmentFarSide(box), next.pos);
+      if (length3(shift) > 1e-6) {
+        const piece = pieceOf(drawing, next.id);
+        for (const node of drawing.nodes) if (piece.has(node.id)) node.pos = add(node.pos, shift);
+      }
+    }
+  }
 }
 
 export function removeEquipment(drawing: Drawing, id: string): void {

@@ -156,6 +156,11 @@ export interface Equipment {
   length: number;
   width: number;
   name: string;
+  /** The point it stands on, and where that point was when last in step: the box goes with it. */
+  stand?: string;
+  standPos?: Vec3;
+  /** The point on its far side a line was drawn on from: that line goes with the box. */
+  next?: string;
 }
 
 export type FittingKind =

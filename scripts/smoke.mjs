@@ -3184,8 +3184,20 @@ await page.keyboard.press('Escape');
 await page.click('#tabs button:has-text("Route")');
 await page.waitForTimeout(200);
 check('and the pipe drawn from it is a line of its own beyond the box', `${await runCount()} ${(await nodesAt()).some((p) => p[1] === 6000)}`, (v) => v === '2 true', '2 true');
+// "The flange after the equipment starts far off and I cannot bring it in"
+// (2026-09-24): the line drawn on from the far side goes with the box —
+// made shorter, the line comes in with its far face.
 await page.locator('#canvas [data-equipment]').click({ force: true });
 await page.waitForTimeout(200);
+await page.fill('#tab-body [data-f="length"]', '600');
+await page.keyboard.press('Tab');
+await page.waitForTimeout(300);
+check('the box made shorter, the line beyond comes in with it', `${(await nodesAt()).some((p) => p[1] === 3600)} ${(await nodesAt()).some((p) => p[1] === 4600)} ${(await nodesAt()).some((p) => p[1] === 5000 || p[1] === 6000)}`, (v) => v === 'true true false', 'starts at 3600, ends at 4600');
+// Still picked from its panel: the line beyond now lies across its middle.
+if ((await page.locator('#tab-body [data-a="delete-equipment"]').count()) === 0) {
+  await page.locator('#canvas [data-equipment]').click({ force: true });
+  await page.waitForTimeout(200);
+}
 await page.click('#tab-body [data-a="delete-equipment"]');
 await page.waitForTimeout(300);
 check('deleted from its panel', await page.locator('#canvas .equip-box').count(), (v) => v === 0, '0');

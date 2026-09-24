@@ -2,7 +2,7 @@ import type { Analysis } from '../model/drawing';
 import type { Axis, DimOverride, Drawing, FlangeKind, Run, Vec3 } from '../model/types';
 import { COMPONENT_LABEL, SYMBOL_MM, TERMINAL_LABEL, chainStops, dimensionStops, fittingLabel, runGroupIds, isMark, isReducer, isSupport, isValve, itemAtEnd, oletEntries, oletLegs, resolveEnds, valveOpenSide } from '../model/drawing';
 import { componentTakeout, sizeLabel, valveFlangeKind } from '../model/pipe-data';
-import { AXIS_VECTOR, axisBetween, axisScreenDir, equals3, northArrowDir, project, scale3, add } from '../model/iso';
+import { AXIS_VECTOR, axisBetween, axisScreenDir, equals3, northArrowDir, project, scale3, add, sub } from '../model/iso';
 import type { LayoutSpecs } from './tidy';
 import { componentSymbol, counterFlange, flangeHub, flangeSymbol, frameFor, gasketLine, groundSymbol, isFlange, jointMark, oletSymbol, supportCallout, supportSymbol, terminalSymbol, transitionSymbol, type Facing, type Frame } from './symbols';
 
@@ -1068,8 +1068,10 @@ export function renderDrawing(state: RenderState): string {
   let equipmentHits = '';
   for (const box of drawing.equipment ?? []) {
     // Not to scale, the box stands where the point it is on is drawn.
-    const stand = drawing.nodes.find((n) => equals3(n.pos, box.at));
-    const base = (stand && analysis.display.get(stand.id)) ?? box.at;
+    // On its point where that is drawn, as far off it as it truly is.
+    const stand = drawing.nodes.find((n) => n.id === box.stand) ?? drawing.nodes.find((n) => equals3(n.pos, box.at));
+    const standShown = stand ? analysis.display.get(stand.id) : undefined;
+    const base = stand && standShown ? add(standShown, sub(box.at, stand.pos)) : box.at;
     const at = toPaper(base, drawing);
     const along = AXIS_VECTOR[box.axis];
     const side = AXIS_VECTOR[box.across];

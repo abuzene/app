@@ -9,7 +9,7 @@ import { loadLibrary, removeDrawing, renumberProject, sheetNumber, upsertDrawing
 import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, noteRemovedFromLibrary, setDriveClientId, syncDrive } from './model/drive';
 import { AXES, AXIS_VECTOR, add, length3, scale3, sub } from './model/iso';
 import { initialCommandState, runCommands } from './model/commands';
-import { addMeasure, applyMeasureToOlet, DASHED_NOTE, deleteRunGroup, measureTypeable, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, ensureNode, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, runLength, setRunDashed, setRunDirect, startFromEquipment, stretchRun } from './model/edit';
+import { addMeasure, applyMeasureToOlet, DASHED_NOTE, deleteRunGroup, measureTypeable, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, ensureNode, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, runLength, setRunDashed, setRunDirect, startFromEquipment, stretchRun, syncEquipment } from './model/edit';
 import { DN_LIST, schedulesFor, sizeLabel } from './model/pipe-data';
 import { northArrow, paperOf, renderDrawing, symbolSizeFor } from './render/renderer';
 import { SHEET_STAMPS, renderSheet, sheetStamp, sheetSymbolSize, type SheetSize } from './render/sheet';
@@ -71,6 +71,8 @@ const host: Host = {
     if (undoStack.length > UNDO_LIMIT) undoStack.shift();
     redoStack.length = 0;
     mutator(state.drawing);
+    // Equipment keeps with its point, and the line beyond it with the box.
+    syncEquipment(state.drawing);
     recompute();
     persist();
     if (options?.keepPanel) renderCanvasOnly();

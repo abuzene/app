@@ -412,7 +412,19 @@ ships, and the decisions already taken, so they are not re-litigated.
   in edit.ts, `equipmentFarSide` = `at + axis × length`): puts a point on
   the middle of the far face and arms the pencil there, a new piece (a
   line otherwise only starts on an empty sheet). His complaint: "no way to
-  carry on drawing after the equipment" (2026-09-23). The box's hit
+  carry on drawing after the equipment" (2026-09-23).
+  **The line beyond goes with the box** (2026-09-24: "the flange after the
+  equipment starts far off and I cannot bring it in" — the line had been
+  drawn on from a 1500 box that was then made shorter): `Equipment.stand`
+  (+ `standPos`) is the point it stands on, `Equipment.next` the far-side
+  start point; `syncEquipment` in edit.ts, run in `host.edit` after every
+  mutation, moves the box with its point and the whole piece at `next` to
+  `equipmentFarSide` (unless joined back to the box's own piece). Older
+  boxes adopt the point at `at` and the nearest free end on their axis
+  beyond them. Not to scale, `layout` starts that piece from the box's
+  drawn far face (after the piece the box stands on); the renderer stands
+  the box on `stand`'s drawn position. The box's paper drag offset
+  (`eq:<id>`) moves only the box. The box's hit
   polygon is in the **first** hits group, under the pipe, points and
   tags, so the point it stands on can still be picked.
 - **Dashed run** (`run.dashed`, `setRunDashed` in edit.ts, HUD
