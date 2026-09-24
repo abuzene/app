@@ -885,11 +885,13 @@ function chainCoord(leg: HeaderChain['runs'][number], offset: number): number {
 }
 
 /**
- * Where a header chain's end-to-end dimension breaks, in mm from its start:
- * at each valve face along it, never at the olets, which only sit on it.
+ * Where a header chain's dimension breaks, in mm from its start: at each
+ * valve face along it and at each olet's centre (his ask, 2026-09-24:
+ * "each piece measured to the centre of the olet"); the whole length is
+ * dimensioned on its own further out.
  */
 export function chainStops(drawing: Drawing, chain: HeaderChain): number[] {
-  const breaks: number[] = [];
+  const breaks: number[] = chain.olets.map((o) => o.along);
   for (const leg of chain.runs) {
     const stops = dimensionStops(drawing, leg.run);
     for (const mm of stops.slice(1, -1)) breaks.push(chainCoord(leg, mm));

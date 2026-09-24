@@ -826,8 +826,10 @@ function wire(body: HTMLElement, host: Host): void {
         if (run) run.noDim = value === 'hide' ? true : undefined;
         // Shown again means every piece of it, including any hidden by hand.
         if (value === 'show' && d.dimOverrides) {
+          const chainId = host.state.analysis.chainOfRun.get(id)?.id;
           for (const key of Object.keys(d.dimOverrides)) {
-            if (key.startsWith(`${id}:`)) delete d.dimOverrides[key].hidden;
+            const ofChain = chainId && (key.startsWith(`hdr:${chainId}:`) || key.startsWith(`chain:${chainId}:`));
+            if (key.startsWith(`${id}:`) || ofChain) delete d.dimOverrides[key].hidden;
           }
         }
       });

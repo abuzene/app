@@ -291,7 +291,7 @@ export class Canvas {
           : nodeEl
             ? { kind: 'node', id: nodeEl.getAttribute('data-node')! }
             : runEl
-              ? { kind: 'run', id: runEl.getAttribute('data-run')! }
+              ? { kind: 'run', id: runEl.getAttribute('data-run')!, at: this.toPaper(event.clientX, event.clientY) }
               : null,
       };
       return;
@@ -512,7 +512,7 @@ export class Canvas {
     // A tap on a line picks it — unless drawing, when the pencil draws to
     // that point instead (the line is split there, never doubled).
     if (!panRequested && runEl && !this.anchor) {
-      this.cb.onSelect({ kind: 'run', id: runEl.getAttribute('data-run')! });
+      this.cb.onSelect({ kind: 'run', id: runEl.getAttribute('data-run')!, at: this.toPaper(event.clientX, event.clientY) });
       return;
     }
 

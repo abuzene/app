@@ -1,6 +1,6 @@
 import type { Analysis } from '../model/drawing';
 import type { Axis, DimOverride, Drawing, FlangeKind, Run, Vec3 } from '../model/types';
-import { COMPONENT_LABEL, SYMBOL_MM, TERMINAL_LABEL, chainStops, dimensionStops, drawnShare, fittingLabel, runGroupIds, isMark, isReducer, isSupport, isValve, itemAtEnd, oletEntries, oletLegs, resolveEnds, valveOpenSide } from '../model/drawing';
+import { COMPONENT_LABEL, SYMBOL_MM, TERMINAL_LABEL, chainStops, dimensionStops, drawnShare, trueAtShare, fittingLabel, runGroupIds, isMark, isReducer, isSupport, isValve, itemAtEnd, oletEntries, oletLegs, resolveEnds, valveOpenSide } from '../model/drawing';
 import { componentTakeout, sizeLabel, valveFlangeKind } from '../model/pipe-data';
 import { AXIS_VECTOR, axisBetween, axisScreenDir, equals3, northArrowDir, project, scale3, add, sub } from '../model/iso';
 import type { LayoutSpecs } from './tidy';
@@ -14,7 +14,8 @@ export interface ViewBox {
 }
 
 export type Selection =
-  | { kind: 'run'; id: string }
+  /** `at`: where on the paper the run was tapped, when it was. */
+  | { kind: 'run'; id: string; at?: Pt }
   | { kind: 'node'; id: string }
   | { kind: 'component'; id: string }
   | { kind: 'weld'; key: string }
@@ -120,6 +121,26 @@ function displayPos(analysis: Analysis, nodeId: string): Vec3 | null {
 export function paperOf(analysis: Analysis, drawing: Drawing, nodeId: string): Pt | null {
   const pos = displayPos(analysis, nodeId);
   return pos ? toPaper(pos, drawing) : null;
+}
+
+/** Where along a run (mm from its start) a point on the paper falls, as the run is drawn. */
+export function runOffsetAtPaper(drawing: Drawing, analysis: Analysis, run: Run, p: Pt): number | null {
+  const a = paperOf(analysis, drawing, run.from);
+  const b = paperOf(analysis, drawing, run.to);
+  const na = analysis.nodeById.get(run.from);
+  const nb = analysis.nodeById.get(run.to);
+  if (!a || !b || !na || !nb) return null;
+  const vx = b.x - a.x;
+  const vy = b.y - a.y;
+  const lenSq = vx * vx + vy * vy;
+  if (lenSq < 1e-9) return null;
+  const raw = ((p.x - a.x) * vx + (p.y - a.y) * vy) / lenSq;
+  // A point well off the line is no tap on it.
+  const off = Math.abs((p.x - a.x) * vy - (p.y - a.y) * vx) / Math.sqrt(lenSq);
+  if (raw < -0.05 || raw > 1.05 || off > Math.sqrt(lenSq) * 0.3) return null;
+  const t = Math.max(0, Math.min(1, raw));
+  const total = Math.hypot(nb.pos.e - na.pos.e, nb.pos.n - na.pos.n, nb.pos.u - na.pos.u);
+  return trueAtShare(analysis.stations.get(run.id), t, total);
 }
 
 export interface Bounds {
@@ -443,7 +464,7 @@ export function renderDrawing(state: RenderState): string {
     // the valve's face-to-face stands on its own between them.
     // A run that is nothing but an item (a reducer between its two face
     // points) has no pipe to dimension; the item's length is on the list.
-    const allItem = !!lengths && lengths.cut <= 0.5 && run.inline.length > 0 && !run.direct;
+    const allItem = !!lengths && lengths.cut <= 0.5 && run.inline.length > 0 && run.inline.every((c) => isReducer(c.kind)) && !run.direct;
     // A header running through olets is one length of pipe: it is
     // dimensioned end to end as one, once, from its first run, and each
     // olet by its distance from the start on a row further out.
@@ -470,33 +491,28 @@ export function renderDrawing(state: RenderState): string {
           return { x: ca.x + (cb.x - ca.x) * t, y: ca.y + (cb.y - ca.y) * t };
         };
         const stops = chainStops(drawing, chain);
+        // A header whose dimensions were all taken off before they broke at
+        // the olets (keys `chain:`/`olet:`) stays without them.
+        const overrides = Object.keys(drawing.dimOverrides ?? {});
+        const oldKeys = overrides.filter((k) => k.startsWith(`chain:${chain.id}:`) || chain.olets.some((o) => k === `olet:${o.nodeId}`));
+        const takenOff =
+          oldKeys.length > 0 && oldKeys.every((k) => drawing.dimOverrides![k].hidden) && !overrides.some((k) => k.startsWith(`hdr:${chain.id}:`));
         for (let i = 0; i + 1 < stops.length; i += 1) {
           const span = stops[i + 1] - stops[i];
           if (span < 0.5) continue;
-          const key = `chain:${chain.id}:${i}`;
+          const key = `hdr:${chain.id}:${i}`;
           const place = drawing.dimOverrides?.[key];
-          if (place?.hidden) continue;
-          // The figure sits in the widest gap between the olets on this
-          // piece, clear of their saddles and weld tags.
-          const marks = [stops[i], ...chain.olets.map((o) => o.along).filter((mm) => mm > stops[i] && mm < stops[i + 1]), stops[i + 1]];
-          let gapAt = 0.5;
-          let widest = 0;
-          for (let k = 0; k + 1 < marks.length; k += 1) {
-            if (marks[k + 1] - marks[k] > widest) {
-              widest = marks[k + 1] - marks[k];
-              gapAt = ((marks[k] + marks[k + 1]) / 2 - stops[i]) / span;
-            }
-          }
-          const dim = dimension(at(stops[i]), at(stops[i + 1]), centroid, formatMm(span), size, key, hitR, { along: gapAt, ...place });
+          if (place?.hidden || takenOff) continue;
+          const dim = dimension(at(stops[i]), at(stops[i + 1]), centroid, formatMm(span), size, key, hitR, place);
           dims += dim.svg;
           dimHits += dim.hit;
           figures.push(dim.at);
         }
-        for (const olet of chain.olets) {
-          const key = `olet:${olet.nodeId}`;
-          const place = drawing.dimOverrides?.[key];
-          if (place?.hidden) continue;
-          const dim = dimension(at(0), at(olet.along), centroid, formatMm(olet.along), size, key, hitR, { offset: size * 5.2, ...place });
+        // The whole header, end to end, on a row further out.
+        const wholeKey = `hdr:${chain.id}:all`;
+        const whole = drawing.dimOverrides?.[wholeKey];
+        if (!whole?.hidden && !takenOff && stops.length > 2) {
+          const dim = dimension(at(0), at(chain.total), centroid, formatMm(chain.total), size, wholeKey, hitR, { offset: size * 5.2, ...whole });
           dims += dim.svg;
           dimHits += dim.hit;
           figures.push(dim.at);

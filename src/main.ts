@@ -9,7 +9,7 @@ import { loadLibrary, removeDrawing, renumberProject, sheetNumber, upsertDrawing
 import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, noteRemovedFromLibrary, setDriveClientId, syncDrive } from './model/drive';
 import { AXES, AXIS_VECTOR, add, length3, scale3, sub } from './model/iso';
 import { initialCommandState, runCommands } from './model/commands';
-import { addMeasure, applyMeasureToOlet, DASHED_NOTE, deleteRunGroup, measureTypeable, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, ensureNode, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, runLength, setRunDashed, setRunDirect, startFromEquipment, stretchRun, syncEquipment } from './model/edit';
+import { addMeasure, applyMeasureToOlet, DASHED_NOTE, deleteRunGroup, measureTypeable, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, ensureNode, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, runLength, setRunDashed, setRunDirect, startFromEquipment, stretchRun, syncEquipment, uncoverPoints } from './model/edit';
 import { DN_LIST, schedulesFor, sizeLabel } from './model/pipe-data';
 import { northArrow, paperOf, renderDrawing, symbolSizeFor } from './render/renderer';
 import { SHEET_STAMPS, renderSheet, sheetStamp, sheetSymbolSize, type SheetSize } from './render/sheet';
@@ -35,6 +35,7 @@ const fileInput = $<HTMLInputElement>('file-input');
 
 const drawing = loadStored() ?? emptyDrawing();
 if (!drawing.id) drawing.id = uid('d');
+uncoverPoints(drawing);
 
 const state: AppState = {
   drawing,
@@ -73,6 +74,7 @@ const host: Host = {
     mutator(state.drawing);
     // Equipment keeps with its point, and the line beyond it with the box.
     syncEquipment(state.drawing);
+    uncoverPoints(state.drawing);
     recompute();
     persist();
     if (options?.keepPanel) renderCanvasOnly();
@@ -260,7 +262,7 @@ let dimensionEditor: HTMLInputElement | null = null;
  */
 function openDimensionEditor(key: string, clientX: number, clientY: number): void {
   // A header chain's pieces and its olets' distances have keys of their own.
-  const chained = key.startsWith('chain:') || key.startsWith('olet:');
+  const chained = key.startsWith('hdr:') || key.startsWith('chain:') || key.startsWith('olet:');
   const measured = key.startsWith('meas:');
   let current: number;
   if (measured) {
@@ -271,12 +273,13 @@ function openDimensionEditor(key: string, clientX: number, clientY: number): voi
     current = Math.round(Math.hypot(nb.pos.e - na.pos.e, nb.pos.n - na.pos.n, nb.pos.u - na.pos.u));
   } else if (chained) {
     const olet = key.match(/^olet:(.+)$/);
-    const piece = key.match(/^chain:(.+):(\d+)$/);
+    const piece = key.match(/^(?:hdr|chain):(.+):(\d+|all)$/);
     const chain = olet
       ? state.analysis.chains.find((c) => c.olets.some((o) => o.nodeId === olet[1]))
       : state.analysis.chains.find((c) => c.id === piece?.[1]);
     if (!chain) return;
     if (olet) current = Math.round(chain.olets.find((o) => o.nodeId === olet[1])!.along);
+    else if (piece![2] === 'all') current = Math.round(chain.total);
     else {
       const stops = chainStops(state.drawing, chain);
       const index = Number(piece![2]);
@@ -1514,6 +1517,8 @@ for (const [id, key] of [
 function replaceDrawing(next: Drawing): void {
   for (const key of Object.keys(state.drawing)) delete (state.drawing as unknown as Record<string, unknown>)[key];
   Object.assign(state.drawing, next);
+  // An older sheet may have a valve lying across a point: joined through.
+  uncoverPoints(state.drawing);
 }
 
 $('new').addEventListener('click', async () => {

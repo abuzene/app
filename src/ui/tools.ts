@@ -1,10 +1,11 @@
 import type { ComponentKind, FlangeKind, JointType, Run, TerminalKind } from '../model/types';
 import type { Host } from './types';
-import { COMPONENT_LABEL, TERMINAL_LABEL, dimensionStops, isValve, oletEntries, oletLegs, oletMarks, resolveEnds, terminalTakeoutOf, valveOpenSide } from '../model/drawing';
+import { COMPONENT_LABEL, TERMINAL_LABEL, chainStops, dimensionStops, isMark, itemHalf, isValve, oletEntries, oletLegs, oletMarks, resolveEnds, terminalTakeoutOf, valveOpenSide } from '../model/drawing';
 import { addComponent, addEquipment, addFlangeJoint, applyReducer, boltValveOnEnd, runLength, setLastFlange, setTerminal, splitRun } from '../model/edit';
 import { axisBetween } from '../model/iso';
 import { DN_LIST, componentTakeout, fittingTakeout, sizeLabel, valveFlangeKind } from '../model/pipe-data';
 import { isFlange } from '../render/symbols';
+import { runOffsetAtPaper } from '../render/renderer';
 import { componentSymbol, jointMark, oletSymbol, type Frame } from '../render/symbols';
 
 /** Branch fittings act on the header, they do not sit in the line. */
@@ -572,8 +573,13 @@ async function placeOlet(host: Host, joint: JointType): Promise<void> {
   const choice = await host.oletDialog({ joint, header: run.dn, along: a && b ? axisBetween(a.pos, b.pos) : null, taken });
   if (!choice) return;
   let nodeId: string | null = onNode?.id ?? null;
+  const at = nodeId ? 0 : oletSpot(host, run);
+  if (at === null) {
+    host.notify('No pipe left on that run for an olet: it is all fittings.');
+    return;
+  }
   host.edit(`Add ${OLET_SHORT[joint].toLowerCase()}`, (d) => {
-    if (!nodeId) nodeId = splitRun(d, run.id, runLength(d, run) / 2);
+    if (!nodeId) nodeId = splitRun(d, run.id, at);
     const node = nodeId ? d.nodes.find((n) => n.id === nodeId) : undefined;
     if (!node) return;
     node.fittingOverride = 'OLET';
@@ -590,6 +596,32 @@ async function placeOlet(host: Host, joint: JointType): Promise<void> {
   // 2026-09-23).
   host.select({ kind: 'node', id: nodeId });
   host.notify('Olet on the header. Place it later by its dimension, or a hand dimension from it.');
+}
+
+/**
+ * Where on a run an olet goes: the middle of the length of pipe that was
+ * tapped (his complaint, 2026-09-24: "I can't pick pipe A between the two
+ * valves to put an olet on it"), else of the longest length of pipe on
+ * the run — never inside a valve. Null when no pipe is left on it.
+ */
+function oletSpot(host: Host, run: Run): number | null {
+  const { drawing, analysis, selection } = host.state;
+  const total = runLength(drawing, run);
+  const items = run.inline.filter((c) => !isMark(c.kind)).sort((x, y) => x.offset - y.offset);
+  const gaps: [number, number][] = [];
+  let cursor = 0;
+  for (const comp of items) {
+    const half = itemHalf(drawing, run, comp);
+    if (comp.offset - half > cursor) gaps.push([cursor, comp.offset - half]);
+    cursor = Math.max(cursor, comp.offset + half);
+  }
+  if (total > cursor) gaps.push([cursor, total]);
+  const room = gaps.filter(([a, b]) => b - a > 1);
+  if (room.length === 0) return null;
+  const tapped = selection?.kind === 'run' && selection.id === run.id && selection.at ? runOffsetAtPaper(drawing, analysis, run, selection.at) : null;
+  const hit = tapped !== null ? room.find(([a, b]) => tapped >= a - 1 && tapped <= b + 1) : undefined;
+  const [a, b] = hit ?? room.reduce((best, g) => (g[1] - g[0] > best[1] - best[0] ? g : best));
+  return Math.round((a + b) / 2);
 }
 
 /** A dashed equipment box on the picked point, named there and then in its panel. */
@@ -642,9 +674,13 @@ function placeWeld(host: Host): void {
 }
 
 function openDimensionUpTo(host: Host, nodeId: string): void {
-  // An olet on a header is placed by its own dimension from the header's start.
-  if (host.state.analysis.chains.some((c) => c.olets.some((o) => o.nodeId === nodeId))) {
-    host.editDimension(`olet:${nodeId}`);
+  // On a header, the piece that ends on the olet's centre.
+  const chain = host.state.analysis.chains.find((c) => c.olets.some((o) => o.nodeId === nodeId));
+  if (chain) {
+    const along = chain.olets.find((o) => o.nodeId === nodeId)!.along;
+    const stops = chainStops(host.state.drawing, chain);
+    const index = stops.findIndex((mm, i) => i > 0 && Math.abs(mm - along) < 0.5) - 1;
+    host.editDimension(`hdr:${chain.id}:${Math.max(0, index)}`);
     return;
   }
   const before = host.state.drawing.runs.find((r) => r.to === nodeId);

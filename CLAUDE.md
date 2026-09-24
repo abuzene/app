@@ -187,6 +187,23 @@ ships, and the decisions already taken, so they are not re-litigated.
   `drawnShare`; `offsetFromPaper` in main.ts goes back with `trueAtShare`.
   To scale nothing changes. Lengthening the run (handles) gives the room
   to the pipe pieces.
+- **A valve across a point** (his complaint, 2026-09-24, Strauss sheet: "a
+  dimension to the centre of the valve"; "I can't pick pipe A between the
+  two valves to put an olet"): valves put on an end once sat centred on it
+  and the line was drawn on from that point. `uncoverPoints` in edit.ts
+  (run on load, in `replaceDrawing` and after every `host.edit`) moves such
+  a plain point out to the item's face, flange included, with everything
+  beyond (`stretchRun(..., moveEnd)`), so the pipe after it keeps its cut
+  length, then joins it through (`joinThrough`) and drops hand dimensions
+  to it. `stretchRun` now refuses to make a run shorter than its items
+  reach from the end that stays (the clamp left a valve across the end).
+  A run whose items leave no pipe is still dimensioned unless all its
+  items are reducers (`allItem`). **An olet goes into the pipe tapped**:
+  a run selection carries the paper point tapped (`Selection` run `at`,
+  set in canvas.ts), and `oletSpot` in tools.ts splits the run in the
+  middle of the length of pipe between items that contains it
+  (`runOffsetAtPaper` in the renderer), else of the longest one, never
+  inside a valve; none left, it says so.
 - **A valve's own dimension is typeable** (his ask, 2026-09-24: "dimensions
   from the fittings' centres, but a valve to its flange and the valve on
   its own, never to its centre; and the valve's dimension editable"). A
@@ -403,8 +420,17 @@ ships, and the decisions already taken, so they are not re-litigated.
   drawing.ts; `analysis.chains`/`chainOfRun`): runs collinear through olet
   points are one header. The renderer dimensions the chain **end to end as
   one** (keys `chain:<firstRunId>:<i>`, pieces broken at valve faces only)
-  from its first run, plus a **location dimension per olet** from the
-  chain's start (`olet:<nodeId>`, a row further out). `applyChainDimension`
+  from its first run. **Since 2026-09-24 ("yes, each piece measured to the
+  centre of the olet") the pieces break at valve faces and at every olet's
+  centre** (`chainStops`), keys `hdr:<chainId>:<i>`, plus the whole header
+  on a row further out (`hdr:<chainId>:all`); the old per-olet location
+  dimensions from the start are gone (`olet:<nodeId>` is still the key
+  `applyChainDimension` and `applyMeasureToOlet` move an olet by). A
+  header whose old `chain:`/`olet:` dimensions were all taken off keeps
+  them off (`takenOff` in the renderer) until it gets `hdr:` overrides or
+  the run panel's Dimension: show (which clears both). Typing a piece
+  that ends on an olet's centre moves that olet (the next piece gives);
+  `all` moves the far end. `applyChainDimension`
   in edit.ts: the olet's dimension moves the olet alone (inline items on
   the runs either side keep their place on the header); the last piece
   stretches the last run with `stretchRun(..., moveEnd = true)` — without

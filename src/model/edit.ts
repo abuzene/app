@@ -522,6 +522,17 @@ export function stretchRun(drawing: Drawing, runId: string, length: number, end:
 
   const current = length3(sub(to.pos, from.pos));
   if (current < 0.01) return false;
+  // Never shorter than the items on it reach from the end that stays: a
+  // valve left across the end got a dimension to its centre and no pipe
+  // beside it (his complaint, 2026-09-24).
+  if (length < current) {
+    for (const comp of run.inline) {
+      if (isMark(comp.kind)) continue;
+      const half = componentTakeout(comp.kind, comp.dn ?? run.dn, false, comp.ff);
+      const fromFixed = end === 'to' ? comp.offset : current - comp.offset;
+      if (fromFixed + half > length + 0.5) return false;
+    }
+  }
   const unit = {
     e: (to.pos.e - from.pos.e) / current,
     n: (to.pos.n - from.pos.n) / current,
@@ -775,6 +786,50 @@ export function isPlainPoint(drawing: Drawing, nodeId: string): boolean {
 }
 
 /**
+ * A plain point with an item lying across it — a valve put on an end back
+ * when it sat centred there, and the line then drawn on — is moved out to
+ * the item's face (flange included), taking everything beyond with it, so
+ * the pipe drawn on from it keeps the length it had on the cut list, and
+ * then joined through, so no dimension ends on the valve's centre (his complaint, 2026-09-24: a 310
+ * to the middle of a valve; pipe A between two valves that could not be
+ * picked). Returns whether anything changed.
+ */
+export function uncoverPoints(drawing: Drawing): boolean {
+  let changed = false;
+  const joint = drawing.options.joint ?? 'BW';
+  for (const node of [...drawing.nodes]) {
+    if (node.joint || node.terminal || !isPlainPoint(drawing, node.id)) continue;
+    for (const run of drawing.runs.filter((r) => r.from === node.id || r.to === node.id)) {
+      const len = runLength(drawing, run);
+      const atEnd = run.to === node.id;
+      let over = 0;
+      for (const c of run.inline) {
+        if (isMark(c.kind)) continue;
+        const dn = c.dn ?? run.dn;
+        const face = componentTakeout(c.kind, dn, false, c.ff);
+        const side: 0 | 1 = atEnd ? 1 : 0;
+        const flanged = isValve(c.kind) && resolveEnds(c.kind, dn, c.ends, joint) === 'FLG' && c.bare !== side && !c.lastFlange;
+        const reach = flanged ? componentTakeout(c.kind, dn, valveFlangeKind(joint), c.ff) : face;
+        // Only an item whose body crosses the point; one whose flange
+        // alone reaches past it sits on it as meant.
+        if (atEnd ? c.offset + face <= len + 0.5 : c.offset - face >= -0.5) continue;
+        over = Math.max(over, atEnd ? c.offset + reach - len : reach - c.offset);
+      }
+      if (over > 0.5 && stretchRun(drawing, run.id, len + over, atEnd ? 'to' : 'from', true)) {
+        // Then the point, with nothing at it now, goes: the pipe runs on
+        // from the valve's face, dimensioned as one piece to what is next.
+        if (joinThrough(drawing, node.id) && drawing.measures) {
+          drawing.measures = drawing.measures.filter((m) => m.a !== node.id && m.b !== node.id);
+        }
+        changed = true;
+        break;
+      }
+    }
+  }
+  return changed;
+}
+
+/**
  * Deletes a point. A plain point along a line (a weld put in, a face a
  * reducer was drawn from) just goes, and the pipe runs straight through —
  * as a pair of flanges comes out. A corner, branch or end takes its runs
@@ -995,7 +1050,8 @@ export function applyChainDimension(drawing: Drawing, analysis: Analysis, key: s
     const start = chain ? drawing.nodes.find((n) => n.id === chain.from) : undefined;
     const end = chain ? drawing.nodes.find((n) => n.id === chain.to) : undefined;
     if (!chain || !node || !start || !end) return 'No such dimension.';
-    const stops = chainStops(drawing, chain);
+    const was0 = chain.olets.find((o) => o.nodeId === nodeId)!.along;
+    const stops = chainStops(drawing, chain).filter((mm) => Math.abs(mm - was0) > 0.5);
     const others = chain.olets.filter((o) => o.nodeId !== nodeId).map((o) => o.along);
     const below = Math.max(...[...stops, ...others].filter((mm) => mm < value - 0.5 && mm < chain.total), 0);
     const above = Math.min(...[...stops, ...others].filter((mm) => mm > value + 0.5), chain.total);
@@ -1012,15 +1068,19 @@ export function applyChainDimension(drawing: Drawing, analysis: Analysis, key: s
     if (after && after.forward) for (const c of after.run.inline) c.offset -= delta;
     return null;
   }
-  const piece = key.match(/^chain:(.+):(\d+)$/);
+  const piece = key.match(/^(?:hdr|chain):(.+):(\d+|all)$/);
   if (!piece) return 'No such dimension.';
   const chain = analysis.chains.find((c) => c.id === piece[1]);
   if (!chain) return 'No such dimension.';
-  const index = Number(piece[2]);
   const stops = chainStops(drawing, chain);
-  if (index < 0 || index + 1 >= stops.length) return 'No such dimension.';
-  const from = stops[index];
-  const to = stops[index + 1];
+  const whole = piece[2] === 'all';
+  const index = whole ? 0 : Number(piece[2]);
+  if (!whole && (index < 0 || index + 1 >= stops.length)) return 'No such dimension.';
+  const from = whole ? 0 : stops[index];
+  const to = whole ? chain.total : stops[index + 1];
+  // Up to an olet's centre: the olet moves, the next piece gives.
+  const oletTo = whole ? undefined : chain.olets.find((o) => Math.abs(o.along - to) < 0.5);
+  if (oletTo) return applyChainDimension(drawing, analysis, `olet:${oletTo.nodeId}`, from + value);
   // Up to a valve face: the valve slides so this piece is the value.
   for (const leg of chain.runs) {
     for (const comp of leg.run.inline) {

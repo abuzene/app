@@ -2888,14 +2888,16 @@ await placeSmallOlet();
 await placeSmallOlet();
 const chainDimTexts = () => page.locator('#canvas .dim-text').evaluateAll((els) => els.map((e) => e.textContent).sort());
 check('two olets on a header: the header keeps one letter', await page.locator('#canvas .pipe-letter-text').evaluateAll((els) => els.map((e) => e.textContent).join()), (v) => v === 'A,B', 'A for the header, B for the riser');
-check('and is dimensioned end to end as one, with each olet placed from the start', await chainDimTexts(), (v) => v.join() === '1000,2000,2000,4000', '4000 whole, olets at 1000 and 2000, riser 2000');
+// "Each piece measured to the centre of the olet" (2026-09-24): the header
+// is dimensioned piece by piece to the olets' centres, and whole further out.
+check('and is dimensioned piece by piece to the olets\' centres, and whole', await chainDimTexts(), (v) => v.join() === '1000,1000,2000,2000,4000', '1000, 1000, 2000 to the olets, 4000 whole, riser 2000');
 await page.click('#tabs button:has-text("Welds")');
 await page.waitForTimeout(200);
 const chainWelds = await page.locator('#tab-body table tbody tr').allInnerTexts();
 check('both header welds name the whole header as cut', chainWelds.filter((r) => /HEADER/.test(r)).map((r) => r.split('\t').pop()).join(), (v) => v === 'A 3845.5,A 3845.5', 'A 3845.5 twice');
 await page.click('#tabs button:has-text("Route")');
 await page.waitForTimeout(200);
-const firstOletDim = page.locator('#canvas circle.hit-dot[data-dim^="olet:"]').first();
+const firstOletDim = page.locator('#canvas circle.hit-dot[data-dim^="hdr:"][data-dim$=":0"]').first();
 const fo = await firstOletDim.boundingBox();
 await page.mouse.click(fo.x + fo.width / 2, fo.y + fo.height / 2);
 await page.waitForTimeout(300);
@@ -2903,8 +2905,8 @@ await page.keyboard.press('Control+A');
 await page.keyboard.type('350');
 await page.keyboard.press('Enter');
 await page.waitForTimeout(400);
-check('typing an olet\'s dimension moves the olet alone; the header stays 4000', await chainDimTexts(), (v) => v.join() === '2000,2000,350,4000', '350, 2000, 2000, 4000');
-const chainDim = page.locator('#canvas circle.hit-dot[data-dim^="chain:"]').first();
+check('typing the piece up to an olet moves the olet alone; the header stays 4000', await chainDimTexts(), (v) => v.join() === '1650,2000,2000,350,4000', '350, 1650, 2000, 4000');
+const chainDim = page.locator('#canvas circle.hit-dot[data-dim$=":all"]').first();
 const cd = await chainDim.boundingBox();
 await page.mouse.click(cd.x + cd.width / 2, cd.y + cd.height / 2);
 await page.waitForTimeout(300);
@@ -2912,7 +2914,7 @@ await page.keyboard.press('Control+A');
 await page.keyboard.type('5000');
 await page.keyboard.press('Enter');
 await page.waitForTimeout(400);
-check('typing the header\'s dimension moves its far end, the olets staying put', await chainDimTexts(), (v) => v.join() === '2000,2000,350,5000', '350, 2000, 2000, 5000');
+check('typing the header\'s whole length moves its far end, the olets staying put', await chainDimTexts(), (v) => v.join() === '1650,2000,3000,350,5000', '350, 1650, 3000, 5000');
 
 /* --------------------------------------- two olets on one point; a dimension by hand */
 
@@ -3354,7 +3356,7 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   check('its true length stays too', afterDrag.nodes.find((n) => n.id === endId).pos.e, (v) => v === 3000, '3000');
   check('the olet moved on the drawing', await dotAt(olet), (v) => v !== endBefore, 'moved');
   const oletDim = await page.evaluate(([id, startId]) => {
-    const hit = document.querySelector(`#canvas [data-dim="olet:${id}"]`);
+    const hit = document.querySelector('#canvas [data-dim^="hdr:"][data-dim$=":0"]');
     const dot = document.querySelector(`#canvas circle.hit-dot[data-node="${id}"]`);
     const start = document.querySelector(`#canvas circle.hit-dot[data-node="${startId}"]`);
     if (!hit || !dot || !start) return 'missing';
@@ -3705,6 +3707,82 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   const after = await figs();
   check('typed, the valve is that long, the pipe before it unchanged, after it shorter', after.join(' '), (v) => v === `${before[0]} 250 ${before[0] + before[1] + before[2] - before[0] - 250}`, `${before[0]} 250 ${before[2] - (250 - before[1])}`);
   check('and kept with the valve', (await drawingNow()).runs[0].inline[0].ff, (v) => v === 250, '250');
+}
+
+/* ------------------- a valve across a point; an olet into the pipe tapped */
+
+// "A dimension to the centre of the valve" and "I can't pick pipe A between
+// the two valves to put an olet on it" (2026-09-24): on older sheets a valve
+// put on an end sat centred on it and the line was drawn on from there. The
+// point is moved out to the valve's face and joined through, so the valve is
+// dimensioned to its faces and the pipe after it is there to pick; an olet
+// goes in the middle of the pipe tapped, never into a valve.
+{
+  await routeLine('2"\nSTD\nORIGIN 0 0 0\nN 150\nN 328');
+  await page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem('iso-draw.drawing.v1'));
+    d.runs[0].inline = [{ id: 'cold1', kind: 'BALL', offset: 150 }];
+    d.runs[1].inline = [{ id: 'cold2', kind: 'BALL_ACT', offset: 239, lastFlange: 'blind' }];
+    d.measures = [{ id: 'mold', a: d.runs[0].from, b: d.runs[0].to }];
+    localStorage.setItem('iso-draw.drawing.v1', JSON.stringify(d));
+  });
+  await page.reload();
+  await page.waitForTimeout(600);
+  await page.click('#fit');
+  await page.waitForTimeout(300);
+  const texts = await page.locator('#canvas .dim-text').evaluateAll((els) => els.map((e) => e.textContent).sort());
+  check('a valve that lay across a point: faces, the valve, the pipe to the next valve — no dimension to its centre', texts.join(), (v) => v === '178,178,212,61', '61, 178, 212, 178');
+  // Tap the pipe between the two valves, then put an olet on it.
+  const mid = await page.evaluate(() => {
+    const boxes = ['cold1', 'cold2'].map((id) => document.querySelector(`#canvas .component[data-component="${id}"]`).getBoundingClientRect());
+    const c = boxes.map((r) => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 }));
+    return { x: (c[0].x + c[1].x) / 2, y: (c[0].y + c[1].y) / 2 };
+  });
+  const runId = (await drawingNow()).runs[0]?.id;
+  const runEl = page.locator(`#canvas line.hit[data-run]`).first();
+  const at = { bubbles: true, pointerId: 13, pointerType: 'mouse', button: 0, clientX: mid.x, clientY: mid.y, isPrimary: true };
+  await runEl.dispatchEvent('pointerdown', at);
+  await page.waitForTimeout(80);
+  await runEl.dispatchEvent('pointerup', at);
+  await page.waitForTimeout(300);
+  await page.locator('.tool[data-olet="BW"]').click();
+  await page.waitForTimeout(300);
+  await page.selectOption('.dialog [data-f="olet-dn"]', 'DN15');
+  await page.click('.dialog [data-confirm]');
+  await page.waitForTimeout(400);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(150);
+  const after = await drawingNow();
+  const olet = after.nodes.find((n) => n.fittingOverride === 'OLET');
+  check('the olet goes in the middle of the pipe between the valves', olet ? Math.round(olet.pos.n) : 'none', (v) => v === 345, `345 (runs ${runId ? 'as one' : '?'})`);
+  check('and the hand dimension to the valve\'s centre is gone', (after.measures ?? []).length, (v) => v === 0, '0');
+}
+
+/* ------------------------------ a line never shortened past its valve */
+
+// Typed shorter than where a valve stands, a line used to leave the valve
+// across its end; now it says no.
+{
+  await routeLine('3"\nSTD\nORIGIN 0 0 0\nEND FLG\nE 2000\n+BALL 1500\nEND FLG');
+  const g1 = (await nodesAt()).find((p) => p[1] === 0 && p[2] === 0)[0];
+  const g2 = (await nodesAt()).find((p) => p[1] === 2000 && p[2] === 0)[0];
+  await tapNode(g1);
+  await page.click('#hud-measure');
+  await page.waitForTimeout(200);
+  await tapNode(g2);
+  const mId = (await drawingNow()).measures[0].id;
+  const fig = page.locator(`#canvas [data-dim="meas:${mId}"]`).first();
+  const fb = await fig.boundingBox();
+  const fat = { bubbles: true, pointerId: 14, pointerType: 'mouse', button: 0, clientX: fb.x + fb.width / 2, clientY: fb.y + fb.height / 2, isPrimary: true };
+  await fig.dispatchEvent('pointerdown', fat);
+  await page.waitForTimeout(100);
+  await fig.dispatchEvent('pointerup', fat);
+  await page.waitForTimeout(300);
+  await page.keyboard.press('Control+A');
+  await page.keyboard.type('1000');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(400);
+  check('a line typed shorter than where its valve stands is refused', (await nodesAt()).find((p) => p[0] === g2)[1], (v) => v === 2000, '2000');
 }
 
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
