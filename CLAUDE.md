@@ -203,7 +203,15 @@ ships, and the decisions already taken, so they are not re-litigated.
   total shared in proportion to the true lengths).
 - Lines never overlap (`overlapsExisting`); crossings gap the rear line.
 - Toolbar Joint select (BW/SW/THD) sets the picked point's joint, else the
-  drawing default. SW marks' lips point back over the pipe. In SW/THD mode
+  drawing default. **A line drawn from a threaded or socket-weld olet takes
+  the olet's joint** (his complaint, 2026-09-24: the elbow on a line off a
+  threadolet came out BW): `inheritedJoint` in `analyse` follows the
+  olet's branch runs out to another olet, a flange or a point with its own
+  `joint`; `pointJoint(node)` = own, else inherited, else the drawing's,
+  used for every joint mark, weld, BOM suffix and terminal symbol, and
+  exposed as `analysis.nodeJoint`/`analysis.inheritedJoint`. The node
+  panel's Joint select reads "Automatic — Threaded, as its line from the
+  threadolet" and can set the point on its own. SW marks' lips point back over the pipe. In SW/THD mode
   a flanged valve gets SW/THD flanges (`valveFlangeKind`).
 - PE/CS transition: weld on the CS side, six dashes on the PE side; it ends
   the steel.
@@ -222,6 +230,22 @@ ships, and the decisions already taken, so they are not re-litigated.
   "white point" is left where the gap was (his complaint); the tapped
   point may then be gone, and `onConnect` clears the selection/anchor.
   The HUD/panel say **Delete pipe** for a run (one length only).
+  **Two ends of one line** (both off the same header, his complaint
+  2026-09-24: "I marked the point but cannot join the two lines") are
+  joined by hand: an open end picked offers **Join to another end** (HUD
+  `#hud-join`, panel `[data-a="join-from"]`, `host.joinFrom` →
+  `state.joinFrom`; the next node tapped completes it in `onSelect` via
+  `joinPoints(from, to, dn, schedule, arm=false)`, the new pipe the size of
+  the picked end's run; Escape cancels). Any piece, same one included.
+  Two open ends whose **lines cross** (his STATION sheet: a branch up 430
+  and a line at 440 ending 10 mm past it) are each carried along their own
+  line to the crossing (`crossingOfEnds`/`moveOpenEnd` in edit.ts, never
+  back past the far end, clear of other lines) and merged there: one
+  elbow, no new pipe. Two open ends in the **same place** are merged into one point by
+  `connectNodes` (a corner with its elbow, or joined straight through);
+  tapping the picked end again finds the other end there
+  (`endInSamePlace`). While drawing, tapping an end of the same line
+  still only moves the pencil.
 - **Tees** ask first (`placeTee` in tools.ts, the olet dialog with
   `kind: 'tee'`): Branch size, equal (the header's size) or smaller for a
   reducing tee, no direction; then the pencil is armed at the new point

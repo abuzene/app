@@ -14,6 +14,8 @@ export interface AppState {
   preview: Preview | null;
   /** A dimension by hand being put in: the point it starts from. */
   measureFrom: string | null;
+  /** An open end being joined to another: the end it starts from. */
+  joinFrom: string | null;
   commandState: CommandState;
   commandText: string;
   commandErrors: { line: number; text: string; message: string }[];
@@ -84,6 +86,8 @@ export interface Host {
   setCurrentSize(dn: string): void;
   /** Starts a dimension by hand from a point; the next point tapped ends it. */
   measureFrom(nodeId: string): void;
+  /** Starts joining an open end to another; the next end tapped is joined to it. */
+  joinFrom(nodeId: string): void;
 }
 
 export interface ReducerAsk {

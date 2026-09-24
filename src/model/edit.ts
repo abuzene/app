@@ -1177,18 +1177,96 @@ export interface ConnectResult {
  * turns is taken — straight on out of the first point where that helps, and
  * straight into the second — as long as it lies along no line already drawn.
  */
+/** An open end: one run, and nothing on it but a plain open end. */
+function isOpenEnd(drawing: Drawing, node: IsoNode): boolean {
+  const kind = node.terminal?.kind;
+  return (!kind || kind === 'OPEN') && drawing.runs.filter((r) => r.from === node.id || r.to === node.id).length === 1;
+}
+
+/**
+ * Where the lines of two open ends cross, when they do: each end carried
+ * straight on out of its run (or back along it, never past its far end),
+ * clear of what is drawn, meeting the other at a right angle.
+ */
+function crossingOfEnds(drawing: Drawing, a: IsoNode, b: IsoNode): Vec3 | null {
+  if (!isOpenEnd(drawing, a) || !isOpenEnd(drawing, b)) return null;
+  const out = (node: IsoNode): { axis: Axis; back: number } | null => {
+    const run = drawing.runs.find((r) => r.from === node.id || r.to === node.id);
+    const far = run && drawing.nodes.find((n) => n.id === (run.from === node.id ? run.to : run.from));
+    const axis = far ? axisBetween(far.pos, node.pos) : null;
+    return axis && far ? { axis, back: length3(sub(node.pos, far.pos)) } : null;
+  };
+  const oa = out(a);
+  const ob = out(b);
+  if (!oa || !ob) return null;
+  const ua = AXIS_VECTOR[oa.axis];
+  const ub = AXIS_VECTOR[ob.axis];
+  if (Math.abs(ua.e * ub.e + ua.n * ub.n + ua.u * ub.u) > 0.5) return null;
+  const d = sub(b.pos, a.pos);
+  const along = (v: Vec3, u: Vec3) => v.e * u.e + v.n * u.n + v.u * u.u;
+  const ta = along(d, ua);
+  const tb = -along(d, ub);
+  const meet = add(a.pos, scale3(ua, ta));
+  if (length3(sub(meet, add(b.pos, scale3(ub, tb)))) > 0.5) return null;
+  // Pulled back, an end keeps some of its pipe.
+  if (ta <= -oa.back + 1 || tb <= -ob.back + 1) return null;
+  if ((ta > 0.5 && overlapsExisting(drawing, a.pos, meet)) || (tb > 0.5 && overlapsExisting(drawing, b.pos, meet))) return null;
+  return meet;
+}
+
+/** Moves an open end along its own line, its items keeping their place. */
+function moveOpenEnd(drawing: Drawing, node: IsoNode, to: Vec3): void {
+  const shift = length3(sub(to, node.pos));
+  if (shift < 1e-6) return;
+  const run = drawing.runs.find((r) => r.from === node.id || r.to === node.id);
+  if (run) {
+    const far = drawing.nodes.find((n) => n.id === (run.from === node.id ? run.to : run.from));
+    const longer = far ? length3(sub(to, far.pos)) - length3(sub(node.pos, far.pos)) : 0;
+    // Offsets run from the run's start: moved, the start takes them with it.
+    if (run.from === node.id) for (const comp of run.inline) comp.offset += longer;
+    if (run.visual !== undefined) run.visual = Math.max(0, run.visual + longer);
+  }
+  node.pos = { ...to };
+}
+
 export function connectNodes(drawing: Drawing, fromId: string, toId: string, dn: string, schedule: string): ConnectResult {
   const from = drawing.nodes.find((n) => n.id === fromId);
   const to = drawing.nodes.find((n) => n.id === toId);
   if (!from || !to || fromId === toId) return { path: [], refused: 'Pick another point to join this one to.' };
   if (runBetween(drawing, fromId, toId)) return { path: [], refused: 'Those two points are joined already.' };
 
+  // Two open ends whose lines cross meet at the crossing: each is carried
+  // on (or back) along its own line to the corner and the two become one
+  // point there, an elbow, with no new pipe (his complaint, 2026-09-24:
+  // a branch up 430 and a line at 440 ending 10 mm short "would not join").
+  const corner = crossingOfEnds(drawing, from, to);
+  if (corner) {
+    moveOpenEnd(drawing, from, corner);
+    moveOpenEnd(drawing, to, corner);
+  }
+
   const d = sub(to.pos, from.pos);
   const legs: { axis: Axis; length: number }[] = [];
   if (Math.abs(d.e) > 0.5) legs.push({ axis: d.e > 0 ? 'E' : 'W', length: Math.abs(d.e) });
   if (Math.abs(d.n) > 0.5) legs.push({ axis: d.n > 0 ? 'N' : 'S', length: Math.abs(d.n) });
   if (Math.abs(d.u) > 0.5) legs.push({ axis: d.u > 0 ? 'U' : 'D', length: Math.abs(d.u) });
-  if (legs.length === 0) return { path: [], refused: 'Those two points are in the same place.' };
+  // Two ends in the same place are one point: they meet there, as a corner
+  // (its elbow from the turn) or straight through.
+  if (legs.length === 0) {
+    const openEnd = (id: string) => {
+      const kind = drawing.nodes.find((n) => n.id === id)?.terminal?.kind;
+      return (!kind || kind === 'OPEN') && drawing.runs.filter((r) => r.from === id || r.to === id).length === 1;
+    };
+    if (!openEnd(fromId) || !openEnd(toId)) return { path: [], refused: 'Those two points are in the same place.' };
+    for (const run of drawing.runs) {
+      if (run.from === toId) run.from = fromId;
+      if (run.to === toId) run.to = fromId;
+    }
+    from.terminal = undefined;
+    drawing.nodes = drawing.nodes.filter((n) => n.id !== toId);
+    if (isPlainPoint(drawing, fromId)) joinThrough(drawing, fromId);
+    return { path: drawing.nodes.some((n) => n.id === fromId) ? [fromId] : [] };
+  }
 
   // The way the line would carry straight on out of each point.
   const straightOut = (node: IsoNode): Axis | null => {

@@ -165,6 +165,11 @@ export interface Analysis {
   /** Headers running straight through one or more olets, dimensioned as one. */
   chains: HeaderChain[];
   chainOfRun: Map<string, HeaderChain>;
+  /** Each point's joint as made: its own, else its line's (a branch off a
+   * threaded or socket-weld olet), else the drawing's. */
+  nodeJoint: Map<string, JointType>;
+  /** Points whose joint comes from the olet their line is drawn from. */
+  inheritedJoint: Map<string, { joint: JointType; from: string }>;
   warnings: string[];
 }
 
@@ -751,6 +756,37 @@ export function analyse(drawing: Drawing): Analysis {
     if (runs.length > 4) warnings.push(`Node ${node.label ?? node.id} has ${runs.length} connections.`);
   }
 
+  // A line drawn from a threaded or socket-weld olet is a small-bore line of
+  // that kind: its elbows, tees and joints take the olet's joint unless they
+  // are set on their own (his complaint, 2026-09-24: the elbow on a line off
+  // a threadolet came out butt welded). The olet's branch is followed out to
+  // another olet, a flange or a point with its own joint.
+  const defaultPointJoint = drawing.options.joint ?? 'BW';
+  const inheritedJoint = new Map<string, { joint: JointType; from: string }>();
+  for (const info of nodeInfo.values()) {
+    const olet = info.node;
+    if (olet.fittingOverride !== 'OLET') continue;
+    const joint = olet.joint ?? defaultPointJoint;
+    if (joint === defaultPointJoint) continue;
+    const legs = oletLegs(info);
+    if (!legs) continue;
+    const seen = new Set([olet.id]);
+    const queue = legs.branches.map((b) => ({ run: b.run, from: olet.id }));
+    while (queue.length > 0) {
+      const { run, from } = queue.shift()!;
+      const nextId = run.from === from ? run.to : run.from;
+      if (seen.has(nextId)) continue;
+      seen.add(nextId);
+      const next = nodeById.get(nextId);
+      if (!next || next.joint || next.fittingOverride === 'OLET' || next.flange) continue;
+      if (!inheritedJoint.has(nextId)) inheritedJoint.set(nextId, { joint, from: olet.id });
+      for (const onward of nodeInfo.get(nextId)?.runs ?? []) if (onward.id !== run.id) queue.push({ run: onward, from: nextId });
+    }
+  }
+  /** The joint a point is made with: its own, its line's, or the drawing's. */
+  const pointJoint = (node: IsoNode): JointType => node.joint ?? inheritedJoint.get(node.id)?.joint ?? defaultPointJoint;
+  const nodeJoint = new Map<string, JointType>(drawing.nodes.map((n) => [n.id, pointJoint(n)]));
+
   // Run lengths and cut lengths.
   const runLengths = new Map<string, RunLengths>();
   /** Runs whose two fittings meet with no pipe between. */
@@ -860,7 +896,7 @@ export function analyse(drawing: Drawing): Analysis {
       const at = meet > 0.5 && meet < total - 0.5 ? meet : total / 2;
       pushJoint(
         `d:${run.id}`,
-        a.joint ?? defaultJoint,
+        pointJoint(a),
         run.dn,
         run.schedule,
         `${name(a)} / ${name(b)}`,
@@ -884,7 +920,7 @@ export function analyse(drawing: Drawing): Analysis {
       const nodeJoint =
         node.fittingOverride === 'OLET' && info.fitting !== 'OLET'
           ? defaultJoint
-          : node.joint ?? defaultJoint;
+          : pointJoint(node);
       const takeout = fittingTakeout(info.fitting, run.dn);
       const distance = atStart ? takeout : total - takeout;
       const pos = add(a.pos, scale3(dir, distance));
@@ -1026,7 +1062,7 @@ export function analyse(drawing: Drawing): Analysis {
       const onTerminal = (atStart: boolean): boolean => {
         const end = atStart ? a : b;
         const kind = end.terminal?.kind;
-        if (!kind || !terminalJoint(kind, end.joint ?? defaultJoint)) return false;
+        if (!kind || !terminalJoint(kind, pointJoint(end))) return false;
         return itemAtEnd(drawing, run, atStart)?.comp.id === comp.id;
       };
       // A flanged item is bolted to its flanges; what the pipe is welded to
@@ -1308,7 +1344,7 @@ export function analyse(drawing: Drawing): Analysis {
           description:
             (info.fitting === 'TEE_REDUCING' && branch
               ? `${fittingLabel(info.fitting)} ${sizeLabel(dn)} x ${sizeLabel(branch.dn)}`
-              : fittingLabel(info.fitting)) + jointSuffix(info.node.joint ?? drawing.options.joint ?? 'BW'),
+              : fittingLabel(info.fitting)) + jointSuffix(pointJoint(info.node)),
           dn,
           schedule: fittingThickness,
           unit: 'off',
@@ -1450,6 +1486,8 @@ export function analyse(drawing: Drawing): Analysis {
   for (const chain of chains) for (const leg of chain.runs) chainOfRun.set(leg.run.id, chain);
 
   return {
+    nodeJoint,
+    inheritedJoint,
     nodeInfo,
     nodeById,
     joints,

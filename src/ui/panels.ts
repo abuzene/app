@@ -98,6 +98,16 @@ function runProperties(host: Host, runId: string): string {
 </div>`;
 }
 
+/** What "automatic" means for a point's joint: its line's, or the drawing's. */
+function autoJointLabel(host: Host, nodeId: string): string {
+  const inherited = host.state.analysis.inheritedJoint.get(nodeId);
+  if (inherited) {
+    const olet = host.state.analysis.nodeInfo.get(inherited.from)?.node;
+    return `Automatic — ${JOINT_LABEL[inherited.joint] ?? inherited.joint}, as its line from the ${olet ? oletLabel(olet.joint ?? inherited.joint).toLowerCase() : 'olet'}`;
+  }
+  return `Drawing default (${JOINT_LABEL[host.state.drawing.options.joint] ?? 'butt weld'})`;
+}
+
 /**
  * For a point the line runs straight through — a tee, an olet, a flange, a
  * plain joint — the two lengths either side of it. Setting one slides the
@@ -180,7 +190,7 @@ function nodeProperties(host: Host, nodeId: string): string {
       ? `<div class="row"><label>Olet type</label><select data-f="joint">${options(JOINTS, nodeJoint, { BW: 'Weldolet', SW: 'Sockolet', THD: 'Threadolet' })}</select></div>`
       : flanged
         ? ''
-        : `<div class="row"><label>Joint</label><select data-f="joint">${options(['auto', ...JOINTS], node.joint ?? 'auto', { ...JOINT_LABEL, auto: `Drawing default (${JOINT_LABEL[host.state.drawing.options.joint] ?? 'butt weld'})` })}</select></div>`
+        : `<div class="row"><label>Joint</label><select data-f="joint">${options(['auto', ...JOINTS], node.joint ?? 'auto', { ...JOINT_LABEL, auto: autoJointLabel(host, nodeId) })}</select></div>`
   }
   <p class="empty-note">${
     pendingOlet
@@ -198,6 +208,7 @@ function nodeProperties(host: Host, nodeId: string): string {
     ${balloonButtons(host, [`node:${nodeId}`, `term:${nodeId}`, ...drawing.runs.filter((r) => r.from === nodeId || r.to === nodeId).map((r) => `flg:${nodeId}:${r.id}`)])}
     ${node.flange ? '<button class="btn-line danger" data-a="remove-flanges">Remove both flanges — join the pipe straight</button>' : ''}
     <button class="btn-line" data-a="measure-from">Dimension from here</button>
+    ${isEnd && (info?.degree ?? 0) === 1 ? '<button class="btn-line" data-a="join-from">Join to another end</button>' : ''}
     ${oletAlone ? '<button class="btn-line danger" data-a="remove-olet">Remove olet — the header runs on whole</button>' : isPlainPoint(drawing, nodeId) ? '<button class="btn-line danger" data-a="delete-node">Remove point — the pipe runs straight through</button>' : '<button class="btn-line danger" data-a="delete-node">Delete point and its runs</button>'}
   </div>
 </div>`;
@@ -932,6 +943,7 @@ function wire(body: HTMLElement, host: Host): void {
       });
     });
     nodeEditor.querySelector('[data-a="measure-from"]')?.addEventListener('click', () => host.measureFrom(id));
+    nodeEditor.querySelector('[data-a="join-from"]')?.addEventListener('click', () => host.joinFrom(id));
     nodeEditor.querySelector('[data-a="remove-olet"]')?.addEventListener('click', () => {
       host.edit('Remove olet', (d) => removeOlet(d, id));
       host.select(null);

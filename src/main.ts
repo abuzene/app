@@ -41,6 +41,7 @@ const state: AppState = {
   analysis: analyse(drawing),
   selection: null,
   measureFrom: null,
+  joinFrom: null,
   preview: null,
   commandState: initialCommandState(),
   commandText: '',
@@ -214,6 +215,14 @@ const host: Host = {
     state.selection = { kind: 'node', id: nodeId };
     render();
     host.notify('Tap the other point of the dimension.');
+  },
+  joinFrom(nodeId) {
+    state.joinFrom = nodeId;
+    state.measureFrom = null;
+    state.selection = { kind: 'node', id: nodeId };
+    canvas.setAnchor(null);
+    render();
+    host.notify('Tap the open end to join this one to — on this line or another.');
   },
   setCurrentSize(dn) {
     state.currentDn = dn;
@@ -503,6 +512,20 @@ const canvas = new Canvas(svg, {
       }
       host.notify('Dimension not added.');
     }
+    // Joining one open end to another: the end tapped next is the other.
+    if (state.joinFrom) {
+      const from = state.joinFrom;
+      state.joinFrom = null;
+      if (selection?.kind === 'node') {
+        const to = selection.id === from ? endInSamePlace(from) : selection.id;
+        if (to && to !== from) {
+          const run = state.drawing.runs.find((r) => r.from === from || r.to === from);
+          joinPoints(from, to, run?.dn ?? state.currentDn, run?.schedule ?? state.currentSchedule, false);
+          return;
+        }
+      }
+      host.notify('Not joined.');
+    }
     // Something picked on the drawing is edited in the Route tab, so that is
     // where the panel goes — unless the weld list is open, which edits welds too.
     if (selection && state.tab !== 'route' && !(selection.kind === 'weld' && state.tab === 'welds')) {
@@ -536,30 +559,7 @@ const canvas = new Canvas(svg, {
     }
   },
   onConnect(fromId, toId) {
-    let path: string[] = [];
-    let refused: string | null = null;
-    host.edit('Join points', (d) => {
-      const result = connectNodes(d, fromId, toId, state.currentDn, state.currentSchedule);
-      refused = result.refused ?? null;
-      path = result.path;
-    });
-    if (refused) {
-      undoStack.pop();
-      state.preview = null;
-      host.notify(refused);
-      render();
-      return;
-    }
-    // The point tapped may be gone: joined straight on, the pipe runs
-    // through and there is nothing left to draw on from.
-    const still = state.drawing.nodes.some((n) => n.id === toId);
-    state.selection = still ? { kind: 'node', id: toId } : null;
-    state.commandState.currentNode = still ? toId : null;
-    canvas.setAnchor(still ? toId : null);
-    state.preview = null;
-    const elbows = path.filter((id) => state.analysis.nodeInfo.get(id)?.fitting === 'ELBOW_90').length;
-    host.notify(elbows === 0 ? 'Joined: the pipe runs straight through.' : elbows === 1 ? 'Joined, with an elbow at the turn.' : `Joined, with ${elbows} elbows.`);
-    render();
+    joinPoints(fromId, toId, state.currentDn, state.currentSchedule);
   },
   onStart() {
     let started: string | null = null;
@@ -807,6 +807,52 @@ const canvas = new Canvas(svg, {
     renderHud();
   },
 });
+
+/**
+ * Joins two points with pipe (closing a gap, or joining two open ends of
+ * one line); the new pipe is the given size.
+ */
+function joinPoints(fromId: string, toId: string, dn: string, schedule: string, arm = true): void {
+  let path: string[] = [];
+  let refused: string | null = null;
+  host.edit('Join points', (d) => {
+    const result = connectNodes(d, fromId, toId, dn, schedule);
+    refused = result.refused ?? null;
+    path = result.path;
+  });
+  if (refused) {
+    undoStack.pop();
+    state.preview = null;
+    host.notify(refused);
+    render();
+    return;
+  }
+  // The point tapped may be gone: joined straight on, the pipe runs
+  // through and there is nothing left to draw on from.
+  const still = state.drawing.nodes.some((n) => n.id === toId);
+  state.selection = still ? { kind: 'node', id: toId } : null;
+  state.commandState.currentNode = still ? toId : null;
+  // Drawing, the pencil carries on from the end joined to; joined by hand,
+  // there is nothing more to draw.
+  canvas.setAnchor(still && arm ? toId : null);
+  state.preview = null;
+  const elbows = path.filter((id) => state.analysis.nodeInfo.get(id)?.fitting === 'ELBOW_90').length;
+  host.notify(elbows === 0 ? 'Joined: the pipe runs straight through.' : elbows === 1 ? 'Joined, with an elbow at the turn.' : `Joined, with ${elbows} elbows.`);
+  render();
+}
+
+/** Another open end lying where this one does, if there is one. */
+function endInSamePlace(nodeId: string): string | null {
+  const node = state.drawing.nodes.find((n) => n.id === nodeId);
+  if (!node) return null;
+  const other = state.drawing.nodes.find(
+    (n) =>
+      n.id !== nodeId &&
+      length3(sub(n.pos, node.pos)) < 1 &&
+      state.drawing.runs.filter((r) => r.from === n.id || r.to === n.id).length === 1,
+  );
+  return other?.id ?? null;
+}
 
 /** What a slide started from, so undo returns there and not to mid-drag. */
 let slideFrom: { id: string; offset: number } | null = null;
@@ -1061,6 +1107,8 @@ function renderHud(): void {
   if (sel?.kind === 'node' && canvas.drawingFrom !== sel.id) {
     parts.push('<button class="hud-stop" id="hud-draw-from" type="button">Draw from here</button>');
   }
+  if (state.joinFrom) parts.push('<span>join — tap the other open end</span>');
+  else if (sel?.kind === 'node' && state.analysis.nodeInfo.get(sel.id)?.degree === 1) parts.push('<button class="hud-stop" id="hud-join" type="button">Join to another end</button>');
   if (state.measureFrom) parts.push('<span>dimension — tap the other point</span>');
   else if (sel?.kind === 'node') parts.push('<button class="hud-stop" id="hud-measure" type="button">Dimension from here</button>');
   if (sel?.kind === 'equipment') parts.push('<button class="hud-stop" id="hud-equip-draw" type="button">Draw on from the far side</button>');
@@ -1114,6 +1162,9 @@ function renderHud(): void {
     host.notify(on ? 'Drawn dashed, carried on to the next sheet: not on this sheet\'s list. Tap the note beside it to type it over, or drag it.' : 'A solid line again.');
   });
   hudEl.querySelector('#hud-update')?.addEventListener('click', () => location.reload());
+  hudEl.querySelector('#hud-join')?.addEventListener('click', () => {
+    if (state.selection?.kind === 'node') host.joinFrom(state.selection.id);
+  });
   hudEl.querySelector('#hud-measure')?.addEventListener('click', () => {
     if (state.selection?.kind === 'node') host.measureFrom(state.selection.id);
   });
@@ -1209,7 +1260,7 @@ function syncSizeFromSelection(): void {
   // The joint in the toolbar shows the picked point's own joint, since that
   // is what changing it would set; otherwise the drawing's default.
   const node = sel?.kind === 'node' ? state.drawing.nodes.find((n) => n.id === sel.id) : undefined;
-  jointSelect.value = node?.joint ?? state.drawing.options.joint ?? 'BW';
+  jointSelect.value = (node ? state.analysis.nodeJoint.get(node.id) : undefined) ?? node?.joint ?? state.drawing.options.joint ?? 'BW';
 }
 
 /* ---------------------------------------------------------------- toolbar */
@@ -2312,6 +2363,7 @@ window.addEventListener('keydown', (event) => {
 
   if (event.key === 'Escape') {
     state.measureFrom = null;
+    state.joinFrom = null;
     viewMenuEl.classList.remove('open');
     canvas.setAnchor(null);
     state.preview = null;

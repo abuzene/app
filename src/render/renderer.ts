@@ -748,7 +748,7 @@ export function renderDrawing(state: RenderState): string {
         const other = analysis.nodeById.get(otherId);
         const endPlane = other ? symbolPlane(drawing, other.pos, node.pos) : null;
         const f = frameFor(q.x, q.y, p.x, p.y, 1, size, endPlane?.across, endPlane?.up);
-        nodes += terminalSymbol(node.terminal.kind, f, node.joint ?? drawing.options.joint ?? 'BW');
+        nodes += terminalSymbol(node.terminal.kind, f, analysis.nodeJoint.get(node.id) ?? node.joint ?? drawing.options.joint ?? 'BW');
         if (node.terminal.note) {
           nodes += `<text class="note" x="${(p.x + f.dx * size * 2.4).toFixed(2)}" y="${(p.y + f.dy * size * 2.4).toFixed(2)}">${escapeText(node.terminal.note)}</text>`;
         }

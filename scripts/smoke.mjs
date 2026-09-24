@@ -3491,6 +3491,87 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   await page.waitForTimeout(150);
 }
 
+/* ------------------------------ joining two ends of one line; a threaded line */
+
+// "I marked the point but cannot join the two lines" (2026-09-24): the two
+// open ends were on one piece (both off the same header), where tapping the
+// other end only moved the pencil. Join to another end does it, any piece;
+// two ends in the same place become one point. And "the elbow is BW though
+// the line is threaded": a line drawn from a threadolet takes its joint,
+// and each point's joint can still be set on its own.
+{
+  const N = (id, e, n, u, extra = {}) => ({ id, pos: { e, n, u }, ...extra });
+  const R = (id, from, to, dn) => ({ id, from, to, dn, schedule: 'SCH40', inline: [] });
+  const sheet = (endN, up = 430, branchUp = 430) => ({
+    version: 1,
+    meta: { project: 'JOIN TEST', lineNumber: '', drawingNo: '', sheet: '1 of 1', revision: '0', date: '2026-09-24', drawnBy: '' },
+    options: { snap: 10, scale: 0.06, schematic: false, schematicLength: 1500, showDimensions: true, showWelds: true, showItems: true, showNodeLabels: true, showGrid: true, northRotation: 0, joint: 'BW', pipeSchedule: 'SCH40', fittingThickness: 'STD', sheetScale: 15 },
+    nodes: [N('A', 0, 0, 0), N('B', 0, 3000, 0), N('O1', 0, 1000, 0, { fittingOverride: 'OLET', joint: 'THD', olets: [{ dir: 'U', dn: 'DN80' }] }), N('O2', 0, 2000, 0, { fittingOverride: 'OLET', joint: 'THD', olets: [{ dir: 'U', dn: 'DN15' }] }), N('T1', 0, 1000, branchUp), N('E1', 0, 2000, up), N('G', 0, endN, up)],
+    runs: [R('r1', 'A', 'O1', 'DN80'), R('r2', 'O1', 'O2', 'DN80'), R('r3', 'O2', 'B', 'DN80'), R('rh', 'O1', 'T1', 'DN80'), R('rv', 'O2', 'E1', 'DN15'), R('rg', 'E1', 'G', 'DN15')],
+    id: 'djointest',
+  });
+  const load = async (d) => {
+    await page.evaluate((j) => localStorage.setItem('iso-draw.drawing.v1', j), JSON.stringify(d));
+    await page.reload();
+    await page.waitForTimeout(700);
+    await page.click('#fit');
+    await page.waitForTimeout(300);
+  };
+  await load(sheet(1300));
+  await tapNode('E1');
+  check('the elbow on the threadolet\'s line is threaded, on its own', await page.locator('#tab-body [data-f="joint"] option:checked').innerText(), (v) => /^Automatic — Threaded/.test(v), 'Automatic — Threaded, as its line from the threadolet');
+  await page.click('#tabs button:has-text("Welds")');
+  await page.waitForTimeout(200);
+  check('so it has no weld numbers: only the two header welds are', (await page.locator('#tab-body table tbody tr').allInnerTexts()).filter((r) => /\tBW\t/.test(r)).length, (v) => v === 2, '2');
+  await page.click('#tabs button:has-text("Route")');
+  await page.waitForTimeout(200);
+  await tapNode('E1');
+  await page.selectOption('#tab-body [data-f="joint"]', 'BW');
+  await page.waitForTimeout(300);
+  await page.click('#tabs button:has-text("Welds")');
+  await page.waitForTimeout(200);
+  check('set on its own, that elbow is butt welded after all', (await page.locator('#tab-body table tbody tr').allInnerTexts()).filter((r) => /90 ELBOW/.test(r)).length, (v) => v === 2, '2 elbow welds');
+  await page.click('#tabs button:has-text("Route")');
+  await page.waitForTimeout(200);
+  await tapNode('G');
+  check('an open end offers to be joined to another', `${await page.locator('#hud-join').count()} ${await page.locator('#tab-body [data-a="join-from"]').count()}`, (v) => v === '1 1', '1 1');
+  await page.click('#hud-join');
+  await page.waitForTimeout(200);
+  // The end tapped is merged into the join on the pen going down, so the
+  // pen comes up on the canvas.
+  const tapGone = async (id) => {
+    const el = page.locator(`#canvas circle.hit-dot[data-node="${id}"]`);
+    const b = await el.boundingBox();
+    const at = { bubbles: true, pointerId: 7, pointerType: 'mouse', button: 0, clientX: b.x + b.width / 2, clientY: b.y + b.height / 2, isPrimary: true };
+    await el.dispatchEvent('pointerdown', at);
+    await page.waitForTimeout(80);
+    await page.locator('#canvas').dispatchEvent('pointerup', at);
+    await page.waitForTimeout(300);
+  };
+  await tapGone('T1');
+  const joined = await drawingNow();
+  const gJoined = joined.nodes.find((n) => n.id === 'G');
+  check('joined to the other end of the same line: carried on to it, one elbow at the corner', `${joined.runs.length} ${joined.nodes.some((n) => n.id === 'T1')} ${gJoined ? [gJoined.pos.n, gJoined.pos.u].join(',') : 'gone'}`, (v) => v === '6 false 1000,430', '6 runs, T1 merged, corner at N 1000 U 430');
+  await load(sheet(1000));
+  await tapNode('G');
+  await page.click('#hud-join');
+  await page.waitForTimeout(200);
+  await tapNode('G');
+  const merged = await drawingNow();
+  check('two ends in the same place become one point', `${merged.nodes.length} ${merged.runs.length} ${merged.runs.filter((r) => r.from === 'G' || r.to === 'G').length}`, (v) => v === '6 6 2', '6 points, 6 runs, 2 at the corner');
+  // His sheet: the branch up 430, the other line at 440 ending 10 mm past
+  // it. Their lines cross; both ends are carried to the crossing and meet
+  // in one elbow, with no new pipe.
+  await load(sheet(1010, 440, 430));
+  await tapNode('G');
+  await page.click('#hud-join');
+  await page.waitForTimeout(200);
+  await tapGone('T1');
+  const crossed = await drawingNow();
+  const g = crossed.nodes.find((n) => n.id === 'G');
+  check('two lines ending short of each other meet at their corner, no new pipe', `${crossed.runs.length} ${crossed.nodes.some((n) => n.id === 'T1')} ${g ? [g.pos.n, g.pos.u].join(',') : 'gone'}`, (v) => v === '6 false 1000,440', '6 runs, T1 merged, corner at N 1000 U 440');
+}
+
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 
 await browser.close();
