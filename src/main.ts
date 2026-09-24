@@ -4,7 +4,7 @@ import type { Preview, Selection } from './render/renderer';
 import type { AppState, Host, OletAsk, OletChoice, ReducerAsk, ReducerChoice } from './ui/types';
 import { reducerPreview } from './ui/reducer-preview';
 import { tidyLayout, type LayoutSpecs } from './render/tidy';
-import { analyse, chainStops, dimensionStops, drawnLength, runDrawnFloor, trueAtShare, isMark, itemHalf, runGroupIds, emptyDrawing, oletLegs, oletMarks, uid } from './model/drawing';
+import { analyse, chainStops, dimensionStops, drawnLength, drawnStations, runDrawnFloor, trueAtShare, type DrawnStations, isMark, itemHalf, runGroupIds, emptyDrawing, oletLegs, oletMarks, uid } from './model/drawing';
 import { loadLibrary, removeDrawing, renumberProject, sheetNumber, upsertDrawing, worthKeeping } from './model/library';
 import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, noteRemovedFromLibrary, setDriveClientId, syncDrive } from './model/drive';
 import { AXES, AXIS_VECTOR, add, length3, scale3, sub } from './model/iso';
@@ -595,15 +595,28 @@ const canvas = new Canvas(svg, {
     const run = state.drawing.runs.find((r) => r.inline.some((c) => c.id === componentId));
     const comp = run?.inline.find((c) => c.id === componentId);
     if (!run || !comp) return;
-    const raw = offsetFromPaper(run, paper);
-    if (raw === null) return;
 
     // The drag is shown live by moving the real thing, so the position before
     // it started is kept and put back before the edit is recorded. Otherwise
     // undo would restore the drawing to half way through the drag.
     if (!slideFrom || slideFrom.id !== componentId) {
-      slideFrom = { id: componentId, offset: comp.offset };
+      // Not to scale, where the pen is read along the run is fixed for the
+      // whole drag and laid out without the item itself: read through the
+      // layout it changes as it moves, a valve flicked between two places
+      // (his complaint, 2026-09-24: "something blocks it, it only jumps
+      // between two points").
+      const now = state.analysis.stations.get(run.id);
+      const stations = now
+        ? drawnStations(state.drawing, { ...run, inline: run.inline.filter((c) => c.id !== componentId) }, runLength(state.drawing, run), now.length)
+        : undefined;
+      // The run's ends as drawn when the drag began, too: not to scale the
+      // run grows and shrinks as a piece of pipe opens or closes beside it.
+      const pa = paperOf(state.analysis, state.drawing, run.from);
+      const pb = paperOf(state.analysis, state.drawing, run.to);
+      slideFrom = { id: componentId, offset: comp.offset, stations, ends: pa && pb ? [pa, pb] : undefined };
     }
+    const raw = offsetFromPaper(run, paper, slideFrom.stations, slideFrom.ends);
+    if (raw === null) return;
     // It moves along its own run and stops at what stands either side of
     // it — the run's ends, another item — so the run keeps its length and
     // nothing is passed through (his complaint, 2026-09-24).
@@ -860,7 +873,7 @@ function endInSamePlace(nodeId: string): string | null {
 }
 
 /** What a slide started from, so undo returns there and not to mid-drag. */
-let slideFrom: { id: string; offset: number } | null = null;
+let slideFrom: { id: string; offset: number; stations?: DrawnStations; ends?: [{ x: number; y: number }, { x: number; y: number }] } | null = null;
 let slideNodeFrom: { id: string; snapshot: string } | null = null;
 let stretchFrom: { id: string; visual: number | undefined; snapshot: string } | null = null;
 let tagFrom: string | null = null;
@@ -920,13 +933,13 @@ function slideLimits(run: Run, comp: Run['inline'][number], from: number, offset
 }
 
 /** Where along a run a paper point falls, snapped, or null if it cannot be read. */
-function offsetFromPaper(run: Run, paper: { x: number; y: number }): number | null {
+function offsetFromPaper(run: Run, paper: { x: number; y: number }, stations = state.analysis.stations.get(run.id), ends?: [{ x: number; y: number }, { x: number; y: number }]): number | null {
   const a = state.analysis.nodeById.get(run.from);
   const b = state.analysis.nodeById.get(run.to);
   if (!a || !b) return null;
   // Where the run is drawn: not to scale that is not where it is.
-  const pa = paperOf(state.analysis, state.drawing, run.from);
-  const pb = paperOf(state.analysis, state.drawing, run.to);
+  const pa = ends?.[0] ?? paperOf(state.analysis, state.drawing, run.from);
+  const pb = ends?.[1] ?? paperOf(state.analysis, state.drawing, run.to);
   if (!pa || !pb) return null;
   const vx = pb.x - pa.x;
   const vy = pb.y - pa.y;
@@ -935,7 +948,7 @@ function offsetFromPaper(run: Run, paper: { x: number; y: number }): number | nu
   const t = Math.max(0, Math.min(1, ((paper.x - pa.x) * vx + (paper.y - pa.y) * vy) / lenSq));
   const total = length3(sub(b.pos, a.pos));
   const snap = dragSnap();
-  const mm = trueAtShare(state.analysis.stations.get(run.id), t, total);
+  const mm = trueAtShare(stations, t, total);
   return Math.max(0, Math.min(total, Math.round(mm / snap) * snap));
 }
 

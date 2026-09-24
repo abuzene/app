@@ -186,7 +186,12 @@ ships, and the decisions already taken, so they are not re-litigated.
   dimension ends, chain dimensions and weld/letter/balloon points through
   `drawnShare`; `offsetFromPaper` in main.ts goes back with `trueAtShare`.
   To scale nothing changes. Lengthening the run (handles) gives the room
-  to the pipe pieces.
+  to the pipe pieces. **Dragging an item** reads the pen through the
+  stations and run ends as they were when the drag began, laid out
+  without the item itself (`slideFrom.stations`/`ends` in main.ts):
+  read through the live layout, which changes as the item moves (a gap
+  opening adds its minimum), a valve flicked between two places ("it only
+  jumps between two points", 2026-09-24).
 - **A valve across a point** (his complaint, 2026-09-24, Strauss sheet: "a
   dimension to the centre of the valve"; "I can't pick pipe A between the
   two valves to put an olet"): valves put on an end once sat centred on it

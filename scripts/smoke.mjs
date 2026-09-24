@@ -3785,6 +3785,50 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   check('a line typed shorter than where its valve stands is refused', (await nodesAt()).find((p) => p[0] === g2)[1], (v) => v === 2000, '2000');
 }
 
+/* ------------------------- dragging a valve not to scale, no flicking */
+
+// "I still can't drag the manual valve where I want; something blocks it
+// and it only jumps between two points" (2026-09-24): not to scale, the
+// pen was read through a layout that changed as the valve moved. Dragged
+// towards the next valve, it now moves steadily and stops at its flange.
+{
+  await routeLine('2"\nSTD\nORIGIN 0 0 0\nN 629');
+  await page.check('#opt-schematic');
+  await page.selectOption('#opt-symbols', '27');
+  await page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem('iso-draw.drawing.v1'));
+    d.runs[0].inline = [{ id: 'cman', kind: 'BALL', offset: 151 }, { id: 'cact', kind: 'BALL_ACT', offset: 540, lastFlange: 'blind' }];
+    localStorage.setItem('iso-draw.drawing.v1', JSON.stringify(d));
+  });
+  await page.reload();
+  await page.waitForTimeout(600);
+  await page.click('#fit');
+  await page.waitForTimeout(300);
+  const centre = (id) => page.evaluate((id) => {
+    const r = document.querySelector(`#canvas .component[data-component="${id}"]`).getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  }, id);
+  const c = await centre('cman');
+  const o = await centre('cact');
+  await pen('mousePressed', c.x, c.y);
+  const seen = [];
+  for (let i = 1; i <= 24; i += 1) {
+    const t = (i / 24) * 0.8;
+    await pen('mouseMoved', c.x + (o.x - c.x) * t, c.y + (o.y - c.y) * t);
+    await page.waitForTimeout(40);
+    const m = (await page.locator('#hud').innerText()).match(/(\d+) mm along/);
+    if (m) seen.push(Number(m[1]));
+  }
+  await pen('mouseReleased', c.x + (o.x - c.x) * 0.8, c.y + (o.y - c.y) * 0.8);
+  await page.waitForTimeout(300);
+  const backwards = seen.filter((v, i) => i > 0 && v < seen[i - 1]).length;
+  check('dragged towards the next valve, the valve moves steadily, never back', `${backwards} ${seen.length > 5}`, (v) => v === '0 true', '0 true');
+  check('and stops against the next valve\'s flange', (await drawingNow()).runs[0].inline.find((c) => c.id === 'cman').offset, (v) => Math.abs(v - 238) <= 1, '238');
+  await page.uncheck('#opt-schematic');
+  await page.selectOption('#opt-symbols', '15');
+  await page.waitForTimeout(200);
+}
+
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 
 await browser.close();
