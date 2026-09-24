@@ -170,6 +170,33 @@ ships, and the decisions already taken, so they are not re-litigated.
   piece is laid out from its first node's true position (was the origin,
   so two pieces overlapped), and an equipment box stands on the drawn
   position of the node at its `at`.
+- **Items along a run not to scale** (his complaint, 2026-09-24: "spool 8
+  is drawn squashed and I can't change its length; the print is fine",
+  then "piece C, the same"): with big symbols, two valves on a short
+  drawn run lay over each other and the spool between vanished.
+  `drawnStations` in drawing.ts (kept per run in `analysis.stations`,
+  schematic only) maps true distance along a run to drawn distance
+  piecewise: each item (valve/reducer/transition…, not marks) takes its
+  symbol's width (1.2 symbols + flange hub each side, none on a bare or
+  last-flange-off side), each pipe piece at least 2.5 symbols (+1.4 at an
+  end with a fitting/terminal; none where item faces touch, a hub against
+  an end flange), the rest shared by true length. `runDrawnFloor` is the
+  run's floor (at least `minDrawnLength`); `drawnLength` uses it, as do
+  the stretch handles and `slideDrawnTo`. The renderer places items,
+  dimension ends, chain dimensions and weld/letter/balloon points through
+  `drawnShare`; `offsetFromPaper` in main.ts goes back with `trueAtShare`.
+  To scale nothing changes. Lengthening the run (handles) gives the room
+  to the pipe pieces.
+- **A valve's own dimension is typeable** (his ask, 2026-09-24: "dimensions
+  from the fittings' centres, but a valve to its flange and the valve on
+  its own, never to its centre; and the valve's dimension editable"). A
+  run or header is dimensioned node/fitting centre to valve face, the
+  valve face to face, and on (`dimensionStops`/`chainStops`, unchanged).
+  Typing the valve's figure sets `comp.ff` (its face-to-face, read by
+  `componentTakeout(kind, dn, flanged, ff)` everywhere the item is at
+  hand) through `setValveFaceToFace` in edit.ts: the face on the run's
+  start side (the chain's start side on a header) stays, the far face and
+  flange move, refused if it would leave its run or reach an item beside.
 - **Moving an item keeps the line's length** (his complaint, 2026-09-24:
   "moving the olet stretched the header; any item in a line or on its end
   must move without the pipe's length changing"). `onSlideNode` in

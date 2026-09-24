@@ -452,7 +452,7 @@ function place(host: Host, kind: ComponentKind, ends?: 'SW' | 'THD'): void {
       const target = d.runs.find((r) => r.id === run.id);
       const comp = target?.inline.find((c) => c.id === addedId);
       if (target && comp) {
-        const face = comp.offset - componentTakeout(comp.kind, comp.dn ?? target.dn, false);
+        const face = comp.offset - componentTakeout(comp.kind, comp.dn ?? target.dn, false, comp.ff);
         const stops = dimensionStops(d, target);
         const index = stops.findIndex((mm, i) => i > 0 && Math.abs(mm - face) < 0.5) - 1;
         host.editDimension(`${run.id}:${Math.max(0, index)}`);

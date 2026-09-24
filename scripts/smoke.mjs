@@ -3623,6 +3623,90 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   await page.waitForTimeout(150);
 }
 
+/* -------------------------- a short spool between two valves, not to scale */
+
+// "Look how spool 8 is drawn, and I can't change its length — the print
+// is fine" / "piece C, the same" (2026-09-24): not to scale with big
+// symbols, two valves on a short run were drawn over each other and the
+// pipe between them vanished. Each item now takes its symbol's width and
+// each piece of pipe at least a couple of symbols; the run's handles
+// lengthen the pipe pieces, not the valves.
+{
+  await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 1400\n+BALL 300\n+BALLAIR 1000\nEND BLIND');
+  await page.check('#opt-schematic');
+  await page.selectOption('#opt-symbols', '22');
+  await page.waitForTimeout(200);
+  // Drawn short by the pencil: under what its two valves need.
+  await page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem('iso-draw.drawing.v1'));
+    d.runs[0].visual = 400;
+    localStorage.setItem('iso-draw.drawing.v1', JSON.stringify(d));
+  });
+  await page.reload();
+  await page.waitForTimeout(600);
+  await page.click('#fit');
+  await page.waitForTimeout(300);
+  const valves = () => page.evaluate(() => [...document.querySelectorAll('#canvas .component[data-component]')].map((g) => {
+    const r = g.getBoundingClientRect();
+    return { left: r.left, right: r.right };
+  }).sort((a, b) => a.left - b.left));
+  const [v1, v2] = await valves();
+  const scale = await page.evaluate(() => {
+    const t = document.querySelector('#canvas .dim-text');
+    return t ? t.getBoundingClientRect().height : 10;
+  });
+  check('the two valves are drawn clear of each other', v2.left - v1.right, (v) => v > scale, `a gap of pipe between (> ${scale.toFixed(0)} px)`);
+  const d = await drawingNow();
+  const run = d.runs[0];
+  const figure = page.locator(`#canvas [data-dim="${run.id}:2"]`);
+  check('the spool between them keeps its own dimension to tap', await figure.count(), (v) => v >= 1, 'present');
+  // Stretching the run gives the room to the pipe, the valves keep their size.
+  await page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem('iso-draw.drawing.v1'));
+    d.runs[0].visual = 3000;
+    localStorage.setItem('iso-draw.drawing.v1', JSON.stringify(d));
+  });
+  await page.reload();
+  await page.waitForTimeout(600);
+  await page.click('#fit');
+  await page.waitForTimeout(300);
+  const [w1, w2] = await valves();
+  const pipe = await page.evaluate(() => [...document.querySelectorAll('#canvas line.pipe')].map((l) => l.getBoundingClientRect().width).reduce((a, b) => a + b, 0));
+  check('drawn longer, the spool between the valves grows', (w2.left - w1.right) / pipe, (v) => v > 0.1, 'more than a tenth of the pipe drawn');
+  await page.uncheck('#opt-schematic');
+  await page.selectOption('#opt-symbols', '15');
+  await page.waitForTimeout(200);
+}
+
+/* ------------------------------------- a valve's own dimension, typed over */
+
+// "Dimensions from the fittings' centres, but a valve is dimensioned to its
+// flange and the valve on its own, never to its centre; and the valve's
+// dimension typed over too" (2026-09-24). Typed, the valve's face-to-face
+// is its own; the face on the start side stays, the pipe after it gives.
+{
+  await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 2000\n+BALL 800');
+  const run = (await drawingNow()).runs[0];
+  const figs = async () => page.evaluate(() => [...document.querySelectorAll('#canvas .dim-text')].map((t) => Number(t.textContent)));
+  const before = await figs();
+  check('a valve is dimensioned to its faces and on its own: three pieces', before.length, (v) => v === 3, '3');
+  const fig = page.locator(`#canvas [data-dim="${run.id}:1"]`).first();
+  const box = await fig.boundingBox();
+  const at = { bubbles: true, pointerId: 12, pointerType: 'mouse', button: 0, clientX: box.x + box.width / 2, clientY: box.y + box.height / 2, isPrimary: true };
+  await fig.dispatchEvent('pointerdown', at);
+  await page.waitForTimeout(100);
+  await fig.dispatchEvent('pointerup', at);
+  await page.waitForTimeout(300);
+  check('the valve\'s figure opens for typing', await page.locator('.dim-editor').count(), (v) => v === 1, '1');
+  await page.keyboard.press('Control+A');
+  await page.keyboard.type('250');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(400);
+  const after = await figs();
+  check('typed, the valve is that long, the pipe before it unchanged, after it shorter', after.join(' '), (v) => v === `${before[0]} 250 ${before[0] + before[1] + before[2] - before[0] - 250}`, `${before[0]} 250 ${before[2] - (250 - before[1])}`);
+  check('and kept with the valve', (await drawingNow()).runs[0].inline[0].ff, (v) => v === 250, '250');
+}
+
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 
 await browser.close();

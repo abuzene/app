@@ -170,6 +170,8 @@ export interface Analysis {
   nodeJoint: Map<string, JointType>;
   /** Points whose joint comes from the olet their line is drawn from. */
   inheritedJoint: Map<string, { joint: JointType; from: string }>;
+  /** Not to scale: where things are drawn along each run (none to scale). */
+  stations: Map<string, DrawnStations>;
   warnings: string[];
 }
 
@@ -248,7 +250,7 @@ export function itemAtEnd(
   for (const comp of run.inline) {
     const dn = comp.dn ?? run.dn;
     const ends = resolveEnds(comp.kind, dn, comp.ends, defaultJoint);
-    const half = componentTakeout(comp.kind, dn, ends === 'FLG' && valveFlangeKind(defaultJoint));
+    const half = componentTakeout(comp.kind, dn, ends === 'FLG' && valveFlangeKind(defaultJoint), comp.ff);
     if (half <= 0) continue;
     const sides = reducerSides(comp, run.dn);
     const sideDn = isReducer(comp.kind) ? (atStart ? sides.start : sides.end) : dn;
@@ -264,7 +266,7 @@ export function itemHalf(drawing: Drawing, run: Run, comp: InlineComponent): num
   const dn = comp.dn ?? run.dn;
   const joint = drawing.options.joint ?? 'BW';
   const ends = resolveEnds(comp.kind, dn, comp.ends, joint);
-  return componentTakeout(comp.kind, dn, ends === 'FLG' && valveFlangeKind(joint));
+  return componentTakeout(comp.kind, dn, ends === 'FLG' && valveFlangeKind(joint), comp.ff);
 }
 
 /**
@@ -281,7 +283,7 @@ export function valveOpenSide(drawing: Drawing, run: Run, comp: InlineComponent)
   const b = drawing.nodes.find((n) => n.id === run.to);
   if (!a || !b) return null;
   const total = length3(sub(b.pos, a.pos));
-  const half = componentTakeout(comp.kind, dn, valveFlangeKind(joint));
+  const half = componentTakeout(comp.kind, dn, valveFlangeKind(joint), comp.ff);
   const open = (node: IsoNode) =>
     drawing.runs.filter((r) => r.from === node.id || r.to === node.id).length === 1 && (!node.terminal || node.terminal.kind === 'OPEN');
   if (comp.offset + half >= total - 0.5 && open(b)) return 1;
@@ -562,12 +564,153 @@ export function drawnLength(drawing: Drawing, run: Run, trueLength: number): num
   // A hair under the floor is the floor: a drag clamped to it once came
   // back 1e-13 short and the run was drawn at its whole length instead.
   const chosen = run.visual !== undefined && run.visual >= minDrawn - 0.5 ? run.visual : undefined;
-  return Math.max(minDrawn, chosen ?? Math.min(trueLength, cap));
+  return Math.max(runDrawnFloor(drawing, run), chosen ?? Math.min(trueLength, cap));
 }
 
 /** The shortest a run is drawn not to scale: six symbols, so its fittings fit on it. */
 export function minDrawnLength(drawing: Drawing): number {
   return SYMBOL_MM * (drawing.options.sheetScale ?? 15) * 6;
+}
+
+/**
+ * Where things are drawn along a run not to scale: true distances from the
+ * run's start (`at`) and where each is drawn (`drawn`, in drawing mm), a
+ * piecewise line through the faces of the items on it. Each item takes the
+ * width of its symbol and each length of pipe between them at least a
+ * couple of symbols, the rest shared by true length — so two valves close
+ * together never overlap and the spool between them stays there to see,
+ * tap and measure (his complaint, 2026-09-24: "spool 8 is drawn squashed
+ * and I can't change its length; the print is fine").
+ */
+export interface DrawnStations {
+  at: number[];
+  drawn: number[];
+  /** The drawn length the stations add up to. */
+  length: number;
+}
+
+/** The shortest a length of pipe between two items is drawn, in symbol half-sizes. */
+const PIECE_SYMBOLS = 2.5;
+/** How far a symbol at a point reaches into the run: an elbow's sweep, a tee, a flange. */
+const END_SYMBOLS = 1.4;
+
+function drawnPieces(drawing: Drawing, run: Run, trueLength: number) {
+  const s = SYMBOL_MM * (drawing.options.sheetScale ?? 15);
+  const joint = drawing.options.joint ?? 'BW';
+  const hub = joint === 'BW' ? 1.1 : 0.7;
+  const endOf = (nodeId: string): number => {
+    const node = drawing.nodes.find((n) => n.id === nodeId);
+    const degree = drawing.runs.filter((r) => r.from === nodeId || r.to === nodeId).length;
+    return degree > 1 || (node?.terminal && node.terminal.kind !== 'OPEN') ? END_SYMBOLS * s : 0;
+  };
+  const items = run.inline
+    .filter((c) => !isMark(c.kind) && componentTakeout(c.kind, c.dn ?? run.dn, false, c.ff) > 0)
+    .sort((x, y) => x.offset - y.offset);
+  // Alternating: pipe, item, pipe, item, … pipe. An item has its true reach
+  // either side of its centre and its drawn one.
+  const segs: { kind: 'pipe' | 'item'; lo: number; hi: number; min: number; fixed: boolean; drawnLo?: number; drawnHi?: number }[] = [];
+  let cursor = 0;
+  items.forEach((comp, i) => {
+    const dn = comp.dn ?? run.dn;
+    const face = componentTakeout(comp.kind, dn, false, comp.ff);
+    const flanged = resolveEnds(comp.kind, dn, comp.ends, joint) === 'FLG' && (isValve(comp.kind) || isReducer(comp.kind));
+    const flangeLen = flanged ? componentTakeout(comp.kind, dn, valveFlangeKind(joint), comp.ff) - face : 0;
+    const open = flanged ? valveOpenSide(drawing, run, comp) : null;
+    const hasFlange = (side: 0 | 1) => flanged && comp.bare !== side && !(comp.lastFlange && open === side);
+    const trueLo = face + (hasFlange(0) ? flangeLen : 0);
+    const trueHi = face + (hasFlange(1) ? flangeLen : 0);
+    const drawnLo = 1.2 * s + (hasFlange(0) ? hub * s : 0);
+    const drawnHi = 1.2 * s + (hasFlange(1) ? hub * s : 0);
+    const lo = Math.max(cursor, Math.min(trueLength, comp.offset - trueLo));
+    const hi = Math.max(lo, Math.min(trueLength, comp.offset + trueHi));
+    const gap = lo - cursor;
+    const first = i === 0;
+    // Against the flange on the line's end: that flange's hub, no pipe.
+    const onEnd = first && itemAtEnd(drawing, run, true)?.comp.id === comp.id;
+    const startNode = drawing.nodes.find((n) => n.id === run.from);
+    const termHub = startNode?.terminal && isFlange(startNode.terminal.kind) ? (startNode.terminal.kind === 'FLG_SW' || startNode.terminal.kind === 'FLG_THD' ? 0.7 : 1.1) * s : 0;
+    if (onEnd) segs.push({ kind: 'pipe', lo: cursor, hi: lo, min: termHub, fixed: true });
+    else if (gap <= 0.5) segs.push({ kind: 'pipe', lo: cursor, hi: lo, min: 0, fixed: true });
+    else segs.push({ kind: 'pipe', lo: cursor, hi: lo, min: PIECE_SYMBOLS * s + (first ? endOf(run.from) : 0), fixed: false });
+    segs.push({ kind: 'item', lo, hi, min: drawnLo + drawnHi, fixed: true, drawnLo, drawnHi });
+    cursor = hi;
+  });
+  const gap = trueLength - cursor;
+  const last = items[items.length - 1];
+  const endNode = drawing.nodes.find((n) => n.id === run.to);
+  const onEnd = !!last && itemAtEnd(drawing, run, false)?.comp.id === last.id;
+  const termHub = endNode?.terminal && isFlange(endNode.terminal.kind) ? (endNode.terminal.kind === 'FLG_SW' || endNode.terminal.kind === 'FLG_THD' ? 0.7 : 1.1) * s : 0;
+  if (onEnd) segs.push({ kind: 'pipe', lo: cursor, hi: trueLength, min: termHub, fixed: true });
+  else if (items.length > 0 && gap <= 0.5) segs.push({ kind: 'pipe', lo: cursor, hi: trueLength, min: 0, fixed: true });
+  else segs.push({ kind: 'pipe', lo: cursor, hi: trueLength, min: PIECE_SYMBOLS * s + (items.length > 0 ? endOf(run.to) : 0), fixed: false });
+  return segs;
+}
+
+/** The shortest this run can be drawn not to scale: its items' symbols and a length of pipe between each. */
+export function runDrawnFloor(drawing: Drawing, run: Run, trueLength?: number): number {
+  const floor = minDrawnLength(drawing);
+  if (!run.inline.some((c) => !isMark(c.kind))) return floor;
+  const a = drawing.nodes.find((n) => n.id === run.from);
+  const b = drawing.nodes.find((n) => n.id === run.to);
+  const len = trueLength ?? (a && b ? length3(sub(b.pos, a.pos)) : 0);
+  const segs = drawnPieces(drawing, run, len);
+  return Math.max(floor, segs.reduce((sum, seg) => sum + seg.min, 0));
+}
+
+/** The stations of a run drawn `drawn` long (see `DrawnStations`). */
+export function drawnStations(drawing: Drawing, run: Run, trueLength: number, drawn: number): DrawnStations {
+  const segs = drawnPieces(drawing, run, trueLength);
+  const need = segs.reduce((sum, seg) => sum + seg.min, 0);
+  const free = segs.filter((seg) => !seg.fixed);
+  const freeTrue = free.reduce((sum, seg) => sum + (seg.hi - seg.lo), 0);
+  const extra = Math.max(0, drawn - need);
+  // With no pipe to take the rest, everything is drawn in proportion.
+  const stretch = free.length === 0 || freeTrue <= 0 ? (need > 0 ? Math.max(1, drawn / need) : 1) : 1;
+  const at: number[] = [0];
+  const out: number[] = [0];
+  let d = 0;
+  for (const seg of segs) {
+    if (seg.kind === 'item') {
+      const centre = seg.lo + (seg.hi - seg.lo) * (seg.drawnLo! / (seg.drawnLo! + seg.drawnHi!));
+      at.push(centre, seg.hi);
+      out.push(d + seg.drawnLo! * stretch, d + seg.min * stretch);
+      d += seg.min * stretch;
+    } else {
+      const share = !seg.fixed && freeTrue > 0 ? (extra * (seg.hi - seg.lo)) / freeTrue : 0;
+      d += seg.min * stretch + share;
+      at.push(seg.hi);
+      out.push(d);
+    }
+  }
+  return { at, drawn: out, length: d };
+}
+
+/** Where a true distance along a run is drawn, as a share of its drawn length. */
+export function drawnShare(stations: DrawnStations | undefined, mm: number, trueLength: number): number {
+  if (!stations || stations.length <= 0) return trueLength > 0 ? Math.max(0, Math.min(1, mm / trueLength)) : 0.5;
+  const { at, drawn } = stations;
+  if (mm <= at[0]) return 0;
+  for (let i = 1; i < at.length; i += 1) {
+    if (mm > at[i] && i < at.length - 1) continue;
+    const span = at[i] - at[i - 1];
+    const t = span > 1e-9 ? Math.max(0, Math.min(1, (mm - at[i - 1]) / span)) : 1;
+    return Math.max(0, Math.min(1, (drawn[i - 1] + (drawn[i] - drawn[i - 1]) * t) / stations.length));
+  }
+  return 1;
+}
+
+/** The true distance along a run drawn at a share of its drawn length: `drawnShare` backwards. */
+export function trueAtShare(stations: DrawnStations | undefined, share: number, trueLength: number): number {
+  if (!stations || stations.length <= 0) return share * trueLength;
+  const { at, drawn } = stations;
+  const d = share * stations.length;
+  for (let i = 1; i < drawn.length; i += 1) {
+    if (d > drawn[i] && i < drawn.length - 1) continue;
+    const span = drawn[i] - drawn[i - 1];
+    const t = span > 1e-9 ? Math.max(0, Math.min(1, (d - drawn[i - 1]) / span)) : 0;
+    return at[i - 1] + (at[i] - at[i - 1]) * t;
+  }
+  return trueLength;
 }
 
 function layout(drawing: Drawing, nodeById: Map<string, IsoNode>, adjacency: Map<string, Run[]>): Map<string, Vec3> {
@@ -831,12 +974,12 @@ export function analyse(drawing: Drawing): Analysis {
     for (const comp of run.inline) {
       const dn = comp.dn ?? run.dn;
       const ends = resolveEnds(comp.kind, dn, comp.ends, drawing.options.joint ?? 'BW');
-      const half = componentTakeout(comp.kind, dn, ends === 'FLG' && valveFlangeKind(drawing.options.joint ?? 'BW'));
+      const half = componentTakeout(comp.kind, dn, ends === 'FLG' && valveFlangeKind(drawing.options.joint ?? 'BW'), comp.ff);
       // A valve on the open end may reach past it (its last flange taken
       // off, the end brought in to its face): only what lies on the run counts.
       const open = valveOpenSide(drawing, run, comp) !== null;
       // A side bolted straight to the next valve has no flange on it.
-      const flangeLen = half - componentTakeout(comp.kind, dn, false);
+      const flangeLen = half - componentTakeout(comp.kind, dn, false, comp.ff);
       const lo = comp.offset - half + (comp.bare === 0 ? flangeLen : 0);
       const hi = comp.offset + half - (comp.bare === 1 ? flangeLen : 0);
       cut -= open ? Math.min(hi, centre) - Math.max(lo, 0) : hi - lo;
@@ -1080,8 +1223,8 @@ export function analyse(drawing: Drawing): Analysis {
       const joint = componentJoint(comp, defaultJoint, dn);
       if (!joint) continue;
       const ends = resolveEnds(comp.kind, dn, comp.ends, defaultJoint);
-      const takeout = componentTakeout(comp.kind, dn, ends === 'FLG' && valveFlangeKind(defaultJoint));
-      const faceHalf = componentTakeout(comp.kind, dn, false);
+      const takeout = componentTakeout(comp.kind, dn, ends === 'FLG' && valveFlangeKind(defaultJoint), comp.ff);
+      const faceHalf = componentTakeout(comp.kind, dn, false, comp.ff);
       const centre = add(a.pos, scale3(dir, comp.offset));
       const reach: WeldReach = { kind: 'valve', trueHalf: faceHalf, flange: ends === 'FLG' && !isFlange(comp.kind) ? valveFlangeKind(defaultJoint) : undefined, comp: comp.id };
       // Against the line's end piece, the weld to it is that piece's own.
@@ -1198,7 +1341,7 @@ export function analyse(drawing: Drawing): Analysis {
     for (const comp of run.inline) {
       const dn = comp.dn ?? run.dn;
       const ends = resolveEnds(comp.kind, dn, comp.ends, defaultJoint);
-      const half = componentTakeout(comp.kind, dn, ends === 'FLG' && valveFlangeKind(defaultJoint));
+      const half = componentTakeout(comp.kind, dn, ends === 'FLG' && valveFlangeKind(defaultJoint), comp.ff);
       if (half > 0) taken.push([comp.offset - half, comp.offset + half]);
     }
     taken.sort((x, y) => x[0] - y[0]);
@@ -1456,7 +1599,7 @@ export function analyse(drawing: Drawing): Analysis {
       const ends = resolveEnds(comp.kind, dn, comp.ends, drawing.options.joint ?? 'BW');
       if (ends === 'FLG' && !isFlange(comp.kind)) {
         const flange = valveFlangeKind(drawing.options.joint ?? 'BW');
-        const takeout = componentTakeout(comp.kind, dn, flange);
+        const takeout = componentTakeout(comp.kind, dn, flange, comp.ff);
         const lastSide = comp.lastFlange ? valveOpenSide(drawing, run, comp) : null;
         for (const side of [-1, 1] as const) {
           if (comp.bare !== undefined && side === (comp.bare === 0 ? -1 : 1)) continue;
@@ -1528,10 +1671,25 @@ export function analyse(drawing: Drawing): Analysis {
     bom,
     items,
     display: layout(drawing, nodeById, adjacency),
+    stations: runStations(drawing, nodeById),
     chains,
     chainOfRun,
     warnings,
   };
+}
+
+function runStations(drawing: Drawing, nodeById: Map<string, IsoNode>): Map<string, DrawnStations> {
+  const out = new Map<string, DrawnStations>();
+  if (!drawing.options.schematic) return out;
+  for (const run of drawing.runs) {
+    const a = nodeById.get(run.from);
+    const b = nodeById.get(run.to);
+    if (!a || !b) continue;
+    const len = length3(sub(b.pos, a.pos));
+    if (len < 0.01) continue;
+    out.set(run.id, drawnStations(drawing, run, len, drawnLength(drawing, run, len)));
+  }
+  return out;
 }
 
 /** A, B, … Z, then AA, AB, … : the letters the pipes are marked with. */
@@ -1581,7 +1739,7 @@ export function dimensionStops(drawing: Drawing, run: Run): number[] {
   const breaks: number[] = [];
   for (const comp of run.inline) {
     if (!isValve(comp.kind)) continue;
-    const half = componentTakeout(comp.kind, comp.dn ?? run.dn, false);
+    const half = componentTakeout(comp.kind, comp.dn ?? run.dn, false, comp.ff);
     if (half <= 0) continue;
     breaks.push(comp.offset - half, comp.offset + half);
   }

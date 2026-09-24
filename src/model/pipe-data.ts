@@ -214,7 +214,7 @@ export function valveFlangeKind(joint: string): 'FLG_WN' | 'FLG_SW' | 'FLG_THD' 
  * `flanged` names the flange the item is bolted between, whose length is
  * added to the take-out; `true` is a weld neck flange.
  */
-export function componentTakeout(kind: string, dn: string, flanged: boolean | string = false): number {
+export function componentTakeout(kind: string, dn: string, flanged: boolean | string = false, ff?: number): number {
   if (kind === 'FLG_WN' || kind === 'FLG_BLIND') return lookup(FLANGE_LEN.WN, dn) ?? 0;
   if (kind === 'FLG_SO') return lookup(FLANGE_LEN.SO, dn) ?? 0;
   if (kind === 'SPECTACLE') return 0;
@@ -228,7 +228,8 @@ export function componentTakeout(kind: string, dn: string, flanged: boolean | st
     const flange = flanged === true ? 'FLG_WN' : flanged;
     // A socket weld or threaded flange is a short hub, like a slip-on.
     const extra = !flange ? 0 : flange === 'FLG_WN' ? flangeLength(dn) : (lookup(FLANGE_LEN.SO, dn) ?? 0);
-    return (lookup(table, dn) ?? 0) / 2 + extra;
+    // A face-to-face typed over for this valve wins over the table's.
+    return ((ff && ff > 0 ? ff : lookup(table, dn)) ?? 0) / 2 + extra;
   }
   return 0;
 }

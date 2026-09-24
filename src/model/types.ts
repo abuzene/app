@@ -98,6 +98,11 @@ export interface InlineComponent {
    * valve beside it: no flange there, nothing welded, off the list.
    */
   bare?: 0 | 1;
+  /**
+   * A valve's own face-to-face in mm, typed over its dimension on the
+   * drawing (his ask, 2026-09-24); unset, the table's for its size.
+   */
+  ff?: number;
 }
 
 export interface Terminal {

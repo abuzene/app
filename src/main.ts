@@ -4,7 +4,7 @@ import type { Preview, Selection } from './render/renderer';
 import type { AppState, Host, OletAsk, OletChoice, ReducerAsk, ReducerChoice } from './ui/types';
 import { reducerPreview } from './ui/reducer-preview';
 import { tidyLayout, type LayoutSpecs } from './render/tidy';
-import { analyse, chainStops, dimensionStops, drawnLength, isMark, itemHalf, runGroupIds, emptyDrawing, minDrawnLength, oletLegs, oletMarks, uid } from './model/drawing';
+import { analyse, chainStops, dimensionStops, drawnLength, runDrawnFloor, trueAtShare, isMark, itemHalf, runGroupIds, emptyDrawing, oletLegs, oletMarks, uid } from './model/drawing';
 import { loadLibrary, removeDrawing, renumberProject, sheetNumber, upsertDrawing, worthKeeping } from './model/library';
 import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, noteRemovedFromLibrary, setDriveClientId, syncDrive } from './model/drive';
 import { AXES, AXIS_VECTOR, add, length3, scale3, sub } from './model/iso';
@@ -705,12 +705,12 @@ const canvas = new Canvas(svg, {
       host.edit('Stretch run', (d) => {
         const target = d.runs.find((r) => r.id === runId);
         if (!target) return;
-        if (schematic) target.visual = Math.max(length, minDrawnLength(d));
+        if (schematic) target.visual = Math.max(length, runDrawnFloor(d, target));
         else stretchRun(d, runId, length, end);
       });
       return;
     }
-    if (schematic) run.visual = Math.max(length, minDrawnLength(state.drawing));
+    if (schematic) run.visual = Math.max(length, runDrawnFloor(state.drawing, run));
     else stretchRun(state.drawing, runId, length, end);
     recompute();
     renderCanvasOnly();
@@ -932,7 +932,8 @@ function offsetFromPaper(run: Run, paper: { x: number; y: number }): number | nu
   const t = Math.max(0, Math.min(1, ((paper.x - pa.x) * vx + (paper.y - pa.y) * vy) / lenSq));
   const total = length3(sub(b.pos, a.pos));
   const snap = dragSnap();
-  return Math.max(0, Math.min(total, Math.round((t * total) / snap) * snap));
+  const mm = trueAtShare(state.analysis.stations.get(run.id), t, total);
+  return Math.max(0, Math.min(total, Math.round(mm / snap) * snap));
 }
 
 /** The two runs that make the straight line through a point, if there is one. */
@@ -968,13 +969,15 @@ function slideDrawnTo(nodeId: string, paper: { x: number; y: number }): ((d: Dra
   if (lenSq < 1) return null;
   const drawnOf = (run: Run) => drawnLength(state.drawing, run, runLength(state.drawing, run));
   const total = drawnOf(through[0]) + drawnOf(through[1]);
-  const floor = minDrawnLength(state.drawing);
-  if (total < floor * 2) return null;
+  // Each side at least what its own items need drawn (`runDrawnFloor`).
+  const floor0 = runDrawnFloor(state.drawing, through[0]);
+  const floor1 = runDrawnFloor(state.drawing, through[1]);
+  if (total < floor0 + floor1) return null;
   const t = ((paper.x - pa.x) * vx + (paper.y - pa.y) * vy) / lenSq;
   const snap = dragSnap();
   // Kept to a tenth of a millimetre, so the two always add up to the total.
   const tenth = (v: number) => Math.round(v * 10) / 10;
-  const first = tenth(Math.max(floor, Math.min(total - floor, Math.round((t * total) / snap) * snap)));
+  const first = tenth(Math.max(floor0, Math.min(total - floor1, Math.round((t * total) / snap) * snap)));
   const lengths: [string, number][] = [
     [through[0].id, first],
     [through[1].id, tenth(total - first)],

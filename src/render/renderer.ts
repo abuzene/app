@@ -1,6 +1,6 @@
 import type { Analysis } from '../model/drawing';
 import type { Axis, DimOverride, Drawing, FlangeKind, Run, Vec3 } from '../model/types';
-import { COMPONENT_LABEL, SYMBOL_MM, TERMINAL_LABEL, chainStops, dimensionStops, fittingLabel, runGroupIds, isMark, isReducer, isSupport, isValve, itemAtEnd, oletEntries, oletLegs, resolveEnds, valveOpenSide } from '../model/drawing';
+import { COMPONENT_LABEL, SYMBOL_MM, TERMINAL_LABEL, chainStops, dimensionStops, drawnShare, fittingLabel, runGroupIds, isMark, isReducer, isSupport, isValve, itemAtEnd, oletEntries, oletLegs, resolveEnds, valveOpenSide } from '../model/drawing';
 import { componentTakeout, sizeLabel, valveFlangeKind } from '../model/pipe-data';
 import { AXIS_VECTOR, axisBetween, axisScreenDir, equals3, northArrowDir, project, scale3, add, sub } from '../model/iso';
 import type { LayoutSpecs } from './tidy';
@@ -430,8 +430,11 @@ export function renderDrawing(state: RenderState): string {
       collect?.texts.push({ p: { x: nx, y: ny }, w: run.note.length * size * 0.62 + size * 0.4, h: size * 1.2 });
       calloutHits += `<circle class="hit-dot" data-balloon="rn:${run.id}" data-ax="${mx.toFixed(2)}" data-ay="${my.toFixed(2)}" cx="${nx.toFixed(2)}" cy="${ny.toFixed(2)}" r="${Math.max(size * 1.4, hitR * 0.6).toFixed(2)}"/>`;
     }
+    // Not to scale each item takes its symbol's width and each piece of
+    // pipe its share (`drawnStations`), so things are placed through that.
+    const stations = analysis.stations.get(run.id);
     const along = (mm: number): Pt => {
-      const t = total > 0 ? Math.max(0, Math.min(1, mm / total)) : 0.5;
+      const t = drawnShare(stations, mm, total);
       return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
     };
 
@@ -458,7 +461,9 @@ export function renderDrawing(state: RenderState): string {
             const p0 = paper(piece.forward ? piece.run.from : piece.run.to);
             const p1 = paper(piece.forward ? piece.run.to : piece.run.from);
             if (!p0 || !p1) break;
-            const t = piece.length > 0 ? Math.max(0, Math.min(1, (mm - piece.start) / piece.length)) : 0;
+            const into = Math.max(0, Math.min(piece.length, mm - piece.start));
+            const st = analysis.stations.get(piece.run.id);
+            const t = piece.length > 0 ? (piece.forward ? drawnShare(st, into, piece.length) : 1 - drawnShare(st, piece.length - into, piece.length)) : 0;
             return { x: p0.x + (p1.x - p0.x) * t, y: p0.y + (p1.y - p0.y) * t };
           }
           const t = chain.total > 0 ? Math.max(0, Math.min(1, mm / chain.total)) : 0.5;
@@ -504,7 +509,7 @@ export function renderDrawing(state: RenderState): string {
       const facePaper = new Map<number, Pt>();
       for (const comp of run.inline) {
         if (!isValve(comp.kind) && !isReducer(comp.kind)) continue;
-        const half = componentTakeout(comp.kind, comp.dn ?? run.dn, false);
+        const half = componentTakeout(comp.kind, comp.dn ?? run.dn, false, comp.ff);
         const centre = along(comp.offset);
         const reach = faceReach(half, paperPerMm);
         const ux = total > 0 ? (b.x - a.x) / Math.hypot(b.x - a.x, b.y - a.y) : 0;
@@ -536,13 +541,13 @@ export function renderDrawing(state: RenderState): string {
       return flip ? ((-side) as Facing) : side;
     };
     for (const comp of run.inline) {
-      const t = total > 0 ? Math.max(0, Math.min(1, comp.offset / total)) : 0.5;
+      const t = drawnShare(stations, comp.offset, total);
       let f = frameFor(a.x, a.y, b.x, b.y, t, size, plane?.across, plane?.up);
       const selectedComp = sel?.kind === 'component' && sel.id === comp.id;
       const dn = comp.dn ?? run.dn;
       // The body reaches its real faces, so what bolts or welds to it sits
       // against it rather than floating off along the pipe.
-      const faceHalf = isValve(comp.kind) || isReducer(comp.kind) ? faceReach(componentTakeout(comp.kind, dn, false), paperPerMm) : undefined;
+      const faceHalf = isValve(comp.kind) || isReducer(comp.kind) ? faceReach(componentTakeout(comp.kind, dn, false, comp.ff), paperPerMm) : undefined;
       // An item welded straight to the flange on the line's end sits against
       // the flange as drawn: its face on the hub, whatever the true lengths.
       if (faceHalf !== undefined) {
@@ -561,7 +566,7 @@ export function renderDrawing(state: RenderState): string {
       // A valve bolted face to face with the next is drawn with that face on
       // the true joint, so the two symbols meet with no pipe showing between.
       if (faceHalf !== undefined && comp.bare !== undefined && total > 0) {
-        const trueFace = comp.offset + (comp.bare === 1 ? 1 : -1) * componentTakeout(comp.kind, dn, false);
+        const trueFace = comp.offset + (comp.bare === 1 ? 1 : -1) * componentTakeout(comp.kind, dn, false, comp.ff);
         const face = along(trueFace);
         const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
         const ux = (b.x - a.x) / len;
@@ -1198,7 +1203,7 @@ function weldPlacement(
     if (!best || d < best.d) {
       const a = paperOf(analysis, drawing, run.from);
       const b = paperOf(analysis, drawing, run.to);
-      if (a && b) best = { a, b, t, d, perMm: Math.hypot(b.x - a.x, b.y - a.y) / Math.sqrt(lenSq), plane: symbolPlane(drawing, fa.pos, fb.pos) };
+      if (a && b) best = { a, b, t: drawnShare(analysis.stations.get(run.id), t * Math.sqrt(lenSq), Math.sqrt(lenSq)), d, perMm: Math.hypot(b.x - a.x, b.y - a.y) / Math.sqrt(lenSq), plane: symbolPlane(drawing, fa.pos, fb.pos) };
     }
   }
   return best ? { a: best.a, b: best.b, t: best.t, perMm: best.perMm, plane: best.plane } : null;

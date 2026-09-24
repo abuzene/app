@@ -1,6 +1,6 @@
 import type { Axis, ComponentKind, Drawing, EndType, Equipment, FlangeKind, InlineComponent, IsoNode, Measure, Run, TerminalKind, Vec3 } from './types';
 import { AXIS_VECTOR, add, axisBetween, direction, equals3, length3, scale3, step, sub } from './iso';
-import { chainStops, dimensionStops, drawnLength, fittingsTouchLength, minDrawnLength, isValve, itemAtEnd, oletMarks, resolveEnds, runGroupIds, terminalTakeoutOf, uid, valveOpenSide, type Analysis } from './drawing';
+import { chainStops, dimensionStops, drawnLength, fittingsTouchLength, minDrawnLength, isMark, isValve, itemAtEnd, oletMarks, resolveEnds, runGroupIds, terminalTakeoutOf, uid, valveOpenSide, type Analysis } from './drawing';
 import { componentTakeout, valveFlangeKind } from './pipe-data';
 
 /** Finds an existing node at a position, so that routes join rather than overlap. */
@@ -356,6 +356,7 @@ export function splitRun(drawing: Drawing, runId: string, distance: number): str
     n: a.pos.n + (b.pos.n - a.pos.n) * t,
     u: a.pos.u + (b.pos.u - a.pos.u) * t,
   };
+  const parentDrawn = run.visual !== undefined || drawing.options.schematic ? drawnLength(drawing, run, total) : undefined;
   const midId = ensureNode(drawing, pos);
   const tail: Run = {
     id: uid('r'),
@@ -372,8 +373,8 @@ export function splitRun(drawing: Drawing, runId: string, distance: number): str
   // put in a long header once drew it twice as long, each half capped on
   // its own (his complaint, 2026-09-24). Neither half is left under the
   // floor, where it would be drawn at its own length instead.
-  if (run.visual !== undefined || drawing.options.schematic) {
-    const drawn = drawnLength(drawing, run, total);
+  if (parentDrawn !== undefined) {
+    const drawn = parentDrawn;
     const floor = minDrawnLength(drawing);
     const head = drawn >= floor * 2 ? Math.max(floor, Math.min(drawn - floor, drawn * t)) : floor;
     run.visual = head;
@@ -640,24 +641,64 @@ export function applyDimension(drawing: Drawing, runId: string, index: number, v
   const valveAt = (mm: number, side: -1 | 1) =>
     run.inline.find((c) => {
       if (!isValve(c.kind)) return false;
-      const half = componentTakeout(c.kind, c.dn ?? run.dn, false);
+      const half = componentTakeout(c.kind, c.dn ?? run.dn, false, c.ff);
       return Math.abs(c.offset + side * half - mm) < 0.5;
     });
   const lower = valveAt(to, -1);
   if (lower) {
     // Up to a valve face: the valve slides so this piece is the value.
-    const half = componentTakeout(lower.kind, lower.dn ?? run.dn, false);
+    const half = componentTakeout(lower.kind, lower.dn ?? run.dn, false, lower.ff);
     const offset = from + value + half;
     if (offset + half > total - 0.5) return 'That would push the valve off the end of the run.';
     lower.offset = offset;
     run.inline.sort((x, y) => x.offset - y.offset);
     return null;
   }
-  if (valveAt(from, -1) && valveAt(to, 1)) return 'That is the valve itself, face to face.';
+  // The valve's own face-to-face, typed over: the face on the run's start
+  // side stays, the far one moves with it (his ask, 2026-09-24).
+  const own = valveAt(from, -1);
+  if (own && valveAt(to, 1) === own) return setValveFaceToFace(drawing, run, own, value, true);
   if (to >= total - 0.5) {
     return setRunLength(drawing, run.id, from + value) ? null : 'The line cannot be made that length here.';
   }
   return 'That dimension cannot be set directly.';
+}
+
+/**
+ * Sets a valve's face-to-face (`comp.ff`), keeping the face on the run's
+ * start side where it is (`keepStart`), else the one on its end side. The
+ * valve, with its flanges, has to stay on its run and clear of the items
+ * beside it.
+ */
+export function setValveFaceToFace(drawing: Drawing, run: Run, comp: InlineComponent, value: number, keepStart: boolean): string | null {
+  if (!isValve(comp.kind)) return 'Only a valve\'s face to face can be typed.';
+  if (!(value > 0)) return 'A dimension has to be more than nothing.';
+  const total = runLength(drawing, run);
+  const joint = drawing.options.joint ?? 'BW';
+  // How far an item reaches either side of its centre: its face, and its
+  // flange where it wears one there.
+  const reach = (c: InlineComponent, side: 0 | 1): number => {
+    const dn = c.dn ?? run.dn;
+    const face = componentTakeout(c.kind, dn, false, c.ff);
+    const flanged = resolveEnds(c.kind, dn, c.ends, joint) === 'FLG' && isValve(c.kind);
+    if (!flanged || c.bare === side || (c.lastFlange && valveOpenSide(drawing, run, c) === side)) return face;
+    return componentTakeout(c.kind, dn, valveFlangeKind(joint), c.ff);
+  };
+  const half = componentTakeout(comp.kind, comp.dn ?? run.dn, false, comp.ff);
+  const fixed = keepStart ? comp.offset - half : comp.offset + half;
+  const moved: InlineComponent = { ...comp, ff: value, offset: keepStart ? fixed + value / 2 : fixed - value / 2 };
+  const lo = moved.offset - reach(moved, 0);
+  const hi = moved.offset + reach(moved, 1);
+  if (lo < -0.5 || hi > total + 0.5) return 'The valve would not fit on its run at that length.';
+  for (const other of run.inline) {
+    if (other.id === comp.id || isMark(other.kind)) continue;
+    const olo = other.offset - reach(other, 0);
+    const ohi = other.offset + reach(other, 1);
+    if (olo < hi - 0.5 && ohi > lo + 0.5) return 'The valve would run into the item beside it.';
+  }
+  comp.ff = value;
+  comp.offset = moved.offset;
+  return null;
 }
 
 /**
@@ -776,7 +817,7 @@ export function setLastFlange(drawing: Drawing, compId: string, state: 'flange' 
   if (side === null) return false;
   const joint = drawing.options.joint ?? 'BW';
   const dn = comp.dn ?? run.dn;
-  const flangeLen = componentTakeout(comp.kind, dn, valveFlangeKind(joint)) - componentTakeout(comp.kind, dn, false);
+  const flangeLen = componentTakeout(comp.kind, dn, valveFlangeKind(joint), comp.ff) - componentTakeout(comp.kind, dn, false, comp.ff);
   const hadFlange = !comp.lastFlange;
   const hasFlange = state === 'flange';
   comp.lastFlange = hasFlange ? undefined : state;
@@ -835,7 +876,7 @@ export function boltValveOnEnd(drawing: Drawing, nodeId: string, kind: Component
   } else {
     const prev = run.inline.find((c) => valveOpenSide(drawing, run, c) === (atTo ? 1 : 0));
     if (!prev) return null;
-    const prevFace = outward(prev.offset) + componentTakeout(prev.kind, prev.dn ?? dn, false);
+    const prevFace = outward(prev.offset) + componentTakeout(prev.kind, prev.dn ?? dn, false, prev.ff);
     centre = prevFace + faceHalf;
     prev.bare = atTo ? 1 : 0;
     prev.lastFlange = undefined;
@@ -984,7 +1025,7 @@ export function applyChainDimension(drawing: Drawing, analysis: Analysis, key: s
   for (const leg of chain.runs) {
     for (const comp of leg.run.inline) {
       if (!isValve(comp.kind)) continue;
-      const half = componentTakeout(comp.kind, comp.dn ?? leg.run.dn, false);
+      const half = componentTakeout(comp.kind, comp.dn ?? leg.run.dn, false, comp.ff);
       const nearFace = leg.forward ? leg.start + comp.offset - half : leg.start + leg.length - comp.offset + half;
       const farFace = leg.forward ? leg.start + comp.offset + half : leg.start + leg.length - comp.offset - half;
       const lower = Math.min(nearFace, farFace);
@@ -996,6 +1037,16 @@ export function applyChainDimension(drawing: Drawing, analysis: Analysis, key: s
       comp.offset = offset;
       leg.run.inline.sort((x, y) => x.offset - y.offset);
       return null;
+    }
+  }
+  // A valve's own face-to-face: the face nearer the chain's start stays.
+  for (const leg of chain.runs) {
+    for (const comp of leg.run.inline) {
+      if (!isValve(comp.kind)) continue;
+      const half = componentTakeout(comp.kind, comp.dn ?? leg.run.dn, false, comp.ff);
+      const centre = leg.forward ? leg.start + comp.offset : leg.start + leg.length - comp.offset;
+      if (Math.abs(centre - half - from) > 0.5 || Math.abs(centre + half - to) > 0.5) continue;
+      return setValveFaceToFace(drawing, leg.run, comp, value, leg.forward);
     }
   }
   if (to >= chain.total - 0.5) {
@@ -1163,7 +1214,7 @@ export function applyReducer(drawing: Drawing, compId: string, large: string, sm
   comp.flip = flip || undefined;
   const startSide = flip ? small : large;
   const endSide = flip ? large : small;
-  const half = componentTakeout(comp.kind, large);
+  const half = componentTakeout(comp.kind, large, false, comp.ff);
   const total = runLength(drawing, run);
   // A face on the run's end, or against the flange that ends the line there.
   const backStart = terminalTakeoutOf(drawing.nodes.find((n) => n.id === run.from)?.terminal?.kind, startSide);
