@@ -65,6 +65,8 @@ interface DragState {
   moved: boolean;
   /** What a finger tap should select, if the finger never really moved. */
   tapSelect?: Selection;
+  /** A slid item has been taken hold of where the pen went down. */
+  grabbed?: boolean;
   /** A dimension a finger landed on, opened for typing if it was a tap. */
   tapDim?: string;
   /** The editor was opened on the touch itself, so the lift has nothing to do. */
@@ -601,6 +603,12 @@ export class Canvas {
     if (drag.kind === 'slide-component' || drag.kind === 'slide-node' || drag.kind === 'stretch' || drag.kind === 'slide-tag') {
       if (!drag.moved) return;
       const here = this.toPaper(event.clientX, event.clientY);
+      // An item is taken hold of where the pen went down, so it moves by
+      // as much as the pen does from there.
+      if (drag.kind === 'slide-component' && !drag.grabbed) {
+        drag.grabbed = true;
+        this.cb.onSlideComponent(drag.targetId!, this.toPaper(drag.startClientX, drag.startClientY), false);
+      }
       if (drag.kind === 'slide-component') this.cb.onSlideComponent(drag.targetId!, here, false);
       else if (drag.kind === 'slide-node') this.cb.onSlideNode(drag.targetId!, here, false);
       else if (drag.kind === 'stretch') this.cb.onStretchRun(drag.targetId!, drag.end!, here, false);

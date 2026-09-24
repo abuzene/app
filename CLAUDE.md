@@ -191,7 +191,12 @@ ships, and the decisions already taken, so they are not re-litigated.
   without the item itself (`slideFrom.stations`/`ends` in main.ts):
   read through the live layout, which changes as the item moves (a gap
   opening adds its minimum), a valve flicked between two places ("it only
-  jumps between two points", 2026-09-24).
+  jumps between two points", 2026-09-24). It is **taken hold of where the
+  pen went down** (canvas.ts sends that point first, `drag.grabbed`;
+  `slideFrom.grab`): it moves by as much as the pen moves, from where it
+  stood, so it never jumps on being touched (the layout without it put
+  the pen 40 mm off on an iPad-sized screen — "fixed for our case only,
+  the other branch still does it").
 - **A valve across a point** (his complaint, 2026-09-24, Strauss sheet: "a
   dimension to the centre of the valve"; "I can't pick pipe A between the
   two valves to put an olet"): valves put on an end once sat centred on it

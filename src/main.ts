@@ -615,8 +615,13 @@ const canvas = new Canvas(svg, {
       const pb = paperOf(state.analysis, state.drawing, run.to);
       slideFrom = { id: componentId, offset: comp.offset, stations, ends: pa && pb ? [pa, pb] : undefined };
     }
-    const raw = offsetFromPaper(run, paper, slideFrom.stations, slideFrom.ends);
-    if (raw === null) return;
+    const read = offsetFromPaper(run, paper, slideFrom.stations, slideFrom.ends, false);
+    if (read === null) return;
+    // Where the pen took hold stays under it: the item moves by as much as
+    // the pen does, from where it stood, and never jumps on being touched.
+    if (slideFrom.grab === undefined) slideFrom.grab = read;
+    const snap = dragSnap();
+    const raw = Math.max(0, Math.min(runLength(state.drawing, run), Math.round((slideFrom.offset + read - slideFrom.grab) / snap) * snap));
     // It moves along its own run and stops at what stands either side of
     // it — the run's ends, another item — so the run keeps its length and
     // nothing is passed through (his complaint, 2026-09-24).
@@ -873,7 +878,7 @@ function endInSamePlace(nodeId: string): string | null {
 }
 
 /** What a slide started from, so undo returns there and not to mid-drag. */
-let slideFrom: { id: string; offset: number; stations?: DrawnStations; ends?: [{ x: number; y: number }, { x: number; y: number }] } | null = null;
+let slideFrom: { id: string; offset: number; stations?: DrawnStations; ends?: [{ x: number; y: number }, { x: number; y: number }]; grab?: number } | null = null;
 let slideNodeFrom: { id: string; snapshot: string } | null = null;
 let stretchFrom: { id: string; visual: number | undefined; snapshot: string } | null = null;
 let tagFrom: string | null = null;
@@ -933,7 +938,7 @@ function slideLimits(run: Run, comp: Run['inline'][number], from: number, offset
 }
 
 /** Where along a run a paper point falls, snapped, or null if it cannot be read. */
-function offsetFromPaper(run: Run, paper: { x: number; y: number }, stations = state.analysis.stations.get(run.id), ends?: [{ x: number; y: number }, { x: number; y: number }]): number | null {
+function offsetFromPaper(run: Run, paper: { x: number; y: number }, stations = state.analysis.stations.get(run.id), ends?: [{ x: number; y: number }, { x: number; y: number }], snapped = true): number | null {
   const a = state.analysis.nodeById.get(run.from);
   const b = state.analysis.nodeById.get(run.to);
   if (!a || !b) return null;
@@ -949,6 +954,7 @@ function offsetFromPaper(run: Run, paper: { x: number; y: number }, stations = s
   const total = length3(sub(b.pos, a.pos));
   const snap = dragSnap();
   const mm = trueAtShare(stations, t, total);
+  if (!snapped) return mm;
   return Math.max(0, Math.min(total, Math.round(mm / snap) * snap));
 }
 

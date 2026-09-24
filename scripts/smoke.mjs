@@ -3823,6 +3823,7 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   await page.waitForTimeout(300);
   const backwards = seen.filter((v, i) => i > 0 && v < seen[i - 1]).length;
   check('dragged towards the next valve, the valve moves steadily, never back', `${backwards} ${seen.length > 5}`, (v) => v === '0 true', '0 true');
+  check('taken hold of, it does not jump: it starts from where it stood', seen[0], (v) => Math.abs(v - 151) <= 20, 'within 20 mm of 151');
   check('and stops against the next valve\'s flange', (await drawingNow()).runs[0].inline.find((c) => c.id === 'cman').offset, (v) => Math.abs(v - 238) <= 1, '238');
   await page.uncheck('#opt-schematic');
   await page.selectOption('#opt-symbols', '15');
