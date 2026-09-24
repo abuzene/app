@@ -1412,7 +1412,12 @@ export function analyse(drawing: Drawing): Analysis {
       // the list: the sheets call a support out by name beside it.
       if (isMark(comp.kind)) continue;
       const dn = comp.dn ?? run.dn;
-      const description = isReducer(comp.kind) ? reducerName(comp, run.dn) : COMPONENT_LABEL[comp.kind] ?? comp.kind;
+      // A valve socket welded or screwed into the line is ordered as such,
+      // named the way fittings of that kind are: "BALL VALVE SW 3000#".
+      const valveEnds = isValve(comp.kind) ? resolveEnds(comp.kind, dn, comp.ends, drawing.options.joint ?? 'BW') : null;
+      const description = isReducer(comp.kind)
+        ? reducerName(comp, run.dn)
+        : (COMPONENT_LABEL[comp.kind] ?? comp.kind) + (valveEnds === 'SW' || valveEnds === 'THD' ? jointSuffix(valveEnds) : '');
       const at = a && dir ? add(a.pos, scale3(dir, comp.offset)) : (a?.pos ?? { e: 0, n: 0, u: 0 });
       instances.push({
         key: `comp:${comp.id}`,

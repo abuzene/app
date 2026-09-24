@@ -8,7 +8,7 @@ import { isFlange } from '../render/symbols';
 import { componentSymbol, jointMark, oletSymbol, type Frame } from '../render/symbols';
 
 /** Branch fittings act on the header, they do not sit in the line. */
-type BranchTool = { branch: 'TEE' } | { olet: JointType } | { weld: 'BW' } | { equipment: true } | { measure: true };
+type BranchTool = { branch: 'TEE' } | { olet: JointType } | { weld: 'BW' } | { equipment: true } | { measure: true } | { valve: ComponentKind; ends: 'SW' | 'THD' };
 type Tool = ComponentKind | BranchTool;
 
 function isBranch(tool: Tool): tool is BranchTool {
@@ -23,7 +23,7 @@ interface ToolGroup {
 const GROUPS: ToolGroup[] = [
   { label: 'Flanges', kinds: ['FLG_WN', 'FLG_SW', 'FLG_THD', 'FLG_BLIND'] },
   { label: 'Fittings', kinds: ['RED_CONC', 'RED_ECC', 'CAP', 'TRANSITION'] },
-  { label: 'Valves', kinds: ['BALL', 'BALL_ACT'] },
+  { label: 'Valves', kinds: ['BALL', 'BALL_ACT', { valve: 'BALL', ends: 'SW' }, { valve: 'BALL', ends: 'THD' }] },
   { label: 'Branch', kinds: [{ branch: 'TEE' }, { olet: 'BW' }, { olet: 'SW' }, { olet: 'THD' }] },
   { label: 'Marks', kinds: ['SUPPORT', 'SUPPORT_L', 'GROUND', { equipment: true }, { measure: true }] },
   { label: 'Joints', kinds: [{ weld: 'BW' }] },
@@ -91,6 +91,16 @@ function icon(kind: ComponentKind): string {
     s: 5.2,
   };
   return iconSvg(stub(EAST) + componentSymbol(kind, f));
+}
+
+/**
+ * A valve with socket weld or threaded ends: the valve itself with the
+ * joint mark on each face, the way it is drawn on the line.
+ */
+function valveEndsIcon(kind: ComponentKind, ends: 'SW' | 'THD'): string {
+  const f: Frame = { cx: ICON_CX, cy: ICON_CY, dx: EAST.x, dy: EAST.y, nx: NORTH.x, ny: NORTH.y, ux: UP.x, uy: UP.y, s: 5.2 };
+  const at = (by: number, dx: number, dy: number): Frame => ({ ...f, cx: f.cx + EAST.x * by, cy: f.cy + EAST.y * by, dx, dy, s: 4.2 });
+  return iconSvg(stub(EAST) + componentSymbol(kind, f) + jointMark(at(-7.5, EAST.x, EAST.y), ends) + jointMark(at(7.5, -EAST.x, -EAST.y), ends));
 }
 
 /** A dimension between two points. */
@@ -282,9 +292,9 @@ async function placeReducer(host: Host, kind: 'RED_CONC' | 'RED_ECC'): Promise<v
  * meant. Picked against a point in the middle of a route it sits at that point;
  * picked against a run it sits along that run.
  */
-function place(host: Host, kind: ComponentKind): void {
+function place(host: Host, kind: ComponentKind, ends?: 'SW' | 'THD'): void {
   const { selection, analysis } = host.state;
-  const label = COMPONENT_LABEL[kind] ?? kind;
+  const label = (COMPONENT_LABEL[kind] ?? kind) + (ends ? (ends === 'SW' ? ', SW' : ', THREADED') : '');
 
   if (kind === 'RED_CONC' || kind === 'RED_ECC') {
     void placeReducer(host, kind);
@@ -374,7 +384,7 @@ function place(host: Host, kind: ComponentKind): void {
 
     // A valve on an end bolts on to the flange or valve already there.
     // Tried on a copy first, so an end with nothing to bolt to leaves no undo step.
-    if (isValve(kind) && info && info.degree <= 1 && boltValveOnEnd(JSON.parse(JSON.stringify(host.state.drawing)), nodeId, kind)) {
+    if (isValve(kind) && !ends && info && info.degree <= 1 && boltValveOnEnd(JSON.parse(JSON.stringify(host.state.drawing)), nodeId, kind)) {
       let bolted: string | null = null;
       host.edit(`Add ${label}`, (d) => {
         bolted = boltValveOnEnd(d, nodeId, kind);
@@ -397,15 +407,15 @@ function place(host: Host, kind: ComponentKind): void {
         // the end point, rather than half past it.
         const joint = d.options.joint ?? 'BW';
         const dn = target.dn;
-        const half = isValve(kind) ? componentTakeout(kind, dn, resolveEnds(kind, dn, undefined, joint) === 'FLG' && valveFlangeKind(joint)) : 0;
+        const half = isValve(kind) ? componentTakeout(kind, dn, resolveEnds(kind, dn, ends, joint) === 'FLG' && valveFlangeKind(joint)) : 0;
         const onEnd = (info?.degree ?? 0) <= 1;
         const total = runLength(d, target);
         const offset = target.from === nodeId ? (onEnd ? half : 0) : onEnd ? total - half : total;
-        const comp = addComponent(d, target.id, kind, offset, kind === 'SPECTACLE' ? 'FLG' : undefined);
+        const comp = addComponent(d, target.id, kind, offset, kind === 'SPECTACLE' ? 'FLG' : ends);
         addedId = comp?.id ?? null;
         // A valve on the open end of the pipe: its flange on the pipe side,
         // nothing on its far face until something is put there by hand.
-        if (comp && onEnd && isValve(kind) && half > 0) setLastFlange(d, comp.id, 'none');
+        if (comp && onEnd && isValve(kind) && half > 0 && resolveEnds(kind, dn, ends, joint) === 'FLG') setLastFlange(d, comp.id, 'none');
       });
       if (addedId) host.select({ kind: 'component', id: addedId });
       return;
@@ -431,7 +441,7 @@ function place(host: Host, kind: ComponentKind): void {
   }
   let addedId: string | null = null;
   host.edit(`Add ${label}`, (d) => {
-    const comp = addComponent(d, run.id, kind, undefined, kind === 'SPECTACLE' ? 'FLG' : undefined);
+    const comp = addComponent(d, run.id, kind, undefined, kind === 'SPECTACLE' ? 'FLG' : ends);
     addedId = comp?.id ?? null;
   });
   if (addedId) {
@@ -651,6 +661,15 @@ export function renderTools(container: HTMLElement, host: Host): void {
       group.kinds
         .map((tool) => {
           if (isBranch(tool)) {
+            if ('valve' in tool) {
+              const name = `${SHORT[tool.valve] ?? tool.valve} ${tool.ends === 'SW' ? 'SW' : 'Thd'}`;
+              return (
+                `<button class="tool" data-valve="${tool.valve}" data-ends="${tool.ends}" title="${COMPONENT_LABEL[tool.valve]}, ${tool.ends === 'SW' ? 'socket weld' : 'threaded'} ends"${enabled ? '' : ' disabled'}>` +
+                valveEndsIcon(tool.valve, tool.ends) +
+                `<span class="tool-name">${name}</span>` +
+                `</button>`
+              );
+            }
             if ('measure' in tool) {
               return (
                 `<button class="tool" data-measure="1" title="A dimension between two points: pick one, then tap the other"${enabled ? '' : ' disabled'}>` +
@@ -707,6 +726,7 @@ export function renderTools(container: HTMLElement, host: Host): void {
       }
       else if (olet) placeBranch(host, { olet });
       else if (button.dataset.branch === 'TEE') placeBranch(host, { branch: 'TEE' });
+      else if (button.dataset.valve) place(host, button.dataset.valve as ComponentKind, button.dataset.ends as 'SW' | 'THD');
       else place(host, button.dataset.kind as ComponentKind);
     });
   });

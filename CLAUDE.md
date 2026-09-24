@@ -216,7 +216,12 @@ ships, and the decisions already taken, so they are not re-litigated.
 - PE/CS transition: weld on the CS side, six dashes on the PE side; it ends
   the steel.
 - Palette (`src/ui/tools.ts`): Flanges WN/SW/Thd/Blind (SO and Lap removed
-  on request), Fittings, Valves (Ball, Ball air), Branch (tee, olets), Marks
+  on request), Fittings, Valves (Ball, Ball air, **Ball SW, Ball Thd** — his
+  ask 2026-09-24: tool `{ valve, ends }`, `place(host, kind, ends)` sets
+  `comp.ends`; SW gets two SW welds, Thd marks and no welds, no flanges,
+  never bolted on an end; the list names a valve with SW/THD ends like a
+  fitting, `BALL VALVE SW 3000#` / `BALL VALVE SCR'D 3000#` via
+  `jointSuffix` — small bores that default to threaded read so too), Branch (tee, olets), Marks
   (Support, L50 support, AG/UG), Joints (a BW weld: `placeWeld` splits the
   run at a plain point, welded pipe to pipe, dimension opened). Two columns
   on tablets so all fit.

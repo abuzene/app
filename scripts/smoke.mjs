@@ -140,7 +140,7 @@ check('a length can be typed', await page.locator('#tab-body .run-list input[dat
 // Palette.
 await page.locator('#tab-body .run-list tbody tr').first().click();
 await page.waitForTimeout(200);
-check('the palette carries the fittings, ball valves, tee, olets, marks, equipment and a weld', await page.locator('.tool').count(), (v) => v === 20, '20');
+check('the palette carries the fittings, ball valves (flanged, air, SW, threaded), tee, olets, marks, equipment and a weld', await page.locator('.tool').count(), (v) => v === 22, '22');
 check('and no slip-on or lap joint flange, which are not used here', await page.locator('.tool[data-kind="FLG_SO"], .tool[data-kind="FLG_LAP"]').count(), (v) => v === 0, '0');
 check('a tee can be placed on a header', await page.locator('.tool[data-branch="TEE"]').count(), (v) => v === 1, '1');
 check('the actuated ball valve is there', await page.locator('.tool[data-kind="BALL_ACT"]').count(), (v) => v === 1, '1');
@@ -3570,6 +3570,45 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   const crossed = await drawingNow();
   const g = crossed.nodes.find((n) => n.id === 'G');
   check('two lines ending short of each other meet at their corner, no new pipe', `${crossed.runs.length} ${crossed.nodes.some((n) => n.id === 'T1')} ${g ? [g.pos.n, g.pos.u].join(',') : 'gone'}`, (v) => v === '6 false 1000,440', '6 runs, T1 merged, corner at N 1000 U 440');
+}
+
+/* ----------------------------------------- socket weld and threaded valves */
+
+// "Add two more valves, socket and threaded, behaving like an item of that
+// kind" (2026-09-24): Ball SW is socket welded to the pipe, two SW welds;
+// Ball Thd is screwed on, marked but no weld; each is named on the list
+// the way fittings of that kind are.
+{
+  await routeLine('2"\nSTD\nORIGIN 0 0 0\nE 3000\nN 1500');
+  check('the palette has Ball SW and Ball Thd', await page.locator('.tool[data-ends]').allInnerTexts(), (v) => v.map((t) => t.trim()).join('|') === 'Ball SW|Ball Thd', 'Ball SW | Ball Thd');
+  const pickRun = async (i) => {
+    const id = (await drawingNow()).runs[i].id;
+    const el = page.locator(`#canvas [data-run="${id}"]`).first();
+    await el.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+    await el.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+    await page.waitForTimeout(250);
+  };
+  await pickRun(0);
+  await page.click('.tool[data-ends="SW"]');
+  await page.waitForTimeout(300);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(150);
+  await pickRun(1);
+  await page.click('.tool[data-ends="THD"]');
+  await page.waitForTimeout(300);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(150);
+  check('each goes in with its ends set', (await drawingNow()).runs.map((r) => r.inline.map((c) => `${c.kind}:${c.ends}`).join()).join(' '), (v) => v === 'BALL:SW BALL:THD', 'BALL:SW BALL:THD');
+  await page.click('#tabs button:has-text("Items")');
+  await page.waitForTimeout(200);
+  const itemsText = await page.locator('#tab-body').innerText();
+  check('named on the list like fittings of their kind', `${itemsText.includes('BALL VALVE SW 3000#')} ${itemsText.includes("BALL VALVE SCR'D 3000#")}`, (v) => v === 'true true', 'BALL VALVE SW 3000# and BALL VALVE SCR\'D 3000#');
+  await page.click('#tabs button:has-text("Welds")');
+  await page.waitForTimeout(200);
+  const rows = await page.locator('#tab-body table tbody tr').allInnerTexts();
+  check('the socket weld valve has two SW welds, the threaded one none', `${rows.filter((r) => /\tSW\t.*BALL VALVE/.test(r)).length} ${rows.filter((r) => /BALL VALVE/.test(r)).length}`, (v) => v === '2 2', '2 2');
+  await page.click('#tabs button:has-text("Route")');
+  await page.waitForTimeout(150);
 }
 
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
