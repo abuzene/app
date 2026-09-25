@@ -1287,15 +1287,32 @@ export function analyse(drawing: Drawing): Analysis {
 
   // Threaded joints are marked on the drawing but are not welds, so the weld
   // numbers run over the welded joints only.
-  let weldNumber = 0;
+  // The numbers run on from the last one typed over (his ask, 2026-09-25:
+  // "renamed TAR 4.8, the next becomes TAR 4.9 and so on"): a typed number
+  // ending in digits sets the prefix and the count; one without digits (a
+  // "-", "FW") is a name of its own and takes no number from the count, so
+  // the ones around it stay consecutive.
+  let prefix = 'W';
+  let next = 1;
   const joints: Weld[] = ordered.map((j) => {
     const override = drawing.weldOverrides[j.key];
     // A joint marked as not welded after all keeps its mark, and the numbers
     // run on past it.
     const skipped = !!override?.skip;
     const welded = j.joint !== 'THD' && !skipped;
-    if (welded) weldNumber += 1;
-    const number = welded ? override?.number ?? `W${weldNumber}` : '';
+    const typed = override?.number?.trim();
+    let number = '';
+    if (welded && typed) {
+      number = typed;
+      const tail = typed.match(/^(.*?)(\d+)$/);
+      if (tail) {
+        prefix = tail[1];
+        next = Number(tail[2]) + 1;
+      }
+    } else if (welded) {
+      number = `${prefix}${next}`;
+      next += 1;
+    }
     return {
       key: j.key,
       number,

@@ -1187,6 +1187,12 @@ function wire(body: HTMLElement, host: Host): void {
       if (number) d.weldOverrides[key] = { ...d.weldOverrides[key], number };
       else delete d.weldOverrides[key];
     }, { keepPanel: true });
+    // The numbers after it run on from it: show them without rebuilding
+    // the list under the field being typed in.
+    const numberOf = new Map(host.state.analysis.joints.map((j) => [j.key, j.number]));
+    body.querySelectorAll<HTMLInputElement>('[data-weld-no]').forEach((other) => {
+      if (other !== document.activeElement) other.value = numberOf.get(other.dataset.weldNo!) ?? other.value;
+    });
   };
   body.querySelectorAll<HTMLInputElement>('[data-weld-no]').forEach((input) => {
     input.addEventListener('change', () => renumber(input.dataset.weldNo!, input.value));

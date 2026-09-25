@@ -638,7 +638,19 @@ ships, and the decisions already taken, so they are not re-litigated.
   names both ends, `90 ELBOW LR / TRANSITION JOINT PE/CS`.
 - Numbered W1… along the route (run order, then distance); THD joints and
   skipped ones are marked but unnumbered. A transition is welded on its
-  CS side only.
+  CS side only. **Numbers run on from the last one typed** (his ask,
+  2026-09-25: "renamed TAR 4.8, the next becomes TAR 4.9"; his sheet read
+  W10, -, W12): a typed number ending in digits sets the prefix and the
+  count for the welds after it; one with no digits ("-", "FW") is a name
+  of its own and takes nothing from the count.
+- **Flange, reducer, flange with no pipe** (same day, HILLEL YAFEH sheet
+  after the FILTER): "No pipe — fittings touch" on a run holding a reducer
+  goes to `closeUpOnItem` in edit.ts (from `setRunDirect`): the end
+  pieces at both ends (terminal, flanged joint, fitting take-out, at each
+  side's size) close up on the reducer's faces; the end standing on
+  equipment (else the start) stays, the other comes in with what lies
+  beyond. `run.direct` is not set; the welds are the two
+  `CON RED … / WELD NECK FLANGE` ones through `itemAtEnd`.
 - Take-outs: `fittingTakeout` (elbow/tee by size), `componentTakeout`
   (valves face-to-face/2 + flange length when flanged, WN flange length,
   transition stub 120), `oletTakeout` (branch only; header loses nothing).

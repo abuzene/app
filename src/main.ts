@@ -1339,6 +1339,8 @@ function renderHud(): void {
     if (onFace) {
       host.select({ kind: 'node', id: onFace });
       host.notify('The end piece sits straight on the fitting: the pipe between them is gone.');
+    } else if (on && state.drawing.runs.find((r) => r.id === id)?.inline.some((c) => isReducer(c.kind))) {
+      host.notify('The ends close up on the reducer: welded straight to it, no pipe between.');
     } else host.notify(on ? 'The fittings are joined directly: one weld, no pipe to cut.' : 'A pipe between the fittings again.');
   });
   hudEl.querySelector('#hud-dashed')?.addEventListener('click', () => {

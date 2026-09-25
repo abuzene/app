@@ -3899,6 +3899,56 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   check('with its flange on, the reducer still drags as one piece', `${after.a > withFlange.a + 50} ${Math.round(after.b - after.a) === Math.round(withFlange.b - withFlange.a)}`, (v) => v === 'true true', 'true true');
 }
 
+/* ------------- flange, reducer, flange with no pipe; weld numbers run on */
+
+// "W10 and W12: I try to draw flange, reducer, flange joined with no pipe
+// and cannot" and "weld numbers consecutive — renamed TAR 4.8, the next is
+// TAR 4.9 and so on" (2026-09-25). On a run holding a reducer between two
+// flanges, No pipe — fittings touch closes both flanges up on its faces.
+{
+  await routeLine('4"\nSTD\nORIGIN 0 0 0\nEND FLG\nE 400\nEND FLG');
+  await page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem('iso-draw.drawing.v1'));
+    d.runs[0].inline = [{ id: 'cred', kind: 'RED_CONC', offset: 200, dn: 'DN100', dn2: 'DN80' }];
+    localStorage.setItem('iso-draw.drawing.v1', JSON.stringify(d));
+  });
+  await page.reload();
+  await page.waitForTimeout(600);
+  await page.click('#fit');
+  await page.waitForTimeout(300);
+  const runHit = page.locator('#canvas line.hit[data-run]').first();
+  await runHit.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await runHit.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await page.waitForTimeout(300);
+  await page.click('#hud-direct');
+  await page.waitForTimeout(400);
+  await page.keyboard.press('Escape');
+  await page.click('#tabs button:has-text("Welds")');
+  await page.waitForTimeout(200);
+  const rows = await page.locator('#tab-body table tbody tr').allInnerTexts();
+  check('fittings touch: both flanges welded straight to the reducer, no pipe', `${rows.filter((r) => /CON RED 4" X 3" \/ WELD NECK FLANGE/.test(r)).length} ${rows.filter((r) => /PIPE \//.test(r)).length}`, (v) => v === '2 0', '2 0');
+  const closed = await drawingNow();
+  check('the start stays, the run is the two flanges and the reducer', closed.nodes.map((n) => Math.round(n.pos.e)).sort((a, b) => a - b)[0], (v) => v === 0, '0');
+
+  // Weld numbers run on from the one typed over.
+  await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 1000\nN 1000\nE 1000\nN 1000\nEND FLG');
+  await page.click('#tabs button:has-text("Welds")');
+  await page.waitForTimeout(200);
+  const numbers = () => page.locator('#tab-body [data-weld-no]').evaluateAll((els) => els.map((e) => e.value).join(' '));
+  const second = page.locator('#tab-body [data-weld-no]').nth(1);
+  await second.fill('TAR 4.8');
+  await second.dispatchEvent('change');
+  await page.waitForTimeout(300);
+  check('renamed TAR 4.8, the welds after it run on TAR 4.9, TAR 4.10…', await numbers(), (v) => v.startsWith('W1 TAR 4.8 TAR 4.9 TAR 4.10'), 'W1 TAR 4.8 TAR 4.9 TAR 4.10 …');
+  const third = page.locator('#tab-body [data-weld-no]').nth(2);
+  await third.fill('-');
+  await third.dispatchEvent('change');
+  await page.waitForTimeout(300);
+  check('a weld named without a number takes none: the others stay consecutive', await numbers(), (v) => v.startsWith('W1 TAR 4.8 - TAR 4.9'), 'W1 TAR 4.8 - TAR 4.9 …');
+  await page.click('#tabs button:has-text("Route")');
+  await page.waitForTimeout(150);
+}
+
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 
 await browser.close();

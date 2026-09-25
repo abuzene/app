@@ -1,7 +1,7 @@
 import type { Axis, ComponentKind, Drawing, EndType, Equipment, FlangeKind, InlineComponent, IsoNode, Measure, Run, TerminalKind, Vec3 } from './types';
 import { AXIS_VECTOR, add, axisBetween, direction, equals3, length3, scale3, step, sub } from './iso';
-import { chainStops, dimensionStops, drawnLength, fittingsTouchLength, minDrawnLength, isMark, isValve, itemAtEnd, oletMarks, resolveEnds, runGroupIds, terminalTakeoutOf, uid, valveOpenSide, type Analysis } from './drawing';
-import { componentTakeout, valveFlangeKind } from './pipe-data';
+import { chainStops, dimensionStops, drawnLength, fittingsTouchLength, reducerSides, isReducer, minDrawnLength, isMark, isValve, itemAtEnd, oletMarks, resolveEnds, runGroupIds, terminalTakeoutOf, uid, valveOpenSide, type Analysis } from './drawing';
+import { componentTakeout, fittingTakeout, valveFlangeKind } from './pipe-data';
 
 /** Finds an existing node at a position, so that routes join rather than overlap. */
 export function findNodeAt(drawing: Drawing, pos: Vec3, tol = 0.5): string | null {
@@ -510,9 +510,59 @@ export function setRunDirect(drawing: Drawing, analysis: Analysis, runId: string
   if (!direct) return null;
   const stub = terminalStub(drawing, run);
   if (stub) return joinTerminalStub(drawing, run, stub);
+  // A reducer between two end pieces: both close up on its faces.
+  if (run.inline.some((c) => !isMark(c.kind))) {
+    run.direct = undefined;
+    closeUpOnItem(drawing, analysis, run);
+    return null;
+  }
   const touch = fittingsTouchLength(drawing, analysis, run);
   if (touch > 0 && Math.abs(runLength(drawing, run) - touch) > 0.5) stretchRun(drawing, runId, touch, 'to');
   return null;
+}
+
+/**
+ * "No pipe — fittings touch" on a run holding one reducer (his ask,
+ * 2026-09-25: "flange, reducer, flange joined with no pipe"): what stands
+ * at each end — a flange, a flanged joint, a cap, a fitting — closes up on
+ * the reducer's faces, so the run is the end pieces and the reducer and no
+ * pipe. The end standing on equipment (or else the start) stays where it
+ * is; the other comes in with everything beyond it.
+ */
+export function closeUpOnItem(drawing: Drawing, analysis: Analysis, run: Run): boolean {
+  const items = run.inline.filter((c) => !isMark(c.kind));
+  if (items.length !== 1 || !isReducer(items[0].kind)) return false;
+  const comp = items[0];
+  const a = drawing.nodes.find((n) => n.id === run.from);
+  const b = drawing.nodes.find((n) => n.id === run.to);
+  if (!a || !b) return false;
+  const sides = reducerSides(comp, run.dn);
+  const backOf = (node: IsoNode, dn: string): number => {
+    if (node.terminal) return terminalTakeoutOf(node.terminal.kind, dn);
+    if (node.flange) return componentTakeout(node.flange, dn);
+    const fitting = analysis.nodeInfo.get(node.id)?.fitting;
+    return fitting && fitting !== 'NONE' && fitting !== 'OLET' ? fittingTakeout(fitting, dn) : 0;
+  };
+  const backA = backOf(a, sides.start);
+  const backB = backOf(b, sides.end);
+  const half = componentTakeout(comp.kind, comp.dn ?? run.dn, false, comp.ff);
+  const length = backA + half * 2 + backB;
+  const current = runLength(drawing, run);
+  if (Math.abs(current - length) < 0.5 && Math.abs(comp.offset - backA - half) < 0.5) return true;
+  const onEquipment = (id: string) => (drawing.equipment ?? []).some((e) => e.next === id || e.stand === id);
+  const keepEnd = onEquipment(b.id) && !onEquipment(a.id);
+  if (Math.abs(current - length) < 0.5) {
+    comp.offset = backA + half;
+    return true;
+  }
+  const was = comp.offset;
+  comp.offset = keepEnd ? current - backB - half : backA + half;
+  if (!stretchRun(drawing, run.id, length, keepEnd ? 'from' : 'to', true)) {
+    comp.offset = was;
+    return false;
+  }
+  comp.offset = backA + half;
+  return true;
 }
 
 /** What a run made dashed says beside it unless typed over. */
