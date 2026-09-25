@@ -563,20 +563,33 @@ export function renderDrawing(state: RenderState): string {
       const dn = comp.dn ?? run.dn;
       // The body reaches its real faces, so what bolts or welds to it sits
       // against it rather than floating off along the pipe.
-      const faceHalf = isValve(comp.kind) || isReducer(comp.kind) ? faceReach(componentTakeout(comp.kind, dn, false, comp.ff), paperPerMm) : undefined;
+      let faceHalf = isValve(comp.kind) || isReducer(comp.kind) ? faceReach(componentTakeout(comp.kind, dn, false, comp.ff), paperPerMm) : undefined;
       // An item welded straight to the flange on the line's end sits against
       // the flange as drawn: its face on the hub, whatever the true lengths.
       if (faceHalf !== undefined) {
-        for (const atStart of [true, false]) {
+        const hubAt = (atStart: boolean): number | null => {
           const endNode = analysis.nodeById.get(atStart ? run.from : run.to);
           const kind = endNode?.terminal?.kind ?? endNode?.flange;
-          if (!kind || kind === 'OPEN' || itemAtEnd(drawing, run, atStart)?.comp.id !== comp.id) continue;
-          const hub = isFlange(kind) ? flangeHub(kind === 'FLG_BLIND' ? 'FLG_WN' : (kind as FlangeKind), size) : 0;
-          const p = atStart ? a : b;
-          const q = atStart ? b : a;
-          const len = Math.hypot(q.x - p.x, q.y - p.y) || 1;
-          const inward = { x: (q.x - p.x) / len, y: (q.y - p.y) / len };
-          f = { ...f, cx: p.x + inward.x * (hub + faceHalf), cy: p.y + inward.y * (hub + faceHalf) };
+          if (!kind || kind === 'OPEN' || itemAtEnd(drawing, run, atStart)?.comp.id !== comp.id) return null;
+          // A flanged joint's pair stands a gap apart: its hub starts past it.
+          const gap = !endNode?.terminal && endNode?.flange ? size * FLANGE_GAP : 0;
+          return isFlange(kind) ? flangeHub(kind === 'FLG_BLIND' ? 'FLG_WN' : (kind as FlangeKind), size) + gap : 0;
+        };
+        const hubA = hubAt(true);
+        const hubB = hubAt(false);
+        const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+        const ux = (b.x - a.x) / len;
+        const uy = (b.y - a.y) / len;
+        if (hubA !== null && hubB !== null) {
+          // Against a flange at both ends (flange, reducer, flange with no
+          // pipe): it fills the room between the two hubs, so no pipe shows
+          // and each weld is on its face (his complaint, 2026-09-26).
+          faceHalf = Math.max(size * 0.4, (len - hubA - hubB) / 2);
+          f = { ...f, cx: a.x + ux * (hubA + faceHalf), cy: a.y + uy * (hubA + faceHalf) };
+        } else if (hubA !== null) {
+          f = { ...f, cx: a.x + ux * (hubA + faceHalf), cy: a.y + uy * (hubA + faceHalf) };
+        } else if (hubB !== null) {
+          f = { ...f, cx: b.x - ux * (hubB + faceHalf), cy: b.y - uy * (hubB + faceHalf) };
         }
       }
       // A valve bolted face to face with the next is drawn with that face on

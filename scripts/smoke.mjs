@@ -4024,6 +4024,21 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   await page.click('#tabs button:has-text("Route")');
   await page.waitForTimeout(150);
   check('flange, reducer, flange after the equipment: welded straight, no pipe', rows.filter((r) => /CON RED .* \/ WELD NECK FLANGE/.test(r)).length, (v) => v === 2, '2');
+  // Drawn so too: the reducer fills the room between the two flange hubs,
+  // no pipe showing at either (his marked-up screenshot, 2026-09-26).
+  const drawnGap = await page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem('iso-draw.drawing.v1'));
+    const run = d.runs.find((r) => r.inline.some((c) => c.kind === 'RED_CONC'));
+    const at = (sel) => {
+      const r = document.querySelector(sel).getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    };
+    const a = at(`#canvas circle.hit-dot[data-node="${run.from}"]`);
+    const b = at(`#canvas circle.hit-dot[data-node="${run.to}"]`);
+    const c = at(`#canvas .component[data-component="${run.inline[0].id}"]`);
+    return Math.round(Math.hypot(c.x - (a.x + b.x) / 2, c.y - (a.y + b.y) / 2));
+  });
+  check('and drawn so: the reducer sits between the two flanges, not against one with pipe at the other', drawnGap, (v) => v <= 3, 'centred within 3 px');
   const after = await drawingNow();
   check('and the box still carries the line drawn on from it', after.equipment[0].next && after.nodes.some((n) => n.id === after.equipment[0].next), (v) => v === true, 'true');
 }

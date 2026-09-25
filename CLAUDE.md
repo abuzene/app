@@ -371,6 +371,13 @@ ships, and the decisions already taken, so they are not re-litigated.
   at that size and the reducer's own weld there is dropped (`onTerminal`),
   `endTakeout` takes the side's size, and the reducer is drawn against the
   hub. `blockOf` accepts such a run, so it still drags with its flange.
+  **Against a flange at both ends** (flange, reducer, flange closed up)
+  the renderer makes the reducer fill the room between the two hubs
+  (`faceHalf` = the room / 2, a flanged joint's hub counted past its
+  `FLANGE_GAP`): it used to sit against the far flange only, so to scale a
+  piece of pipe showed at the near one with its weld dot off the reducer
+  (his marked-up screenshot, 2026-09-26: "here is the end and the weld
+  should be; not here; unwanted pipe").
 - **An item straight on a flange** (`itemAtEnd`/`endDn` in drawing.ts): a
   reducer placed on an end that wears a flange/cap/transition sits against
   it (offset = flange length at the outward size + half), and a flange
