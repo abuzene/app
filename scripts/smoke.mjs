@@ -4043,6 +4043,49 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   check('and the box still carries the line drawn on from it', after.equipment[0].next && after.nodes.some((n) => n.id === after.equipment[0].next), (v) => v === true, 'true');
 }
 
+/* ---------------- flange, reducer, flange not to scale: no pipe drawn */
+
+// His marked-up iPad screenshot (2026-09-26, after the FILTER: "unwanted
+// pipe — want this to be like this"): not to scale a closed-up flange,
+// reducer, flange run was drawn at its true or pencilled length with the
+// reducer at a set size in the middle and pipe drawn either side. It is
+// now drawn as compact as its symbols, the reducer's body reaching both
+// flanges.
+{
+  await routeLine('3"\nSTD\nORIGIN 0 0 0\nEND FLG\nN 206\nEND FLG');
+  await page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem('iso-draw.drawing.v1'));
+    d.options.schematic = true;
+    d.options.sheetScale = 10;
+    d.runs[0].visual = 900;
+    d.runs[0].inline = [{ id: 'cfr', kind: 'RED_CONC', offset: 100, dn: 'DN50', dn2: 'DN80' }];
+    localStorage.setItem('iso-draw.drawing.v1', JSON.stringify(d));
+  });
+  await page.reload();
+  await page.waitForTimeout(600);
+  await page.click('#fit');
+  await page.waitForTimeout(300);
+  const fill = await page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem('iso-draw.drawing.v1'));
+    const run = d.runs[0];
+    const at = (sel) => {
+      const r = document.querySelector(sel).getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width };
+    };
+    const a = at(`#canvas circle.hit-dot[data-node="${run.from}"]`);
+    const b = at(`#canvas circle.hit-dot[data-node="${run.to}"]`);
+    const c = at('#canvas .component[data-component="cfr"]');
+    return c.w / Math.abs(b.x - a.x);
+  });
+  check('not to scale, the reducer between two flanges fills the room: no pipe drawn beside it', Math.round(fill * 100) / 100, (v) => v > 0.5, 'reducer wider than half the room between the flanges');
+  await page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem('iso-draw.drawing.v1'));
+    d.options.schematic = false;
+    d.options.sheetScale = 15;
+    localStorage.setItem('iso-draw.drawing.v1', JSON.stringify(d));
+  });
+}
+
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 
 await browser.close();

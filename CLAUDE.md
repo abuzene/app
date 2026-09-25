@@ -377,7 +377,13 @@ ships, and the decisions already taken, so they are not re-litigated.
   `FLANGE_GAP`): it used to sit against the far flange only, so to scale a
   piece of pipe showed at the near one with its weld dot off the reducer
   (his marked-up screenshot, 2026-09-26: "here is the end and the weld
-  should be; not here; unwanted pipe").
+  should be; not here; unwanted pipe"). The reducer symbol's body now
+  reaches `reach` (its `faceHalf`, where its welds sit) instead of a set
+  0.9 symbols, and not to scale a run with **no pipe at all**
+  (`drawnPieces` has no free pipe segment) is drawn at its floor
+  whatever its true or pencilled length (`drawnLength`): at 206 mm, or
+  pencilled long, the set-size reducer sat mid-run with pipe drawn both
+  sides (his second marked-up screenshot, "want this to be like this").
 - **An item straight on a flange** (`itemAtEnd`/`endDn` in drawing.ts): a
   reducer placed on an end that wears a flange/cap/transition sits against
   it (offset = flange length at the outward size + half), and a flange

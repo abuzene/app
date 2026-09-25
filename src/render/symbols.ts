@@ -536,9 +536,11 @@ export function componentSymbol(kind: ComponentKind, f: Frame, reach?: number, f
     case 'RED_CONC':
       // A set size, with the weld on each end sitting on its end; the large
       // end on the run's start side unless turned round.
-      return concentricReducer(f, s * 0.9, flip ? -1 : 1);
+      // Its body reaches its faces, where its welds (or the flanges welded
+      // straight to it) are: no pipe drawn between (his complaint, 2026-09-26).
+      return concentricReducer(f, reach ?? s * 0.9, flip ? -1 : 1);
     case 'RED_ECC':
-      return eccentricReducer(f, s * 0.9, flip ? -1 : 1);
+      return eccentricReducer(f, reach ?? s * 0.9, flip ? -1 : 1);
     case 'CAP':
       return capSymbol(f, 1);
     case 'UNION':

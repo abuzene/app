@@ -566,6 +566,11 @@ export function drawnLength(drawing: Drawing, run: Run, trueLength: number): num
   // A hair under the floor is the floor: a drag clamped to it once came
   // back 1e-13 short and the run was drawn at its whole length instead.
   const chosen = run.visual !== undefined && run.visual >= minDrawn - 0.5 ? run.visual : undefined;
+  // A run with no pipe in it at all (flange, reducer, flange closed up) is
+  // drawn as compact as its symbols: longer, pipe would show between them.
+  if (run.inline.some((c) => !isMark(c.kind)) && !drawnPieces(drawing, run, trueLength).some((seg) => seg.kind === 'pipe' && !seg.fixed)) {
+    return runDrawnFloor(drawing, run, trueLength);
+  }
   return Math.max(runDrawnFloor(drawing, run), chosen ?? Math.min(trueLength, cap));
 }
 
