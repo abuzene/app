@@ -590,6 +590,20 @@ ships, and the decisions already taken, so they are not re-litigated.
   its printer dialog always adds ~13 mm margins and a URL footer. It is the
   primary button on tablets; browser Print stays for desktop.
 - The toolbar pads for the iPad status bar (`env(safe-area-inset-top)`).
+- **Only the drawing zooms** (his ask, 2026-09-26: "zoom in/out only the
+  sheet, without moving the bars round it"): the viewport has
+  `maximum-scale=1, user-scalable=no`, `html, body` are
+  `touch-action: pan-x pan-y`, and main.ts refuses iOS `gesture*` events
+  and two-finger `touchmove` off `#canvas` (iOS ignores the viewport's
+  no-zoom on its own). The canvas pinch is its own (pointer events).
+- **The equipment outline takes no touches** (`.equip-box` has
+  `pointer-events: none`; the box's hit polygon picks it): its dashed
+  stroke lay right over the point on its far face, so after "Draw on from
+  the far side" that point (and a flange put on it) could not be pressed
+  to draw on or picked (his complaint, 2026-09-26: "after the regulator it
+  won't let me put a flange and carry on"; also why flange–reducer–flange
+  at the FILTER failed). `syncEquipment` re-adopts the box's `next` when
+  that point is merged away (a flange closed up on a reducer there).
 - **`replaceDrawing(next)` in main.ts** is the only way the drawing on
   screen is swapped for another state (New, undo/redo, Open, drag
   snapshots): it deletes every key first. `Object.assign` alone left

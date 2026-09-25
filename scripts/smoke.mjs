@@ -3949,6 +3949,85 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   await page.waitForTimeout(150);
 }
 
+/* ------ after equipment: a flange, draw on, flange-reducer-flange; no page zoom */
+
+// "Zoom only the drawing, not the bars round it"; "flange, reducer, flange
+// with no pipe still not solved"; "after the regulator it won't let me put
+// a flange and carry on" (2026-09-26). The box's dashed outline lay over
+// the point on its far face and took the pen, so that point could not be
+// dragged from or picked.
+{
+  const zoom = await page.evaluate(() => ({
+    meta: document.querySelector('meta[name="viewport"]').getAttribute('content'),
+    touch: getComputedStyle(document.documentElement).touchAction,
+  }));
+  check('the page itself never zooms: only the drawing does', `${/user-scalable=no/.test(zoom.meta)} ${zoom.touch}`, (v) => v === 'true pan-x pan-y', 'true pan-x pan-y');
+
+  await routeLine('2"\nSTD\nORIGIN 0 0 0\nEND FLG\nN 400');
+  const stand = (await drawingNow()).nodes.find((n) => n.pos.n === 400).id;
+  await tapNode(stand);
+  await page.click('.tool[data-equipment]');
+  await page.waitForTimeout(300);
+  await page.click('#hud-equip-draw');
+  await page.waitForTimeout(300);
+  await page.locator('.tool[data-kind="FLG_WN"]').click();
+  await page.waitForTimeout(300);
+  await page.click('#fit');
+  await page.waitForTimeout(300);
+  const farId = (await drawingNow()).nodes.find((n) => n.pos.n > 400).id;
+  const onTop = await page.evaluate((id) => {
+    const r = document.querySelector(`#canvas circle.hit-dot[data-node="${id}"]`).getBoundingClientRect();
+    const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return top?.getAttribute('data-node') ?? top?.getAttribute('class');
+  }, farId);
+  check('the point on the equipment\'s far face takes the pen, not the box outline', onTop, (v) => v === farId, farId);
+  const dot = await page.locator(`#canvas circle.hit-dot[data-node="${farId}"]`).boundingBox();
+  const p0 = { x: dot.x + dot.width / 2, y: dot.y + dot.height / 2 };
+  await pen('mousePressed', p0.x, p0.y);
+  for (let i = 1; i <= 10; i += 1) {
+    await pen('mouseMoved', p0.x + i * 12, p0.y - i * 7);
+    await page.waitForTimeout(30);
+  }
+  await pen('mouseReleased', p0.x + 120, p0.y - 70);
+  await page.waitForTimeout(400);
+  await page.keyboard.press('Escape');
+  check('drawn on from the flange on the far side', (await drawingNow()).runs.filter((r) => r.from === farId || r.to === farId).length, (v) => v === 1, '1 run');
+  // A reducer on its end, a flange on the reducer, then no pipe between.
+  await page.click('#fit');
+  await page.waitForTimeout(300);
+  const tipOf = async () => (await drawingNow()).nodes.reduce((a, n) => (n.pos.n > a.pos.n ? n : a)).id;
+  await tapNode(await tipOf());
+  await page.locator('.tool[data-kind="RED_CONC"]').click();
+  await page.waitForTimeout(300);
+  await page.click('.dialog [data-confirm]');
+  await page.waitForTimeout(400);
+  await page.keyboard.press('Escape');
+  await page.click('#fit');
+  await page.waitForTimeout(300);
+  await tapNode(await tipOf());
+  await page.locator('.tool[data-kind="FLG_WN"]').click();
+  await page.waitForTimeout(300);
+  const before = await drawingNow();
+  const pipeRun = before.runs.find((r) => r.from === farId || r.to === farId);
+  await page.click('#fit');
+  await page.waitForTimeout(300);
+  const runEl = page.locator(`#canvas line.hit[data-run="${pipeRun.id}"]`).first();
+  await runEl.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await runEl.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await page.waitForTimeout(300);
+  await page.click('#hud-direct');
+  await page.waitForTimeout(400);
+  await page.keyboard.press('Escape');
+  await page.click('#tabs button:has-text("Welds")');
+  await page.waitForTimeout(200);
+  const rows = await page.locator('#tab-body table tbody tr').allInnerTexts();
+  await page.click('#tabs button:has-text("Route")');
+  await page.waitForTimeout(150);
+  check('flange, reducer, flange after the equipment: welded straight, no pipe', rows.filter((r) => /CON RED .* \/ WELD NECK FLANGE/.test(r)).length, (v) => v === 2, '2');
+  const after = await drawingNow();
+  check('and the box still carries the line drawn on from it', after.equipment[0].next && after.nodes.some((n) => n.id === after.equipment[0].next), (v) => v === true, 'true');
+}
+
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 
 await browser.close();

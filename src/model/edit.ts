@@ -1299,6 +1299,9 @@ export function syncEquipment(drawing: Drawing): void {
       box.standPos = undefined;
     }
     const own = stand ? pieceOf(drawing, stand.id) : new Set<string>();
+    // Its far-side point merged away (a flange closed up on a reducer
+    // there): the line's end now standing on the far side is adopted.
+    if (box.next && !drawing.nodes.some((n) => n.id === box.next)) box.next = undefined;
     if (!box.next) {
       const axis = AXIS_VECTOR[box.axis];
       let best: { id: string; t: number } | null = null;

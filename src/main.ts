@@ -33,6 +33,20 @@ const fileInput = $<HTMLInputElement>('file-input');
 
 /* ------------------------------------------------------------------ state */
 
+// A pinch zooms the drawing, never the page: iOS zooms the whole page on a
+// pinch that starts off the drawing (its bars and panels too) unless its
+// gesture events are refused, whatever the viewport says.
+for (const type of ['gesturestart', 'gesturechange', 'gestureend']) {
+  document.addEventListener(type, (event) => event.preventDefault(), { passive: false });
+}
+document.addEventListener(
+  'touchmove',
+  (event) => {
+    if (event.touches.length > 1 && !(event.target instanceof Element && event.target.closest('#canvas'))) event.preventDefault();
+  },
+  { passive: false },
+);
+
 const drawing = loadStored() ?? emptyDrawing();
 if (!drawing.id) drawing.id = uid('d');
 uncoverPoints(drawing);
