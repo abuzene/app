@@ -1,7 +1,7 @@
 import type { Axis, ComponentKind, Drawing, EndType, Equipment, FlangeKind, InlineComponent, IsoNode, Measure, Run, TerminalKind, Vec3 } from './types';
 import { AXIS_VECTOR, add, axisBetween, direction, equals3, length3, scale3, step, sub } from './iso';
 import { chainStops, dimensionStops, drawnLength, fittingsTouchLength, reducerSides, isReducer, minDrawnLength, isMark, isValve, itemAtEnd, oletMarks, resolveEnds, runGroupIds, terminalTakeoutOf, uid, valveOpenSide, type Analysis } from './drawing';
-import { componentTakeout, fittingTakeout, valveFlangeKind } from './pipe-data';
+import { componentTakeout, fittingTakeout, sizeOf, valveFlangeKind } from './pipe-data';
 
 /** Finds an existing node at a position, so that routes join rather than overlap. */
 export function findNodeAt(drawing: Drawing, pos: Vec3, tol = 0.5): string | null {
@@ -565,6 +565,26 @@ export function closeUpOnItem(drawing: Drawing, analysis: Analysis, run: Run): b
   return true;
 }
 
+/**
+ * A reducer keeps its large end in `dn`: its length is read from it. One
+ * picked "large 2 in, small 4 in" was measured as a 2 in reducer, 76 mm for
+ * 102, and the flanges closed up on it overlapped it (his HILLEL sheet,
+ * 2026-09-25). Swapped, it is turned about, so each end keeps its size.
+ */
+export function sortReducerSizes(drawing: Drawing): boolean {
+  let changed = false;
+  for (const run of drawing.runs) {
+    for (const comp of run.inline) {
+      if (!isReducer(comp.kind) || !comp.dn || !comp.dn2) continue;
+      if (sizeOf(comp.dn).od >= sizeOf(comp.dn2).od) continue;
+      [comp.dn, comp.dn2] = [comp.dn2, comp.dn];
+      comp.flip = comp.flip ? undefined : true;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 /** What a run made dashed says beside it unless typed over. */
 export const DASHED_NOTE = 'CONT. ON NEXT SHEET';
 
@@ -825,7 +845,13 @@ export function joinThrough(drawing: Drawing, nodeId: string): boolean {
   const turn = (run: Run) => {
     const len = runLength(drawing, run);
     [run.from, run.to] = [run.to, run.from];
-    for (const comp of run.inline) comp.offset = len - comp.offset;
+    for (const comp of run.inline) {
+      comp.offset = len - comp.offset;
+      // Its sides turn with it: a reducer's large end stays where it was
+      // (joining his two pieces after the regulator put 4 in where 2 in was).
+      if (isReducer(comp.kind)) comp.flip = comp.flip ? undefined : true;
+      if (comp.bare !== undefined) comp.bare = comp.bare === 0 ? 1 : 0;
+    }
     run.inline.sort((x, y) => x.offset - y.offset);
   };
   if (a.to !== nodeId) turn(a);
@@ -873,7 +899,7 @@ export function isPlainPoint(drawing: Drawing, nodeId: string): boolean {
  * picked). Returns whether anything changed.
  */
 export function uncoverPoints(drawing: Drawing): boolean {
-  let changed = false;
+  let changed = sortReducerSizes(drawing);
   const joint = drawing.options.joint ?? 'BW';
   for (const node of [...drawing.nodes]) {
     if (node.joint || node.terminal || !isPlainPoint(drawing, node.id)) continue;
@@ -1286,33 +1312,71 @@ export function syncEquipment(drawing: Drawing): void {
   for (const box of drawing.equipment ?? []) {
     // Boxes put down before this was kept: the point under them, and a line
     // starting on their own axis beyond them, are theirs.
+    const axis = AXIS_VECTOR[box.axis];
+    const along = (pos: Vec3): number | null => {
+      const d = sub(pos, box.at);
+      const t = d.e * axis.e + d.n * axis.n + d.u * axis.u;
+      return length3(sub(d, scale3(axis, t))) > 0.5 ? null : t;
+    };
+    const degree = (id: string) => drawing.runs.filter((r) => r.from === id || r.to === id).length;
+    if (box.stand && !drawing.nodes.some((n) => n.id === box.stand)) {
+      box.stand = undefined;
+      box.standPos = undefined;
+    }
     if (!box.stand) {
       const under = drawing.nodes.find((n) => length3(sub(n.pos, box.at)) < 0.5);
       if (under) {
         box.stand = under.id;
         box.standPos = { ...under.pos };
+      } else {
+        // The point it stood on gone (merged, or the end it was on taken
+        // off): the end of the line coming up to it on its own axis is
+        // where it stands, and it goes there. Left where it was, the box
+        // floated off the line and the pipe after it with it (his HILLEL
+        // sheet, 2026-09-25: "after the regulator I should come out of it
+        // and carry on forward").
+        const beyond = box.next && drawing.nodes.some((n) => n.id === box.next) ? pieceOf(drawing, box.next) : new Set<string>();
+        const taken = new Set((drawing.equipment ?? []).map((q) => q.stand).filter(Boolean));
+        let best: { id: string; t: number } | null = null;
+        for (const node of drawing.nodes) {
+          if (beyond.has(node.id) || taken.has(node.id) || degree(node.id) !== 1) continue;
+          const t = along(node.pos);
+          if (t === null || t > 0.5) continue;
+          const run = drawing.runs.find((r) => r.from === node.id || r.to === node.id)!;
+          const other = drawing.nodes.find((n) => n.id === (run.from === node.id ? run.to : run.from));
+          const back = other ? along(other.pos) : null;
+          if (back === null || back >= t) continue;
+          if (!best || t > best.t) best = { id: node.id, t };
+        }
+        if (best) {
+          box.stand = best.id;
+          // From where the box is: it moves on to the point below.
+          box.standPos = { ...box.at };
+        }
       }
     }
     const stand = box.stand ? drawing.nodes.find((n) => n.id === box.stand) : undefined;
-    if (box.stand && !stand) {
-      box.stand = undefined;
-      box.standPos = undefined;
-    }
     const own = stand ? pieceOf(drawing, stand.id) : new Set<string>();
     // Its far-side point merged away (a flange closed up on a reducer
     // there): the line's end now standing on the far side is adopted.
     if (box.next && !drawing.nodes.some((n) => n.id === box.next)) box.next = undefined;
-    if (!box.next) {
-      const axis = AXIS_VECTOR[box.axis];
-      let best: { id: string; t: number } | null = null;
+    // The pieces of line starting on its axis beyond it, up to the next box.
+    const ahead = (): { id: string; t: number }[] => {
+      const limit = Math.min(
+        Infinity,
+        ...(drawing.equipment ?? []).filter((q) => q !== box).map((q) => along(q.at) ?? Infinity).filter((t) => t > 0.5),
+      );
+      const found: { id: string; t: number }[] = [];
       for (const node of drawing.nodes) {
-        if (own.has(node.id)) continue;
-        const d = sub(node.pos, box.at);
-        const t = d.e * axis.e + d.n * axis.n + d.u * axis.u;
-        if (t <= 0.5 || length3(sub(d, scale3(axis, t))) > 0.5) continue;
-        if (drawing.runs.filter((r) => r.from === node.id || r.to === node.id).length > 1) continue;
-        if (!best || t < best.t) best = { id: node.id, t };
+        if (own.has(node.id) || degree(node.id) > 1) continue;
+        const t = along(node.pos);
+        if (t === null || t <= 0.5 || t >= limit) continue;
+        found.push({ id: node.id, t });
       }
+      return found.sort((x, y) => x.t - y.t);
+    };
+    if (!box.next) {
+      const best = ahead()[0];
       if (best) box.next = best.id;
     }
     // The box goes with its point.
@@ -1328,7 +1392,11 @@ export function syncEquipment(drawing: Drawing): void {
     if (next && !own.has(next.id)) {
       const shift = sub(equipmentFarSide(box), next.pos);
       if (length3(shift) > 1e-6) {
+        // Every piece beyond it goes too, not only the one drawn on from
+        // its far side: a second piece further along stayed put and the
+        // gap between them opened up.
         const piece = pieceOf(drawing, next.id);
+        for (const other of ahead()) if (!piece.has(other.id)) for (const id of pieceOf(drawing, other.id)) piece.add(id);
         for (const node of drawing.nodes) if (piece.has(node.id)) node.pos = add(node.pos, shift);
       }
     }
@@ -1350,6 +1418,8 @@ export function applyReducer(drawing: Drawing, compId: string, large: string, sm
   const run = drawing.runs.find((r) => r.inline.some((c) => c.id === compId));
   const comp = run?.inline.find((c) => c.id === compId);
   if (!run || !comp) return;
+  // Picked the other way round: the same reducer turned about.
+  if (sizeOf(large).od < sizeOf(small).od) [large, small, flip] = [small, large, !flip];
   comp.dn = large;
   comp.dn2 = small;
   comp.flip = flip || undefined;

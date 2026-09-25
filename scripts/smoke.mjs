@@ -4052,13 +4052,14 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
 // now drawn as compact as its symbols, the reducer's body reaching both
 // flanges.
 {
-  await routeLine('3"\nSTD\nORIGIN 0 0 0\nEND FLG\nN 206\nEND FLG');
+  // 3" flange 68 + 3" x 2" reducer 89 + 2" flange 62, closed up.
+  await routeLine('3"\nSTD\nORIGIN 0 0 0\nEND FLG\nN 219\nEND FLG');
   await page.evaluate(() => {
     const d = JSON.parse(localStorage.getItem('iso-draw.drawing.v1'));
     d.options.schematic = true;
     d.options.sheetScale = 10;
     d.runs[0].visual = 900;
-    d.runs[0].inline = [{ id: 'cfr', kind: 'RED_CONC', offset: 100, dn: 'DN50', dn2: 'DN80' }];
+    d.runs[0].inline = [{ id: 'cfr', kind: 'RED_CONC', offset: 112.5, dn: 'DN80', dn2: 'DN50' }];
     localStorage.setItem('iso-draw.drawing.v1', JSON.stringify(d));
   });
   await page.reload();
@@ -4084,6 +4085,104 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
     d.options.sheetScale = 15;
     localStorage.setItem('iso-draw.drawing.v1', JSON.stringify(d));
   });
+}
+
+/* ------ the reducer too stretched; out of the regulator and on forward */
+
+// "The reducer's shape is too stretched" and "after the regulator I drew,
+// but from the other side; I should come out of the regulator and carry
+// on forward" (HILLEL YAFEH sheet, 2026-09-25). A flange, reducer, flange
+// run with no pipe was drawn at the six-symbol floor, the reducer filling
+// it half as long again as anywhere else; two of his reducers were stored
+// small end first and measured 76 mm for 102; and the REGULATUR box had
+// lost the point it stood on and floated off the line, the pipe after it
+// with it.
+{
+  const base = {
+    version: 1,
+    meta: {},
+    options: { snap: 10, scale: 0.06, schematic: true, schematicLength: 1500, showDimensions: true, showWelds: true, showItems: true, showNodeLabels: true, showGrid: true, joint: 'BW', pipeSchedule: 'SCH40', fittingThickness: 'STD', sheetScale: 10 },
+    id: 'dstretch',
+  };
+  const node = (id, n, e = 0, terminal) => ({ id, pos: { e, n, u: 0 }, ...(terminal ? { terminal: { kind: terminal } } : {}) });
+  const drawing = {
+    ...base,
+    nodes: [node('ra', 0, 0, 'FLG_WN'), node('rb', 213, 0, 'FLG_WN'), node('pa', 0, 1500), node('pb', 1500, 1500)],
+    runs: [
+      // Small end first, as his were: large 2", small 4".
+      { id: 'rr', from: 'ra', to: 'rb', dn: 'DN100', schedule: 'SCH40', inline: [{ id: 'cr', kind: 'RED_CONC', offset: 70, dn: 'DN50', dn2: 'DN100', flip: true }] },
+      { id: 'rp', from: 'pa', to: 'pb', dn: 'DN100', schedule: 'SCH40', inline: [{ id: 'cp', kind: 'RED_CONC', offset: 750, dn: 'DN100', dn2: 'DN50' }] },
+    ],
+  };
+  await page.evaluate((d) => localStorage.setItem('iso-draw.drawing.v1', JSON.stringify(d)), drawing);
+  await page.reload();
+  await page.waitForTimeout(600);
+  const sorted = (await drawingNow()).runs[0].inline[0];
+  check('a reducer picked small end first is kept large end first, turned about', `${sorted.dn} ${sorted.dn2} ${sorted.flip}`, (v) => v === 'DN100 DN50 undefined', 'DN100 DN50 undefined');
+  await page.click('#fit');
+  await page.waitForTimeout(300);
+  const runHit = page.locator('#canvas line.hit[data-run="rr"]').first();
+  await runHit.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await runHit.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await page.waitForTimeout(300);
+  await page.click('#hud-direct');
+  await page.waitForTimeout(400);
+  await page.keyboard.press('Escape');
+  const closed = await drawingNow();
+  const len = Math.round(closed.nodes.find((n) => n.id === 'rb').pos.n - closed.nodes.find((n) => n.id === 'ra').pos.n);
+  check('closed up, the run is 4" flange + 4" x 2" reducer (102) + 2" flange', len, (v) => v === 75 + 102 + 62, String(75 + 102 + 62));
+  const widths = await page.evaluate(() => ['cr', 'cp'].map((id) => document.querySelector(`#canvas .component[data-component="${id}"]`).getBoundingClientRect().width));
+  check('the reducer between two flanges is drawn its usual size, not stretched', Math.round((widths[0] / widths[1]) * 100) / 100, (v) => v < 1.15 && v > 0.85, 'about as wide as a reducer in a pipe');
+
+  // The box that lost its point: back on the line's end, the pipe after it
+  // coming out of its far side, and the piece further on with it.
+  const boxed = {
+    ...base,
+    id: 'dregul',
+    nodes: [node('la', 0), node('lb', 500, 0, 'FLG_WN'), node('na', 950, 0, 'FLG_WN'), node('nb', 1250), node('ma', 1266), node('mb', 1600)],
+    runs: [
+      { id: 'l1', from: 'la', to: 'lb', dn: 'DN80', schedule: 'SCH40', inline: [] },
+      { id: 'n1', from: 'na', to: 'nb', dn: 'DN80', schedule: 'SCH40', inline: [] },
+      // Drawn from its far end, its reducer's large (3") end towards the box.
+      { id: 'm1', from: 'mb', to: 'ma', dn: 'DN50', schedule: 'SCH40', inline: [{ id: 'cm', kind: 'RED_CONC', offset: 234, dn: 'DN80', dn2: 'DN50', flip: true }] },
+    ],
+    equipment: [{ id: 'qreg', at: { e: 0, n: 800, u: 0 }, axis: 'N', across: 'E', length: 150, width: 150, name: 'REGULATOR', next: 'na' }],
+  };
+  await page.evaluate((d) => localStorage.setItem('iso-draw.drawing.v1', JSON.stringify(d)), boxed);
+  await page.reload();
+  await page.waitForTimeout(600);
+  const seated = await drawingNow();
+  const at = (id) => seated.nodes.find((n) => n.id === id).pos.n;
+  check('a box that lost its point stands again on the end of the line coming up to it', `${seated.equipment[0].stand} ${seated.equipment[0].at.n}`, (v) => v === 'lb 500', 'lb 500');
+  check('and the pipe after it comes out of its far side, the piece further on with it', `${at('na')} ${at('ma')}`, (v) => v === '650 966', '650 966');
+  const drawnOk = await page.evaluate(() => {
+    const c = (id) => {
+      const r = document.querySelector(`#canvas circle.hit-dot[data-node="${id}"]`).getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    };
+    const [lb, na] = [c('lb'), c('na')];
+    return Math.round(Math.hypot(na.x - lb.x, na.y - lb.y));
+  });
+  check('drawn so: the line after the box starts across the box from the line before it', drawnOk, (v) => v > 5 && v < 120, 'close, one box apart');
+  // Joined to the piece before it, the run with the reducer is turned
+  // round: the reducer's large end stays where it was.
+  const tapNode = async (id) => {
+    const dot = page.locator(`#canvas circle.hit-dot[data-node="${id}"]`).first();
+    await dot.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+    await dot.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true }, { timeout: 1000 }).catch(() => page.mouse.up());
+    await page.waitForTimeout(300);
+  };
+  await tapNode('nb');
+  await page.click('#hud-join');
+  await tapNode('ma');
+  await page.keyboard.press('Escape');
+  const joined = await drawingNow();
+  const red = joined.runs.find((r) => r.inline.some((c) => c.id === 'cm'));
+  const comp = red.inline.find((c) => c.id === 'cm');
+  const pos = (id) => joined.nodes.find((n) => n.id === id).pos.n;
+  const largeAt = comp.flip ? pos(red.to) : pos(red.from);
+  const smallAt = comp.flip ? pos(red.from) : pos(red.to);
+  check('joined, one line out of the box, the reducer\'s 3" end still towards the box', `${joined.runs.length} ${largeAt < smallAt}`, (v) => v === '2 true', '2 true');
 }
 
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');

@@ -10,7 +10,7 @@ import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, noteRem
 import { AXES, AXIS_VECTOR, add, length3, scale3, sub } from './model/iso';
 import { initialCommandState, runCommands } from './model/commands';
 import { addMeasure, applyMeasureToOlet, DASHED_NOTE, deleteRunGroup, measureTypeable, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, ensureNode, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, runLength, setRunDashed, setRunDirect, startFromEquipment, stretchRun, syncEquipment, uncoverPoints } from './model/edit';
-import { DN_LIST, schedulesFor, sizeLabel } from './model/pipe-data';
+import { DN_LIST, schedulesFor, sizeLabel, sizeOf } from './model/pipe-data';
 import { northArrow, paperOf, renderDrawing, symbolSizeFor } from './render/renderer';
 import { SHEET_STAMPS, renderSheet, sheetStamp, sheetSymbolSize, type SheetSize } from './render/sheet';
 import { Canvas } from './ui/canvas';
@@ -49,7 +49,18 @@ document.addEventListener(
 
 const drawing = loadStored() ?? emptyDrawing();
 if (!drawing.id) drawing.id = uid('d');
+const asLoaded = JSON.stringify(drawing);
+syncEquipment(drawing);
 uncoverPoints(drawing);
+// A sheet put right on opening (a box back on its line, a reducer's sizes
+// in order) is kept so, not only shown so.
+if (JSON.stringify(drawing) !== asLoaded) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(drawing));
+  } catch {
+    // Storage unavailable: the next edit keeps it.
+  }
+}
 
 const state: AppState = {
   drawing,
@@ -1716,7 +1727,9 @@ for (const [id, key] of [
 function replaceDrawing(next: Drawing): void {
   for (const key of Object.keys(state.drawing)) delete (state.drawing as unknown as Record<string, unknown>)[key];
   Object.assign(state.drawing, next);
-  // An older sheet may have a valve lying across a point: joined through.
+  // An older sheet may have a valve lying across a point: joined through;
+  // a box that lost the point it stood on is put back on its line.
+  syncEquipment(state.drawing);
   uncoverPoints(state.drawing);
 }
 
@@ -2249,10 +2262,11 @@ function reducerDialog(ask: ReducerAsk): Promise<ReducerChoice | null> {
       resolve(answer);
     };
     backdrop.querySelector('[data-confirm]')?.addEventListener('click', () =>
+      // Large and small picked the other way round: the same reducer turned about.
       close({
-        large: large.value,
-        small: small.value,
-        largeOutward,
+        ...(sizeOf(large.value).od < sizeOf(small.value).od
+          ? { large: small.value, small: large.value, largeOutward: !largeOutward }
+          : { large: large.value, small: small.value, largeOutward }),
         drawOn: ask.drawOn && (field<HTMLInputElement>('red-drawon')?.checked ?? false),
       }),
     );

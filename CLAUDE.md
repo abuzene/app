@@ -384,6 +384,15 @@ ships, and the decisions already taken, so they are not re-litigated.
   whatever its true or pencilled length (`drawnLength`): at 206 mm, or
   pencilled long, the set-size reducer sat mid-run with pipe drawn both
   sides (his second marked-up screenshot, "want this to be like this").
+  That floor is the **sum of its symbols** (hubs + reducer), not the
+  six-symbol `minDrawnLength`: held to six, the reducer filled it half as
+  long again ("the reducer's shape is too stretched", 2026-09-25).
+  **A reducer keeps its large end in `comp.dn`**: its length is read from
+  it (`componentTakeout` → `reducerLength(dn, dn)`). The dialog let him
+  pick "large 2 in, small 4 in", measured 76 mm for 102, and the flanges
+  closed up on it overlapped it. The dialog, `applyReducer` and
+  `sortReducerSizes` (on load, via `uncoverPoints`) swap such a pair and
+  turn it about (`flip`), so each end keeps its size.
 - **An item straight on a flange** (`itemAtEnd`/`endDn` in drawing.ts): a
   reducer placed on an end that wears a flange/cap/transition sits against
   it (offset = flange length at the outward size + half), and a flange
@@ -617,6 +626,19 @@ ships, and the decisions already taken, so they are not re-litigated.
   won't let me put a flange and carry on"; also why flange–reducer–flange
   at the FILTER failed). `syncEquipment` re-adopts the box's `next` when
   that point is merged away (a flange closed up on a reducer there).
+  A box whose `stand` point is gone (or never set, nothing at `at`) stands
+  on the **end of the line coming up to it** on its own axis (degree 1,
+  its run coming from behind, not another box's stand, nearest) and moves
+  there; and every piece starting on its axis beyond it, up to the next
+  box, moves with it, not only the one at `next` (his HILLEL sheet,
+  2026-09-25: REGULATUR floated at 1270 off the line ending at 950.5, the
+  pipe after it in two pieces 16 mm apart: "I should come out of the
+  regulator and carry on forward"). `syncEquipment` also runs on load and
+  in `replaceDrawing`, and a sheet it (or `uncoverPoints`) put right on
+  opening is written back at once. Two pieces left apart are joined by
+  hand (Join to another end). `joinThrough` turning a run round turns its
+  items' sides too (a reducer's `flip`, `bare`): joining his two pieces
+  put the 4 in end where the 2 in was.
 - **`replaceDrawing(next)` in main.ts** is the only way the drawing on
   screen is swapped for another state (New, undo/redo, Open, drag
   snapshots): it deletes every key first. `Object.assign` alone left

@@ -568,8 +568,14 @@ export function drawnLength(drawing: Drawing, run: Run, trueLength: number): num
   const chosen = run.visual !== undefined && run.visual >= minDrawn - 0.5 ? run.visual : undefined;
   // A run with no pipe in it at all (flange, reducer, flange closed up) is
   // drawn as compact as its symbols: longer, pipe would show between them.
-  if (run.inline.some((c) => !isMark(c.kind)) && !drawnPieces(drawing, run, trueLength).some((seg) => seg.kind === 'pipe' && !seg.fixed)) {
-    return runDrawnFloor(drawing, run, trueLength);
+  // Its symbols' own widths, not the six-symbol floor: held to that, the
+  // reducer between two flanges was drawn half as long again (his
+  // complaint, 2026-09-25: "the reducer's shape is too stretched").
+  if (run.inline.some((c) => !isMark(c.kind))) {
+    const segs = drawnPieces(drawing, run, trueLength);
+    if (!segs.some((seg) => seg.kind === 'pipe' && !seg.fixed)) {
+      return Math.max(SYMBOL_MM * (drawing.options.sheetScale ?? 15), segs.reduce((sum, seg) => sum + seg.min, 0));
+    }
   }
   return Math.max(runDrawnFloor(drawing, run), chosen ?? Math.min(trueLength, cap));
 }
