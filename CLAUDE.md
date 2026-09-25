@@ -351,6 +351,26 @@ ships, and the decisions already taken, so they are not re-litigated.
   `jointAt` also matches joints by position. Turning the line right at a
   reducer's face (an elbow on the reducer) is not handled: the elbow's
   take-out wins and the reducer's welds get no pipe.
+  **Dragged like a tee** (his ask, 2026-09-25: "does a reducer behave like
+  a tee — put in a line, dragged, the pipe split in two"): a reducer in a
+  run of its own with a straight run on each side (`blockOf` in main.ts)
+  moves as one piece whether its body or either face point is dragged
+  (`slideBlock`, from `onSlideComponent`/`onSlideNode`; `blockAt` finds
+  the reducer of a face point). To scale both face points move and the
+  runs either side change (`slideBlockTrue`, items on them keep their
+  place, stopped by `roomOn`); not to scale the two sides share their
+  drawn total (`slideBlockDrawn`). Taken hold of where the pen went down.
+  **A flange straight on its face mid-line** (same ask): a WN/SW/THD flange
+  picked with a reducer's face point selected goes through
+  `flangeOnItemFace` in edit.ts: the point (now the joint's gasket) slides
+  into the pipe beyond by the flange length at the reducer's end size
+  (`stretchRun` through the point; moves what lies beyond only if there is
+  no pipe to spare). `itemAtEnd` now also counts a flanged joint on the
+  point (`node.flange`, back = its length at the side size), so the
+  `n:<node>:flg:<run>` weld is named `CON RED 4" X 3" / WELD NECK FLANGE`
+  at that size and the reducer's own weld there is dropped (`onTerminal`),
+  `endTakeout` takes the side's size, and the reducer is drawn against the
+  hub. `blockOf` accepts such a run, so it still drags with its flange.
 - **An item straight on a flange** (`itemAtEnd`/`endDn` in drawing.ts): a
   reducer placed on an end that wears a flange/cap/transition sits against
   it (offset = flange length at the outward size + half), and a flange

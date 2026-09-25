@@ -1,7 +1,7 @@
 import type { ComponentKind, FlangeKind, JointType, Run, TerminalKind } from '../model/types';
 import type { Host } from './types';
 import { COMPONENT_LABEL, TERMINAL_LABEL, chainStops, dimensionStops, isMark, itemHalf, isValve, oletEntries, oletLegs, oletMarks, resolveEnds, terminalTakeoutOf, valveOpenSide } from '../model/drawing';
-import { addComponent, addEquipment, addFlangeJoint, applyReducer, boltValveOnEnd, runLength, setLastFlange, setTerminal, splitRun } from '../model/edit';
+import { addComponent, addEquipment, addFlangeJoint, flangeOnItemFace, applyReducer, boltValveOnEnd, runLength, setLastFlange, setTerminal, splitRun } from '../model/edit';
 import { axisBetween } from '../model/iso';
 import { DN_LIST, componentTakeout, fittingTakeout, sizeLabel, valveFlangeKind } from '../model/pipe-data';
 import { isFlange } from '../render/symbols';
@@ -370,6 +370,8 @@ function place(host: Host, kind: ComponentKind, ends?: 'SW' | 'THD'): void {
       }
       if (info.fitting === 'NONE' && info.degree === 2) {
         host.edit(`Flange joint: ${label}`, (d) => {
+          // On a reducer's face the flange is welded straight to it.
+          if (flangeOnItemFace(d, nodeId, kind)) return;
           const node = d.nodes.find((n) => n.id === nodeId);
           if (node) node.flange = kind;
         });

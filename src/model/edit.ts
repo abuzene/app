@@ -188,6 +188,34 @@ export function addFlangeJoint(drawing: Drawing, runId: string, distance: number
 }
 
 /**
+ * A flange put on a point an item's face sits on (a reducer in a run of its
+ * own, in the middle of a line): the flange is welded straight to the item,
+ * so the point — now the joint's gasket — moves out by the flange's length
+ * at the item's end size into the pipe beyond it (which gets shorter), and
+ * the item and everything else stay
+ * (his ask, 2026-09-25: "a reducer straight on a flange"). False when no
+ * item's face is on the point.
+ */
+export function flangeOnItemFace(drawing: Drawing, nodeId: string, kind: FlangeKind): boolean {
+  const node = drawing.nodes.find((n) => n.id === nodeId);
+  if (!node || node.terminal) return false;
+  for (const run of drawing.runs.filter((r) => r.from === nodeId || r.to === nodeId)) {
+    const atStart = run.from === nodeId;
+    const meets = itemAtEnd(drawing, run, atStart);
+    if (!meets || meets.face > 0.5) continue;
+    const len = componentTakeout(kind, meets.dn);
+    // The flange takes its length out of the pipe beyond the point, which
+    // slides along; with no pipe to spare there, what lies beyond moves out.
+    const grown = runLength(drawing, run) + len;
+    const side = atStart ? 'from' : 'to';
+    if (len > 0.5 && !stretchRun(drawing, run.id, grown, side) && !stretchRun(drawing, run.id, grown, side, true)) return false;
+    node.flange = kind;
+    return true;
+  }
+  return false;
+}
+
+/**
  * Where along a run a point sits, as a distance from its start. Used to place
  * and then slide the things that sit in the line.
  */

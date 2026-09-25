@@ -255,7 +255,9 @@ export function itemAtEnd(
     const sides = reducerSides(comp, run.dn);
     const sideDn = isReducer(comp.kind) ? (atStart ? sides.start : sides.end) : dn;
     const face = atStart ? comp.offset - half : total - comp.offset - half;
-    if (Math.abs(face - terminalTakeoutOf(node.terminal?.kind, sideDn)) < 0.5) return { comp, dn: sideDn, face };
+    // Against the end piece, or the flange of a flanged joint on the point.
+    const back = node.terminal ? terminalTakeoutOf(node.terminal.kind, sideDn) : node.flange ? componentTakeout(node.flange, sideDn) : 0;
+    if (Math.abs(face - back) < 0.5) return { comp, dn: sideDn, face };
   }
   return null;
 }
@@ -387,8 +389,8 @@ export function fittingsTouchLength(drawing: Drawing, analysis: Analysis, run: R
   const a = analysis.nodeById.get(run.from);
   const b = analysis.nodeById.get(run.to);
   return (
-    endTakeout(analysis.nodeInfo.get(run.from), run) +
-    endTakeout(analysis.nodeInfo.get(run.to), run) +
+    endTakeout(analysis.nodeInfo.get(run.from), run, endDn(drawing, run, true)) +
+    endTakeout(analysis.nodeInfo.get(run.to), run, endDn(drawing, run, false)) +
     (a ? terminalTakeout(a, endDn(drawing, run, true)) : 0) +
     (b ? terminalTakeout(b, endDn(drawing, run, false)) : 0)
   );
@@ -628,7 +630,8 @@ function drawnPieces(drawing: Drawing, run: Run, trueLength: number) {
     // Against the flange on the line's end: that flange's hub, no pipe.
     const onEnd = first && itemAtEnd(drawing, run, true)?.comp.id === comp.id;
     const startNode = drawing.nodes.find((n) => n.id === run.from);
-    const termHub = startNode?.terminal && isFlange(startNode.terminal.kind) ? (startNode.terminal.kind === 'FLG_SW' || startNode.terminal.kind === 'FLG_THD' ? 0.7 : 1.1) * s : 0;
+    const startKind = startNode?.terminal?.kind ?? startNode?.flange;
+    const termHub = startKind && isFlange(startKind) ? (startKind === 'FLG_SW' || startKind === 'FLG_THD' ? 0.7 : 1.1) * s : 0;
     if (onEnd) segs.push({ kind: 'pipe', lo: cursor, hi: lo, min: termHub, fixed: true });
     else if (gap <= 0.5) segs.push({ kind: 'pipe', lo: cursor, hi: lo, min: 0, fixed: true });
     else segs.push({ kind: 'pipe', lo: cursor, hi: lo, min: PIECE_SYMBOLS * s + (first ? endOf(run.from) : 0), fixed: false });
@@ -639,7 +642,8 @@ function drawnPieces(drawing: Drawing, run: Run, trueLength: number) {
   const last = items[items.length - 1];
   const endNode = drawing.nodes.find((n) => n.id === run.to);
   const onEnd = !!last && itemAtEnd(drawing, run, false)?.comp.id === last.id;
-  const termHub = endNode?.terminal && isFlange(endNode.terminal.kind) ? (endNode.terminal.kind === 'FLG_SW' || endNode.terminal.kind === 'FLG_THD' ? 0.7 : 1.1) * s : 0;
+  const endKind = endNode?.terminal?.kind ?? endNode?.flange;
+  const termHub = endKind && isFlange(endKind) ? (endKind === 'FLG_SW' || endKind === 'FLG_THD' ? 0.7 : 1.1) * s : 0;
   if (onEnd) segs.push({ kind: 'pipe', lo: cursor, hi: trueLength, min: termHub, fixed: true });
   else if (items.length > 0 && gap <= 0.5) segs.push({ kind: 'pipe', lo: cursor, hi: trueLength, min: 0, fixed: true });
   else segs.push({ kind: 'pipe', lo: cursor, hi: trueLength, min: PIECE_SYMBOLS * s + (items.length > 0 ? endOf(run.to) : 0), fixed: false });
@@ -788,11 +792,12 @@ function layout(drawing: Drawing, nodeById: Map<string, IsoNode>, adjacency: Map
  * because the olet sits on the header rather than in it, and the branch pays
  * for the whole thing.
  */
-function endTakeout(info: NodeInfo | undefined, run: Run): number {
+function endTakeout(info: NodeInfo | undefined, run: Run, dn = run.dn): number {
   if (!info) return 0;
   // A flanged joint: the pipe stops at the flange face, and the flange itself
-  // is what fills the length from there to the weld.
-  if (info.node.flange) return componentTakeout(info.node.flange, run.dn);
+  // is what fills the length from there to the weld — at the size of the
+  // item's end when an item (a reducer) is welded straight to it.
+  if (info.node.flange) return componentTakeout(info.node.flange, dn);
   if (info.fitting !== 'OLET') return fittingTakeout(info.fitting, run.dn);
   const legs = oletLegs(info);
   if (!legs) return 0;
@@ -969,7 +974,7 @@ export function analyse(drawing: Drawing): Analysis {
     const centre = length3(sub(b.pos, a.pos));
     const fromInfo = nodeInfo.get(run.from);
     const toInfo = nodeInfo.get(run.to);
-    let cut = centre - endTakeout(fromInfo, run) - endTakeout(toInfo, run);
+    let cut = centre - endTakeout(fromInfo, run, endDn(drawing, run, true)) - endTakeout(toInfo, run, endDn(drawing, run, false));
     // Fittings joined to each other directly: there is no pipe to cut.
     if (run.direct) cut = -1;
     cut -= terminalTakeout(a, endDn(drawing, run, true)) + terminalTakeout(b, endDn(drawing, run, false));
@@ -990,7 +995,7 @@ export function analyse(drawing: Drawing): Analysis {
     // Nothing left to cut between two fittings: they meet, and there is one
     // weld between them — whether the run was marked so or is simply that
     // short. Two welds on one spot, one to be struck off by hand, is no use.
-    const ends = endTakeout(fromInfo, run) + endTakeout(toInfo, run) + terminalTakeout(a, endDn(drawing, run, true)) + terminalTakeout(b, endDn(drawing, run, false));
+    const ends = endTakeout(fromInfo, run, endDn(drawing, run, true)) + endTakeout(toInfo, run, endDn(drawing, run, false)) + terminalTakeout(a, endDn(drawing, run, true)) + terminalTakeout(b, endDn(drawing, run, false));
     if (run.direct || (run.inline.length === 0 && cut <= 0.5 && ends > 0.5)) touching.add(run.id);
     if (cut < 0) {
       warnings.push(`Run ${sizeLabel(run.dn)} of ${Math.round(centre)} mm is shorter than its fittings require.`);
@@ -1063,7 +1068,7 @@ export function analyse(drawing: Drawing): Analysis {
       };
       // The weld is where the two meet: the first one's take-out along the
       // run, or half way when that does not fall inside it.
-      const meet = endTakeout(nodeInfo.get(run.from), run) + terminalTakeout(a, endDn(drawing, run, true));
+      const meet = endTakeout(nodeInfo.get(run.from), run, endDn(drawing, run, true)) + terminalTakeout(a, endDn(drawing, run, true));
       const at = meet > 0.5 && meet < total - 0.5 ? meet : total / 2;
       pushJoint(
         `d:${run.id}`,
@@ -1172,14 +1177,18 @@ export function analyse(drawing: Drawing): Analysis {
         // its own pipe a flange length back from the joint.
         const joint = flangeJoint(node.flange);
         if (joint) {
-          const back = componentTakeout(node.flange, run.dn);
+          // An item welded straight to this side's flange (a reducer on its
+          // face): one weld between them, named for both, at its end's size.
+          const meets = itemAtEnd(drawing, run, atStart);
+          const dnAt = meets?.dn ?? run.dn;
+          const back = componentTakeout(node.flange, dnAt);
           const at = atStart ? back : total - back;
           pushJoint(
             `n:${node.id}:flg:${run.id}`,
             joint,
-            run.dn,
+            dnAt,
             run.schedule,
-            `PIPE / ${COMPONENT_LABEL[node.flange] ?? node.flange}`,
+            `${meets ? inlineLabel(meets.comp, run.dn) : 'PIPE'} / ${COMPONENT_LABEL[node.flange] ?? node.flange}`,
             add(a.pos, scale3(dir, at)),
             facing,
             idx,
@@ -1232,7 +1241,7 @@ export function analyse(drawing: Drawing): Analysis {
       // Against the line's end piece, the weld to it is that piece's own.
       const onTerminal = (atStart: boolean): boolean => {
         const end = atStart ? a : b;
-        const kind = end.terminal?.kind;
+        const kind = end.terminal?.kind ?? end.flange;
         if (!kind || !terminalJoint(kind, pointJoint(end))) return false;
         return itemAtEnd(drawing, run, atStart)?.comp.id === comp.id;
       };
@@ -1337,8 +1346,8 @@ export function analyse(drawing: Drawing): Analysis {
     const terminalBack = (node: IsoNode) => terminalTakeout(node, endDn(drawing, run, node.id === run.from));
     const fromInfo = nodeInfo.get(run.from);
     const toInfo = nodeInfo.get(run.to);
-    const start = endTakeout(fromInfo, run) + terminalBack(a);
-    const finish = total - endTakeout(toInfo, run) - terminalBack(b);
+    const start = endTakeout(fromInfo, run, endDn(drawing, run, true)) + terminalBack(a);
+    const finish = total - endTakeout(toInfo, run, endDn(drawing, run, false)) - terminalBack(b);
     const taken: [number, number][] = [];
     for (const comp of run.inline) {
       const dn = comp.dn ?? run.dn;

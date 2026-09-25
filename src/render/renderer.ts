@@ -569,7 +569,7 @@ export function renderDrawing(state: RenderState): string {
       if (faceHalf !== undefined) {
         for (const atStart of [true, false]) {
           const endNode = analysis.nodeById.get(atStart ? run.from : run.to);
-          const kind = endNode?.terminal?.kind;
+          const kind = endNode?.terminal?.kind ?? endNode?.flange;
           if (!kind || kind === 'OPEN' || itemAtEnd(drawing, run, atStart)?.comp.id !== comp.id) continue;
           const hub = isFlange(kind) ? flangeHub(kind === 'FLG_BLIND' ? 'FLG_WN' : (kind as FlangeKind), size) : 0;
           const p = atStart ? a : b;

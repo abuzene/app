@@ -1,10 +1,10 @@
 import './styles.css';
-import type { Axis, Drawing, Run, Vec3 } from './model/types';
+import type { Axis, Drawing, InlineComponent, Run, Vec3 } from './model/types';
 import type { Preview, Selection } from './render/renderer';
 import type { AppState, Host, OletAsk, OletChoice, ReducerAsk, ReducerChoice } from './ui/types';
 import { reducerPreview } from './ui/reducer-preview';
 import { tidyLayout, type LayoutSpecs } from './render/tidy';
-import { analyse, chainStops, dimensionStops, drawnLength, drawnStations, runDrawnFloor, trueAtShare, type DrawnStations, isMark, itemHalf, runGroupIds, emptyDrawing, oletLegs, oletMarks, uid } from './model/drawing';
+import { analyse, chainStops, dimensionStops, drawnLength, drawnStations, runDrawnFloor, trueAtShare, type DrawnStations, isMark, isReducer, itemAtEnd, itemHalf, runGroupIds, emptyDrawing, oletLegs, oletMarks, uid } from './model/drawing';
 import { loadLibrary, removeDrawing, renumberProject, sheetNumber, upsertDrawing, worthKeeping } from './model/library';
 import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, noteRemovedFromLibrary, setDriveClientId, syncDrive } from './model/drive';
 import { AXES, AXIS_VECTOR, add, length3, scale3, sub } from './model/iso';
@@ -592,6 +592,12 @@ const canvas = new Canvas(svg, {
    * drop is recorded, so one move is one undo rather than a hundred.
    */
   onSlideComponent(componentId, paper, commit) {
+    // A reducer in a run of its own moves as one piece with its two face
+    // points, the pipe either side giving and taking.
+    if (slideBlockFrom?.id === componentId || blockOf(componentId)) {
+      slideBlock(componentId, paper, commit);
+      return;
+    }
     const run = state.drawing.runs.find((r) => r.inline.some((c) => c.id === componentId));
     const comp = run?.inline.find((c) => c.id === componentId);
     if (!run || !comp) return;
@@ -804,6 +810,13 @@ const canvas = new Canvas(svg, {
    * drag began, so the steps cannot add up.
    */
   onSlideNode(nodeId, paper, commit) {
+    // A face point of a reducer standing in a run of its own: the reducer
+    // moves, both its faces with it.
+    const face = slideBlockFrom?.face === nodeId ? slideBlockFrom.id : blockAt(nodeId);
+    if (face) {
+      slideBlock(face, paper, commit, nodeId);
+      return;
+    }
     if (!state.drawing.nodes.some((n) => n.id === nodeId)) return;
     if (!slideNodeFrom || slideNodeFrom.id !== nodeId) {
       slideNodeFrom = { id: nodeId, snapshot: snapshot() };
@@ -970,6 +983,157 @@ function lineThrough(nodeId: string): [Run, Run] | null {
     }
   }
   return null;
+}
+
+/**
+ * A reducer standing in a run of its own (its faces are points), with a
+ * straight run on each side: what is dragged as one piece, like a tee
+ * slides along its line (his ask, 2026-09-25: "does a reducer behave like
+ * a tee — put in a line, dragged, the pipe split in two").
+ */
+function blockOf(compId: string): { run: Run; comp: InlineComponent; before: Run; after: Run } | null {
+  const run = state.drawing.runs.find((r) => r.inline.some((c) => c.id === compId));
+  const comp = run?.inline.find((c) => c.id === compId);
+  if (!run || !comp || !isReducer(comp.kind)) return null;
+  if (run.inline.some((c) => c.id !== compId && !isMark(c.kind))) return null;
+  // Its faces on its run's two points, or against a flange welded straight
+  // to it there: the whole run is the reducer (and those flanges).
+  if (itemAtEnd(state.drawing, run, true)?.comp.id !== compId || itemAtEnd(state.drawing, run, false)?.comp.id !== compId) return null;
+  const other = (nodeId: string) => lineThrough(nodeId)?.find((r) => r.id !== run.id);
+  const before = other(run.from);
+  const after = other(run.to);
+  if (!before || !after) return null;
+  return { run, comp, before, after };
+}
+
+/** The reducer whose face this point is, when it can be slid as one piece. */
+function blockAt(nodeId: string): string | null {
+  for (const run of state.drawing.runs) {
+    if (run.from !== nodeId && run.to !== nodeId) continue;
+    const comp = run.inline.find((c) => isReducer(c.kind));
+    if (comp && blockOf(comp.id)) return comp.id;
+  }
+  return null;
+}
+
+let slideBlockFrom: { id: string; face?: string; snapshot: string; grab?: number } | null = null;
+
+/**
+ * Slides a reducer and its two face points along their line together. To
+ * scale the points move and the runs either side change length, what
+ * stands on them keeping its place, no nearer the far ends than their
+ * take-outs and items; not to scale the two sides share their drawn total.
+ * Taken hold of where the pen went down, like any item.
+ */
+function slideBlock(compId: string, paper: { x: number; y: number }, commit: boolean, face?: string): void {
+  if (!slideBlockFrom || slideBlockFrom.id !== compId) slideBlockFrom = { id: compId, face, snapshot: snapshot() };
+  const from = slideBlockFrom;
+  replaceDrawing(JSON.parse(from.snapshot) as Drawing);
+  recompute();
+  const block = blockOf(compId);
+  const apply = block ? (state.drawing.options.schematic ? slideBlockDrawn(block, paper, from) : slideBlockTrue(block, paper, from)) : null;
+  if (commit) {
+    slideBlockFrom = null;
+    if (apply) host.edit('Move reducer', apply);
+    else render();
+    return;
+  }
+  if (apply) {
+    apply(state.drawing);
+    recompute();
+  }
+  renderCanvasOnly();
+  hoverMessage = 'sliding the reducer along its line — the line keeps its length';
+  renderHud();
+}
+
+type Block = { run: Run; comp: InlineComponent; before: Run; after: Run };
+
+function slideBlockTrue(b: Block, paper: { x: number; y: number }, from: { grab?: number }): ((d: Drawing) => void) | null {
+  const near = state.analysis.nodeById.get(b.run.from);
+  const farNear = state.analysis.nodeById.get(b.run.to);
+  const backId = b.before.from === b.run.from ? b.before.to : b.before.from;
+  const forwardId = b.after.from === b.run.to ? b.after.to : b.after.from;
+  const back = state.analysis.nodeById.get(backId);
+  const forward = state.analysis.nodeById.get(forwardId);
+  if (!near || !farNear || !back || !forward) return null;
+  const span = sub(forward.pos, back.pos);
+  const spanLen = length3(span);
+  if (spanLen < 1) return null;
+  const size = length3(sub(farNear.pos, near.pos));
+  const now = length3(sub(near.pos, back.pos));
+  const snap = dragSnap();
+  const lo = Math.max(snap, roomOn(b.before, backId));
+  const hi = spanLen - size - Math.max(snap, roomOn(b.after, forwardId));
+  if (lo > hi) return null;
+  const pa = paperOf(state.analysis, state.drawing, backId);
+  const pb = paperOf(state.analysis, state.drawing, forwardId);
+  if (!pa || !pb) return null;
+  const vx = pb.x - pa.x;
+  const vy = pb.y - pa.y;
+  const lenSq = vx * vx + vy * vy;
+  if (lenSq < 1) return null;
+  const read = (((paper.x - pa.x) * vx + (paper.y - pa.y) * vy) / lenSq) * spanLen;
+  if (from.grab === undefined) from.grab = read - now;
+  const at = Math.max(lo, Math.min(hi, Math.round((read - from.grab) / snap) * snap));
+  const shift = at - now;
+  const nearPos = add(back.pos, scale3(span, at / spanLen));
+  const farPos = add(back.pos, scale3(span, (at + size) / spanLen));
+  return (d) => {
+    const n1 = d.nodes.find((n) => n.id === b.run.from);
+    const n2 = d.nodes.find((n) => n.id === b.run.to);
+    if (!n1 || !n2) return;
+    n1.pos = { ...nearPos };
+    n2.pos = { ...farPos };
+    // Offsets are from a run's start: on a run starting at a moved face
+    // they change by the move, so what stands on it stays where it is.
+    const before = d.runs.find((r) => r.id === b.before.id);
+    const after = d.runs.find((r) => r.id === b.after.id);
+    if (before && before.from === b.run.from) for (const c of before.inline) c.offset += shift;
+    if (after && after.from === b.run.to) for (const c of after.inline) c.offset -= shift;
+  };
+}
+
+function slideBlockDrawn(b: Block, paper: { x: number; y: number }, from: { grab?: number }): ((d: Drawing) => void) | null {
+  const backId = b.before.from === b.run.from ? b.before.to : b.before.from;
+  const forwardId = b.after.from === b.run.to ? b.after.to : b.after.from;
+  const pa = paperOf(state.analysis, state.drawing, backId);
+  const pb = paperOf(state.analysis, state.drawing, forwardId);
+  if (!pa || !pb) return null;
+  const vx = pb.x - pa.x;
+  const vy = pb.y - pa.y;
+  const lenSq = vx * vx + vy * vy;
+  if (lenSq < 1) return null;
+  const drawnOf = (run: Run) => drawnLength(state.drawing, run, runLength(state.drawing, run));
+  const d0 = drawnOf(b.before);
+  const d1 = drawnOf(b.after);
+  const whole = d0 + drawnOf(b.run) + d1;
+  const floor0 = runDrawnFloor(state.drawing, b.before);
+  const floor1 = runDrawnFloor(state.drawing, b.after);
+  if (d0 + d1 < floor0 + floor1) return null;
+  const read = (((paper.x - pa.x) * vx + (paper.y - pa.y) * vy) / lenSq) * whole;
+  if (from.grab === undefined) from.grab = read - d0;
+  const snap = dragSnap();
+  const tenth = (v: number) => Math.round(v * 10) / 10;
+  const first = tenth(Math.max(floor0, Math.min(d0 + d1 - floor1, Math.round((read - from.grab) / snap) * snap)));
+  return (d) => {
+    const before = d.runs.find((r) => r.id === b.before.id);
+    const after = d.runs.find((r) => r.id === b.after.id);
+    if (before) before.visual = first;
+    if (after) after.visual = tenth(d0 + d1 - first);
+  };
+}
+
+/** How near a point may come to the far end of a run: its take-outs and what stands on it. */
+function roomOn(run: Run, farNode: string): number {
+  const len = runLength(state.drawing, run);
+  const cut = state.analysis.runLengths.get(run.id)?.cut ?? len;
+  let need = len - cut;
+  for (const comp of run.inline) {
+    const fromFar = run.from === farNode ? comp.offset : len - comp.offset;
+    need = Math.max(need, fromFar + itemHalf(state.drawing, run, comp));
+  }
+  return need;
 }
 
 /**

@@ -3830,6 +3830,75 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   await page.waitForTimeout(200);
 }
 
+/* ------------------------------- a reducer slides along its line like a tee */
+
+// "Does a reducer behave like a tee — put in a line, dragged, the pipe split
+// in two, straight on a flange; the special thing is it changes the sizes"
+// (2026-09-25). It went in, split and changed the sizes, but could not be
+// dragged: it sits in a run of its own. Now dragging it, or either of its
+// face points, moves it as one piece; the line keeps its length.
+{
+  await routeLine('4"\nSTD\nORIGIN 0 0 0\nEND FLG\nE 3000\nEND FLG');
+  const runHit = page.locator('#canvas line.hit[data-run]').first();
+  await runHit.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await runHit.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await page.waitForTimeout(300);
+  await page.locator('.tool[data-kind="RED_CONC"]').click();
+  await page.waitForTimeout(300);
+  await page.click('.dialog [data-confirm]');
+  await page.waitForTimeout(400);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+  const faces = async () => {
+    const d = await drawingNow();
+    const red = d.runs.find((r) => r.inline.some((c) => c.kind === 'RED_CONC'));
+    const at = (id) => d.nodes.find((n) => n.id === id).pos.e;
+    return { red, a: at(red.from), b: at(red.to), sizes: d.runs.map((r) => r.dn).join() };
+  };
+  const before = await faces();
+  check('a reducer in a line splits it, the far side takes the small size', before.sizes, (v) => v === 'DN100,DN100,DN80', 'DN100, DN100 (the reducer), DN80');
+  const centre = async (sel) => page.evaluate((sel) => {
+    const r = document.querySelector(sel).getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  }, sel);
+  const endNode = (await drawingNow()).nodes.reduce((a, n) => (n.pos.e > a.pos.e ? n : a)).id;
+  const penDrag = async (from, to, frac) => {
+    await pen('mousePressed', from.x, from.y);
+    for (let i = 1; i <= 10; i += 1) {
+      await pen('mouseMoved', from.x + (to.x - from.x) * frac * (i / 10), from.y + (to.y - from.y) * frac * (i / 10));
+      await page.waitForTimeout(40);
+    }
+    await pen('mouseReleased', from.x + (to.x - from.x) * frac, from.y + (to.y - from.y) * frac);
+    await page.waitForTimeout(400);
+  };
+  await penDrag(await centre(`#canvas .component[data-component="${before.red.inline[0].id}"]`), await centre(`#canvas circle.hit-dot[data-node="${endNode}"]`), 0.5);
+  const moved = await faces();
+  check('dragged, the reducer moves along the line as one piece', `${moved.a > before.a + 100} ${Math.round(moved.b - moved.a)} ${Math.round(before.b - before.a)}`, (v) => v.split(' ')[0] === 'true' && v.split(' ')[1] === v.split(' ')[2], 'moved on, the same length');
+  check('and the line keeps its length', (await drawingNow()).nodes.find((n) => n.id === endNode).pos.e, (v) => v === 3000, '3000');
+  // By a face point, back towards the start.
+  await penDrag(await centre(`#canvas circle.hit-dot[data-node="${moved.red.from}"]`), await centre(`#canvas circle.hit-dot[data-node="${(await drawingNow()).runs[0].from}"]`), 0.4);
+  const back = await faces();
+  check('dragged by a face point, the reducer moves too, still one piece', `${back.a < moved.a - 100} ${Math.round(back.b - back.a) === Math.round(before.b - before.a)}`, (v) => v === 'true true', 'true true');
+  // A flange straight on its far face, in the middle of the line: welded to
+  // the reducer, the pipe beyond gives the length, nothing else moves.
+  await tapNode(back.red.to);
+  await page.locator('.tool[data-kind="FLG_WN"]').click();
+  await page.waitForTimeout(400);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+  await page.click('#tabs button:has-text("Welds")');
+  await page.waitForTimeout(200);
+  const weldRows = await page.locator('#tab-body table tbody tr').allInnerTexts();
+  await page.click('#tabs button:has-text("Route")');
+  await page.waitForTimeout(200);
+  check('a flange on the reducer\'s face is welded straight to it, at its small size', weldRows.filter((r) => /3"\tBW\tCON RED 4" X 3" \/ WELD NECK FLANGE/.test(r)).length, (v) => v === 1, '1 weld 3" CON RED 4" X 3" / WELD NECK FLANGE');
+  check('no pipe is left between them, and the line keeps its length', `${weldRows.filter((r) => /PIPE \/ CON RED/.test(r)).length} ${(await drawingNow()).nodes.find((n) => n.id === endNode).pos.e} ${await page.locator('#hud').innerText().then((t) => /shorter than/.test(t))}`, (v) => v === '1 3000 false', '1 3000 false');
+  const withFlange = await faces();
+  await penDrag(await centre(`#canvas .component[data-component="${before.red.inline[0].id}"]`), await centre(`#canvas circle.hit-dot[data-node="${endNode}"]`), 0.3);
+  const after = await faces();
+  check('with its flange on, the reducer still drags as one piece', `${after.a > withFlange.a + 50} ${Math.round(after.b - after.a) === Math.round(withFlange.b - withFlange.a)}`, (v) => v === 'true true', 'true true');
+}
+
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 
 await browser.close();
