@@ -9,7 +9,7 @@ import { isRemoved, loadLibrary, removeDrawing, renumberProject, sheetNumber, up
 import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, setDriveClientId, syncDrive } from './model/drive';
 import { AXES, AXIS_VECTOR, add, length3, scale3, sub } from './model/iso';
 import { initialCommandState, runCommands } from './model/commands';
-import { addMeasure, applyMeasureToOlet, autoCouplings, DASHED_NOTE, deleteRunGroup, measureTypeable, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, ensureNode, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, runLength, setLineSize, setRunDashed, setRunDirect, startFromEquipment, straightenBranches, stretchRun, syncEquipment, uncoverPoints } from './model/edit';
+import { addMeasure, applyMeasureToOlet, autoCouplings, DASHED_NOTE, deleteRunGroup, measureTypeable, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, ensureNode, isCouplingPoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, runLength, setLineSize, setRunDashed, setRunDirect, startFromEquipment, straightenBranches, stretchRun, syncEquipment, uncoverPoints } from './model/edit';
 import { DN_LIST, schedulesFor, sizeLabel, sizeOf } from './model/pipe-data';
 import { northArrow, paperOf, renderDrawing, symbolSizeFor } from './render/renderer';
 import { SHEET_STAMPS, renderSheet, sheetStamp, sheetSymbolSize, type SheetSize } from './render/sheet';
@@ -350,6 +350,10 @@ function openDimensionEditor(key: string, clientX: number, clientY: number): voi
         else {
           const [runId, indexText] = key.split(':');
           refused = applyDimension(d, runId, Number(indexText), Math.round(value));
+          // Typed up to a coupling the app put in, it is his from then on.
+          const run = d.runs.find((r) => r.id === runId);
+          const end = run && d.nodes.find((n) => n.id === run.to);
+          if (!refused && end?.autoCoupling) delete end.autoCoupling;
         }
       });
       if (refused) {
@@ -921,7 +925,13 @@ const canvas = new Canvas(svg, {
 
     if (commit) {
       slideNodeFrom = null;
-      if (apply) host.edit('Move point', apply);
+      if (apply)
+        host.edit('Move point', (d) => {
+          apply(d);
+          // A coupling the app put in, moved by hand, is his: it stays there.
+          const node = d.nodes.find((n) => n.id === nodeId);
+          if (node) delete node.autoCoupling;
+        });
       else render();
       return;
     }
@@ -1405,8 +1415,9 @@ function renderHud(): void {
     const flanged = sel.kind === 'node' && !!state.drawing.nodes.find((n) => n.id === sel.id)?.flange;
     const olet = sel.kind === 'node' && oletAlone(sel.id);
     const plain = sel.kind === 'node' && isPlainPoint(state.drawing, sel.id);
+    const coupling = sel.kind === 'node' && isCouplingPoint(state.drawing, sel.id);
     const what = sel.kind === 'run' ? 'pipe' : sel.kind === 'node' ? (flanged ? 'flanges' : 'point') : sel.kind === 'equipment' ? 'equipment' : 'item';
-    parts.push(`<button class="hud-stop hud-delete" id="hud-delete" type="button">${flanged ? 'Remove flanges' : olet ? 'Remove olet' : plain ? 'Remove point' : `Delete ${what}`}</button>`);
+    parts.push(`<button class="hud-stop hud-delete" id="hud-delete" type="button">${flanged ? 'Remove flanges' : olet ? 'Remove olet' : coupling ? 'Remove coupling' : plain ? 'Remove point' : `Delete ${what}`}</button>`);
   }
   parts.push(`<span>snap ${state.drawing.options.snap} mm</span>`);
   if (state.drawing.options.schematic) parts.push('<span>not to scale</span>');
@@ -2768,7 +2779,9 @@ function deleteSelection(): void {
   const olet = sel.kind === 'node' && oletAlone(sel.id);
   // A plain point along a line just goes, and the pipe runs on through.
   const plain = sel.kind === 'node' && isPlainPoint(state.drawing, sel.id);
-  host.edit(flanged ? 'Remove flanges' : olet ? 'Remove olet' : plain ? 'Remove point' : 'Delete', (d) => {
+  // A coupling goes, and the pipe runs on through as one.
+  const coupling = sel.kind === 'node' && isCouplingPoint(state.drawing, sel.id);
+  host.edit(flanged ? 'Remove flanges' : olet ? 'Remove olet' : coupling ? 'Remove coupling' : plain ? 'Remove point' : 'Delete', (d) => {
     if (sel.kind === 'run') deleteRunGroup(d, state.analysis, sel.id);
     else if (sel.kind === 'equipment') removeEquipment(d, sel.id);
     else if (sel.kind === 'node' && flanged) removeFlangeJoint(d, sel.id);
@@ -2779,6 +2792,7 @@ function deleteSelection(): void {
   if (flanged) host.notify('Flanges removed; the pipe runs straight through.');
   if (olet) host.notify('Olet removed; the header runs on whole.');
   if (plain) host.notify('Point removed; the pipe runs straight through.');
+  if (coupling) host.notify('Coupling removed; the pipe runs straight through.');
   if (sel.kind === 'node') canvas.setAnchor(null);
   state.preview = null;
   host.select(null);

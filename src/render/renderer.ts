@@ -1,6 +1,6 @@
 import type { Analysis } from '../model/drawing';
 import type { Axis, DimOverride, Drawing, FlangeKind, Run, Vec3 } from '../model/types';
-import { COMPONENT_LABEL, COUPLING_REACH, SYMBOL_MM, isCoupling, TERMINAL_LABEL, chainStops, dimensionStops, drawnShare, trueAtShare, fittingLabel, runGroupIds, isMark, isReducer, isSupport, isValve, itemAtEnd, oletEntries, oletLegs, resolveEnds, valveOpenSide } from '../model/drawing';
+import { COMPONENT_LABEL, COUPLING_REACH, SYMBOL_MM, couplingKindAt, isCoupling, TERMINAL_LABEL, chainStops, dimensionStops, drawnShare, trueAtShare, fittingLabel, runGroupIds, isMark, isReducer, isSupport, isValve, itemAtEnd, oletEntries, oletLegs, resolveEnds, valveOpenSide } from '../model/drawing';
 import { componentTakeout, sizeLabel, valveFlangeKind } from '../model/pipe-data';
 import { AXIS_VECTOR, axisBetween, axisScreenDir, equals3, northArrowDir, project, scale3, add, sub } from '../model/iso';
 import { LETTER_BESIDE, weldTagSize, type LayoutSpecs } from './tidy';
@@ -759,6 +759,20 @@ export function renderDrawing(state: RenderState): string {
 
     nodes += `<g class="node${selected ? ' selected' : ''}" data-node="${node.id}">`;
 
+    if (info && info.fitting === 'COUPLING' && info.degree === 2) {
+      // A coupling on the point: a sleeve over the joint, its welds (or
+      // threads) on its ends, filled so no pipe is seen through it.
+      const run = info.runs[0];
+      const otherId = run.from === node.id ? run.to : run.from;
+      const q = paper(otherId);
+      const other = analysis.nodeById.get(otherId);
+      if (q && other) {
+        const plane = symbolPlane(drawing, node.pos, other.pos);
+        const f = frameFor(p.x, p.y, q.x, q.y, 0, size, plane?.across, plane?.up);
+        nodes += componentSymbol(couplingKindAt(node), f, size * COUPLING_REACH);
+      }
+    }
+
     if (info && info.fitting === 'NONE' && node.flange && info.degree === 2) {
       // A flanged joint: a flange on each run, faces together at this point,
       // each hub running back to its own weld.
@@ -914,7 +928,9 @@ export function renderDrawing(state: RenderState): string {
         const out =
           r.kind === 'fitting'
             ? FITTING_REACH
-            : r.kind === 'olet'
+            : r.kind === 'coupling'
+              ? size * COUPLING_REACH
+              : r.kind === 'olet'
               ? size * 0.9
               : r.kind === 'transition'
                 ? 0
@@ -932,7 +948,9 @@ export function renderDrawing(state: RenderState): string {
     welds += `<g class="weld${selectedWeld ? ' selected' : ''}${joint.skipped ? ' no-weld' : ''}">${jointMark(f, joint.joint, joint.facing)}</g>`;
     // The mark is a touch target unless it sits on a point, whose own target
     // it would otherwise cover; the number tag is always one.
-    const onPoint = [...analysis.nodeById.keys()].some((id) => {
+    // A coupling's marks lie right by its point, which has to stay pickable
+    // (to drag it, or take it off); their numbers are tapped on the tags.
+    const onPoint = joint.reach?.kind === 'coupling' || [...analysis.nodeById.keys()].some((id) => {
       const q = paper(id);
       return q && Math.hypot(q.x - f.cx, q.y - f.cy) < size * 0.6;
     });

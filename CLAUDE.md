@@ -312,29 +312,37 @@ ships, and the decisions already taken, so they are not re-litigated.
   fitting, `BALL VALVE SW 3000#` / `BALL VALVE SCR'D 3000#` via
   `jointSuffix` — small bores that default to threaded read so too),
   **Couplings** in Fittings (his ask, 2026-09-26: "COUPLING SW, the
-  socket one, and COUPLING NPT"): kinds `COUPLING_SW`/`COUPLING_THD`
-  (`isCoupling`), ends fixed by the kind in `resolveEnds` (no Ends select),
-  listed `COUPLING SW 3000#` / `COUPLING NPT 3000#`; SW: two SW welds,
-  take-out each side B16.11 "E"/2 + 1.6 mm set-back (`SOCKET_GAP`); NPT:
-  thread marks, no weld, take-out "W"/2 − thread engagement. Drawn as a
-  sleeve a set size (`COUPLING_REACH` 0.7 symbol, its joint marks there),
-  dimensioned to its **centre** (`dimensionStops`; typing that piece slides
-  it, `applyDimension`), placed like a valve (palette `Cplg SW`/`Cplg NPT`,
-  commands `+CPLSW`/`+CPLNPT`). The sleeve is filled with the paper
-  (`sym-fill`): no pipe seen through it (his ask). **A coupling every 6 m
-  on pipe 1 1/2" and under** (same day): `autoCouplings` in edit.ts, run
+  socket one, and COUPLING NPT"). **A coupling is a fitting on a point**
+  (same day: "every fitting splits the pipe it goes into in two, except
+  olets"): `node.fittingOverride = 'COUPLING'` + `node.joint` SW/THD
+  (`inferFitting` gives `COUPLING` on a straight degree-2 point),
+  `couplingKindAt`/`couplingName` (`COUPLING SW 3000#` / `COUPLING NPT
+  3000#`), take-out through `nodeFittingTakeout` (B16.11 "E"/2 + 1.6 mm
+  set-back `SOCKET_GAP`; NPT "W"/2 − thread engagement), welds are fitting
+  legs `n:<node>:<run>` (SW numbered, THD marked only) at `WeldReach`
+  `coupling` = `COUPLING_REACH` 0.7 symbol, drawn as a paper-filled sleeve
+  on the point (renderer's node loop). Palette `Cplg SW`/`Cplg NPT`
+  (`placeCouplingTool` → `placeCoupling` in edit.ts): on a pipe, split in
+  the middle of the length tapped (`oletSpot`) and the dimension up to it
+  opens; on a plain point, on it. Its weld marks are no touch target
+  (they lie over the point, which must stay pickable to drag); their
+  numbers are typed on the tags. HUD/panel **Remove coupling**
+  (`removeCoupling`, joined through). The kinds `COUPLING_SW/THD` stay as
+  inline kinds only for commands (`+CPLSW`/`+CPLNPT`) and sheets made the
+  first way: `couplingsToPoints` turns them into points. **A coupling
+  every 6 m on pipe 1 1/2" and under**: `autoCouplings` in edit.ts, run
   after every `host.edit`, typed commands, on load and in
-  `replaceDrawing`, takes out the `auto: true` couplings and puts them in
-  again (ids kept) along every stretch of bare pipe (`pipeSpans` in
-  drawing.ts, take-outs and items off) longer than `PIPE_STOCK` 6000: each
-  length cut 6000 to the coupling; NPT where the run's start point is
-  threaded, else SW; not on dashed/direct runs. One moved or typed by hand
-  loses `auto` (his); one deleted sets `run.noAutoCoupling`; the run
-  panel's Couplings select turns them on/off along the line
-  (`setAutoCoupling`, through elbows and plain points of the same size).
-  2" and over: never automatic, a coupling only by hand from the palette
-  (his word, same day: "on 2" only the option to put it in by hand");
-  `wantsAutoCoupling`/`offersAutoCoupling` are small bore only.
+  `replaceDrawing`: each straight line through the app's own couplings
+  (`node.autoCoupling`) is measured as one (`pipeSpans` on the whole,
+  take-outs and items off) and cut every `PIPE_STOCK` 6000 of bare pipe;
+  when the places change it is joined through and cut again, the points
+  and runs **keeping their ids** (weld numbers typed on them stay); NPT
+  where the line's start point is threaded, else SW; not on dashed/direct
+  runs. One dragged or typed up to by hand loses `autoCoupling` (his);
+  one removed sets `run.noAutoCoupling`; the run panel's Couplings select
+  turns them on/off along the line (`setAutoCoupling`). 2" and over: never
+  automatic, by hand only (his word: "on 2" only the option to put it in
+  by hand"); `wantsAutoCoupling`/`offersAutoCoupling` are small bore only.
   Branch (tee, olets), Marks
   (Support, L50 support, AG/UG), Joints (a BW weld: `placeWeld` splits the
   run at a plain point, welded pipe to pipe, dimension opened). Two columns

@@ -1,7 +1,7 @@
 import type { Axis, ComponentKind, Drawing, EndType, Equipment, FlangeKind, InlineComponent, IsoNode, Measure, Run, TerminalKind, Vec3 } from './types';
 import { AXIS_VECTOR, add, axisBetween, direction, equals3, length3, scale3, step, sub } from './iso';
-import { analyse, chainStops, dimensionStops, isCoupling, pipeSpans, drawnLength, fittingsTouchLength, reducerSides, isReducer, minDrawnLength, isMark, isValve, itemAtEnd, oletMarks, resolveEnds, runGroupIds, terminalTakeoutOf, uid, valveOpenSide, type Analysis } from './drawing';
-import { componentTakeout, fittingTakeout, schedulesFor, sizeOf, valveFlangeKind } from './pipe-data';
+import { analyse, chainStops, dimensionStops, isCoupling, nodeFittingTakeout, pipeSpans, drawnLength, fittingsTouchLength, reducerSides, isReducer, minDrawnLength, isMark, isValve, itemAtEnd, oletMarks, resolveEnds, runGroupIds, terminalTakeoutOf, uid, valveOpenSide, type Analysis } from './drawing';
+import { componentTakeout, schedulesFor, sizeOf, valveFlangeKind } from './pipe-data';
 
 /** Finds an existing node at a position, so that routes join rather than overlap. */
 export function findNodeAt(drawing: Drawing, pos: Vec3, tol = 0.5): string | null {
@@ -361,30 +361,190 @@ export function setAutoCoupling(drawing: Drawing, runIds: string[], on: boolean)
  * Returns whether anything changed.
  */
 export function autoCouplings(drawing: Drawing): boolean {
-  const before = JSON.stringify(drawing.runs);
-  const reuse = new Map<string, string[]>();
-  for (const run of drawing.runs) {
-    const ids = run.inline.filter((c) => c.auto).map((c) => c.id);
-    if (ids.length) reuse.set(run.id, ids);
-    run.inline = run.inline.filter((c) => !c.auto);
-  }
+  const before = JSON.stringify([drawing.nodes, drawing.runs]);
+  // A coupling is a fitting on a point, splitting the pipe in two (his
+  // word, 2026-09-26: "every fitting splits the pipe it goes into, except
+  // olets"); those put along a run earlier the same day become points.
+  couplingsToPoints(drawing);
+  const isAuto = (id: string) => {
+    const node = drawing.nodes.find((n) => n.id === id);
+    return !!node && node.fittingOverride === 'COUPLING' && !!node.autoCoupling && runsAt(drawing, id).length === 2;
+  };
   const analysis = analyse(drawing);
-  for (const run of drawing.runs) {
-    if (!wantsAutoCoupling(run)) continue;
-    const kind: ComponentKind = analysis.nodeJoint.get(run.from) === 'THD' ? 'COUPLING_THD' : 'COUPLING_SW';
-    const half = componentTakeout(kind, run.dn);
-    const ids = reuse.get(run.id) ?? [];
-    for (const [lo, hi] of pipeSpans(drawing, analysis.nodeInfo, run)) {
-      let from = lo;
-      while (hi - from > PIPE_STOCK + 2 * half + 1) {
-        const centre = from + PIPE_STOCK + half;
-        run.inline.push({ id: ids.shift() ?? uid('c'), kind, offset: centre, auto: true });
-        from = centre + half;
+  const seen = new Set<string>();
+  for (const first of [...drawing.runs]) {
+    if (seen.has(first.id) || !drawing.runs.includes(first)) continue;
+    // The line through the couplings put in by the app: its runs in order,
+    // from one end (S) to the other (E).
+    let start = first;
+    let startNode = first.from;
+    for (let guard = 0; isAuto(startNode) && guard < 500; guard += 1) {
+      const prev = runsAt(drawing, startNode).find((r) => r.id !== start.id);
+      if (!prev || prev.id === first.id) break;
+      startNode = prev.from === startNode ? prev.to : prev.from;
+      start = prev;
+    }
+    const runs: Run[] = [start];
+    const autos: string[] = [];
+    let at = start.from === startNode ? start.to : start.from;
+    for (let guard = 0; isAuto(at) && guard < 500; guard += 1) {
+      const next = runsAt(drawing, at).find((r) => r.id !== runs[runs.length - 1].id);
+      if (!next || runs.includes(next)) break;
+      autos.push(at);
+      runs.push(next);
+      at = next.from === at ? next.to : next.from;
+    }
+    for (const run of runs) seen.add(run.id);
+    const S = drawing.nodes.find((n) => n.id === startNode);
+    const E = drawing.nodes.find((n) => n.id === at);
+    if (!S || !E) continue;
+    const dir = direction(S.pos, E.pos);
+    if (!dir) continue;
+    const along = (id: string) => {
+      const node = drawing.nodes.find((n) => n.id === id);
+      return node ? length3(sub(node.pos, S.pos)) : 0;
+    };
+    // Where the couplings should be: every 6 m of bare pipe along the line.
+    const wanted: number[] = [];
+    if (runs.every((r) => wantsAutoCoupling(r))) {
+      const items: InlineComponent[] = [];
+      for (const run of runs) {
+        const a = along(run.from);
+        const b = along(run.to);
+        for (const comp of run.inline) items.push({ ...comp, offset: a <= b ? a + comp.offset : a - comp.offset });
+      }
+      const whole: Run = { ...runs[0], from: S.id, to: E.id, inline: items };
+      const kind = analysis.nodeJoint.get(S.id) === 'THD' ? 'COUPLING_THD' : 'COUPLING_SW';
+      const half = componentTakeout(kind, runs[0].dn);
+      for (const [lo, hi] of pipeSpans(drawing, analysis.nodeInfo, whole)) {
+        let from = lo;
+        while (hi - from > PIPE_STOCK + 2 * half + 1) {
+          wanted.push(from + PIPE_STOCK + half);
+          from += PIPE_STOCK + 2 * half;
+        }
       }
     }
-    run.inline.sort((a, b) => a.offset - b.offset);
+    const now = autos.map(along);
+    if (now.length === wanted.length && now.every((mm, i) => Math.abs(mm - wanted[i]) < 0.5)) continue;
+    // Put in again: the line joined through, then cut where they go. The
+    // points and runs keep their ids, so weld numbers typed on them stay.
+    const joint = analysis.nodeJoint.get(S.id) === 'THD' ? 'THD' : 'SW';
+    const runIds = runs.map((r) => r.id);
+    const nodeIds = [...autos];
+    for (const id of autos) {
+      const node = drawing.nodes.find((n) => n.id === id);
+      if (!node) continue;
+      node.fittingOverride = undefined;
+      node.autoCoupling = undefined;
+      node.joint = undefined;
+      joinThrough(drawing, id);
+    }
+    const merged = drawing.runs.find((r) => (r.from === S.id && r.to === E.id) || (r.from === E.id && r.to === S.id));
+    if (!merged) continue;
+    const forward = merged.from === S.id;
+    const total = runLength(drawing, merged);
+    // From the far end back, so the offsets still to cut stay good.
+    const cuts = wanted.map((mm) => (forward ? mm : total - mm)).sort((x, y) => y - x);
+    const made: { node: string; tail: string }[] = [];
+    for (const offset of cuts) {
+      const nodeId = splitRun(drawing, merged.id, offset);
+      if (!nodeId) continue;
+      const tail = drawing.runs[drawing.runs.indexOf(merged) + 1];
+      made.push({ node: nodeId, tail: tail.id });
+    }
+    // In order from S: the first run is the one at S, then each tail.
+    made.reverse();
+    if (!forward) made.reverse();
+    const rename = (from: string, to: string) => {
+      if (from === to || drawing.nodes.some((n) => n.id === to)) return;
+      const node = drawing.nodes.find((n) => n.id === from);
+      if (node) node.id = to;
+      for (const run of drawing.runs) {
+        if (run.from === from) run.from = to;
+        if (run.to === from) run.to = to;
+      }
+    };
+    const ordered = forward ? [merged.id, ...made.map((m) => m.tail)] : [...made.map((m) => m.tail), merged.id];
+    made.forEach((m, i) => {
+      const id = nodeIds[i] ?? m.node;
+      rename(m.node, id);
+      const node = drawing.nodes.find((n) => n.id === id);
+      if (node) {
+        node.fittingOverride = 'COUPLING';
+        node.joint = joint;
+        node.autoCoupling = true;
+      }
+    });
+    ordered.forEach((runId, i) => {
+      const want = runIds[i];
+      if (!want || want === runId || drawing.runs.some((r) => r.id === want)) return;
+      const run = drawing.runs.find((r) => r.id === runId);
+      if (run) run.id = want;
+    });
   }
-  return JSON.stringify(drawing.runs) !== before;
+  return JSON.stringify([drawing.nodes, drawing.runs]) !== before;
+}
+
+function runsAt(drawing: Drawing, nodeId: string): Run[] {
+  return drawing.runs.filter((r) => r.from === nodeId || r.to === nodeId);
+}
+
+/** Couplings put along a run (the first way they were made) become points. */
+function couplingsToPoints(drawing: Drawing): void {
+  for (const run of [...drawing.runs]) {
+    const couplings = run.inline.filter((c) => isCoupling(c.kind));
+    if (couplings.length === 0) continue;
+    run.inline = run.inline.filter((c) => !isCoupling(c.kind));
+    // From the far end back, so the offsets still to cut stay good.
+    for (const comp of couplings.sort((x, y) => y.offset - x.offset)) {
+      if (comp.auto) continue;
+      const nodeId = splitRun(drawing, run.id, comp.offset);
+      const node = nodeId ? drawing.nodes.find((n) => n.id === nodeId) : undefined;
+      if (!node) continue;
+      node.fittingOverride = 'COUPLING';
+      node.joint = comp.kind === 'COUPLING_THD' ? 'THD' : 'SW';
+    }
+  }
+}
+
+/**
+ * Puts a coupling on the pipe, a point of its own that splits it in two:
+ * `at` along the run, or on a point the line runs straight through.
+ * Returns the point, or null where there is no room.
+ */
+export function placeCoupling(drawing: Drawing, joint: 'SW' | 'THD', where: { runId: string; at: number } | { nodeId: string }): string | null {
+  let nodeId: string | null;
+  if ('nodeId' in where) {
+    nodeId = isPlainPoint(drawing, where.nodeId) ? where.nodeId : null;
+  } else {
+    nodeId = splitRun(drawing, where.runId, where.at);
+  }
+  const node = nodeId ? drawing.nodes.find((n) => n.id === nodeId) : undefined;
+  if (!node) return null;
+  node.fittingOverride = 'COUPLING';
+  node.joint = joint;
+  node.autoCoupling = undefined;
+  return node.id;
+}
+
+/** Whether a point wears a coupling. */
+export function isCouplingPoint(drawing: Drawing, nodeId: string): boolean {
+  return drawing.nodes.find((n) => n.id === nodeId)?.fittingOverride === 'COUPLING';
+}
+
+/**
+ * Takes a coupling off its point and joins the pipe through. One the app
+ * put in leaves that pipe without them from then on.
+ */
+export function removeCoupling(drawing: Drawing, nodeId: string): boolean {
+  const node = drawing.nodes.find((n) => n.id === nodeId);
+  if (!node || node.fittingOverride !== 'COUPLING') return false;
+  if (node.autoCoupling) for (const run of runsAt(drawing, nodeId)) run.noAutoCoupling = true;
+  node.fittingOverride = undefined;
+  node.autoCoupling = undefined;
+  node.joint = undefined;
+  joinThrough(drawing, nodeId);
+  return true;
 }
 
 export function removeComponent(drawing: Drawing, compId: string): void {
@@ -620,8 +780,8 @@ export function closeUpOnItem(drawing: Drawing, analysis: Analysis, run: Run): b
   const backOf = (node: IsoNode, dn: string): number => {
     if (node.terminal) return terminalTakeoutOf(node.terminal.kind, dn);
     if (node.flange) return componentTakeout(node.flange, dn);
-    const fitting = analysis.nodeInfo.get(node.id)?.fitting;
-    return fitting && fitting !== 'NONE' && fitting !== 'OLET' ? fittingTakeout(fitting, dn) : 0;
+    const info = analysis.nodeInfo.get(node.id);
+    return info && info.fitting !== 'NONE' && info.fitting !== 'OLET' ? nodeFittingTakeout(info, dn) : 0;
   };
   const backA = backOf(a, sides.start);
   const backB = backOf(b, sides.end);
@@ -1137,6 +1297,7 @@ export function uncoverPoints(drawing: Drawing): boolean {
  * with it, since there is nothing to join.
  */
 export function deletePoint(drawing: Drawing, nodeId: string): 'joined' | 'deleted' {
+  if (isCouplingPoint(drawing, nodeId) && removeCoupling(drawing, nodeId)) return 'joined';
   if (isPlainPoint(drawing, nodeId) && joinThrough(drawing, nodeId)) return 'joined';
   deleteNode(drawing, nodeId);
   return 'deleted';

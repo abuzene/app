@@ -139,6 +139,11 @@ export interface IsoNode {
   flange?: FlangeKind;
   /** Overrides the fitting inferred from connectivity. */
   fittingOverride?: FittingKind;
+  /**
+   * A coupling put here by the app, one every 6 m of small-bore pipe; placed
+   * again after every change. Moved by hand it is his, and the flag goes.
+   */
+  autoCoupling?: boolean;
   /** Overrides the drawing's default joint type at this point. */
   joint?: JointType;
   /**
@@ -188,7 +193,9 @@ export type FittingKind =
   | 'TEE_REDUCING'
   | 'CROSS'
   | 'OLET'
-  | 'MITRE';
+  | 'MITRE'
+  /** A coupling on a point, joining the two pipes either side (SW, or NPT on a threaded point). */
+  | 'COUPLING';
 
 export interface Run {
   id: string;
@@ -260,6 +267,8 @@ export type WeldReach =
   | { kind: 'olet' }
   /** A flange on a point: the end of its hub, plus half the gasket gap when paired. */
   | { kind: 'flange'; flange: FlangeKind; paired: boolean }
+  /** A coupling on a point: its sleeve's end, a set distance out. */
+  | { kind: 'coupling' }
   /** An in-line item: its face, plus a flange when it is flanged. `comp` names it, so the mark sits where the item is drawn. */
   | { kind: 'valve'; trueHalf: number; flange?: FlangeKind; comp?: string }
   /** A PE/steel transition on the end: the weld on its steel side. */

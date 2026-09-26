@@ -182,6 +182,8 @@ function inferFitting(legs: Vec3[], runs: Run[], override?: FittingKind, pending
   if (override === 'OLET' && legs.length < 3) {
     return pendingOlet && legs.length === 2 && 180 - angleBetween(legs[0], legs[1]) < 1 ? 'OLET' : 'NONE';
   }
+  // A coupling joins two pipes on one line; anywhere else it is no fitting.
+  if (override === 'COUPLING') return legs.length === 2 && 180 - angleBetween(legs[0], legs[1]) < 1 ? 'COUPLING' : legs.length > 2 ? inferFitting(legs, runs) : 'NONE';
   if (override) return override;
   if (legs.length <= 1) return 'NONE';
   if (legs.length === 2) {
@@ -207,6 +209,21 @@ export function isCoupling(kind: string): boolean {
 
 /** How far a coupling is drawn either side of its centre, in symbols: shorter than a valve. */
 export const COUPLING_REACH = 0.7;
+
+/** A coupling on a point: its kind by the point's joint, NPT on a threaded one. */
+export function couplingKindAt(node: IsoNode): 'COUPLING_SW' | 'COUPLING_THD' {
+  return node.joint === 'THD' ? 'COUPLING_THD' : 'COUPLING_SW';
+}
+
+/** What a coupling is called, on the list and in a weld's name. */
+export function couplingName(joint: JointType | undefined): string {
+  return joint === 'THD' ? 'COUPLING NPT 3000#' : 'COUPLING SW 3000#';
+}
+
+/** What a point's fitting takes off the pipe running into it. */
+export function nodeFittingTakeout(info: NodeInfo, dn: string): number {
+  return info.fitting === 'COUPLING' ? componentTakeout(couplingKindAt(info.node), dn) : fittingTakeout(info.fitting, dn);
+}
 
 export function isReducer(kind: string): boolean {
   return kind === 'RED_CONC' || kind === 'RED_ECC';
@@ -823,7 +840,7 @@ function endTakeout(info: NodeInfo | undefined, run: Run, dn = run.dn): number {
   // is what fills the length from there to the weld — at the size of the
   // item's end when an item (a reducer) is welded straight to it.
   if (info.node.flange) return componentTakeout(info.node.flange, dn);
-  if (info.fitting !== 'OLET') return fittingTakeout(info.fitting, run.dn);
+  if (info.fitting !== 'OLET') return nodeFittingTakeout(info, run.dn);
   const legs = oletLegs(info);
   if (!legs) return 0;
   if (!legs.branches.some((b) => b.run.id === run.id)) return 0;
@@ -1154,7 +1171,7 @@ export function analyse(drawing: Drawing): Analysis {
         node.fittingOverride === 'OLET' && info.fitting !== 'OLET'
           ? defaultJoint
           : pointJoint(node);
-      const takeout = fittingTakeout(info.fitting, run.dn);
+      const takeout = nodeFittingTakeout(info, run.dn);
       const distance = atStart ? takeout : total - takeout;
       const pos = add(a.pos, scale3(dir, distance));
       // A mark faces the thing it joins the pipe to.
@@ -1276,12 +1293,12 @@ export function analyse(drawing: Drawing): Analysis {
           nodeJoint,
           run.dn,
           run.schedule,
-          `PIPE / ${fittingLabel(info.fitting)}`,
+          `PIPE / ${info.fitting === 'COUPLING' ? couplingName(nodeJoint) : fittingLabel(info.fitting)}`,
           pos,
           facing,
           idx,
           distance,
-          { anchor: node.pos, reach: { kind: 'fitting' } },
+          { anchor: node.pos, reach: { kind: info.fitting === 'COUPLING' ? 'coupling' : 'fitting' } },
         );
       }
     }
@@ -1579,9 +1596,11 @@ export function analyse(drawing: Drawing): Analysis {
         bomKey: tally({
           category: 'FITTING',
           description:
-            (info.fitting === 'TEE_REDUCING' && branch
-              ? `${fittingLabel(info.fitting)} ${sizeLabel(dn)} x ${sizeLabel(branch.dn)}`
-              : fittingLabel(info.fitting)) + jointSuffix(pointJoint(info.node)),
+            info.fitting === 'COUPLING'
+              ? couplingName(pointJoint(info.node))
+              : (info.fitting === 'TEE_REDUCING' && branch
+                  ? `${fittingLabel(info.fitting)} ${sizeLabel(dn)} x ${sizeLabel(branch.dn)}`
+                  : fittingLabel(info.fitting)) + jointSuffix(pointJoint(info.node)),
           dn,
           schedule: fittingThickness,
           unit: 'off',

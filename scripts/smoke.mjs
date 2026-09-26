@@ -3724,8 +3724,10 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
 /* ------------------------------------ couplings, socket weld and threaded */
 
 // "Two more fittings: COUPLING SW, the socket one, and COUPLING NPT"
-// (2026-09-26): a sleeve joining two pipes, socket welded (two SW welds)
-// or screwed (thread marks, no weld), dimensioned to its centre.
+// (2026-09-26): socket welded (two SW welds) or screwed (thread marks, no
+// weld). "A coupling is a fitting, and every fitting splits the pipe it
+// goes into in two, except olets" (same day): it is a point of its own.
+const couplingsNow = async () => (await drawingNow()).nodes.filter((n) => n.fittingOverride === 'COUPLING');
 {
   await routeLine('1"\nSCH80\nORIGIN 0 0 0\nE 1000\nN 800');
   check('the palette has Cplg SW and Cplg NPT', await page.locator('.tool[data-kind^="COUPLING"]').allInnerTexts(), (v) => v.map((t) => t.trim()).join('|') === 'Cplg SW|Cplg NPT', 'Cplg SW | Cplg NPT');
@@ -3744,12 +3746,13 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   await page.keyboard.type('300');
   await page.keyboard.press('Enter');
   await page.waitForTimeout(300);
-  await pickRun(1);
+  check('the coupling splits the pipe it goes into: two runs where there was one', (await drawingNow()).runs.length, (v) => v === 3, '3 runs');
+  await pickRun(2);
   await page.click('.tool[data-kind="COUPLING_THD"]');
   await page.waitForTimeout(300);
   await page.keyboard.press('Escape');
   await page.waitForTimeout(150);
-  check('each goes in along its run, the socket one where its dimension was typed', (await drawingNow()).runs.map((r) => r.inline.map((c) => `${c.kind}@${Math.round(c.offset)}`).join()).join(' '), (v) => v === 'COUPLING_SW@300 COUPLING_THD@400', 'COUPLING_SW@300 COUPLING_THD@400');
+  check('each is a point: the socket one where its dimension was typed', (await couplingsNow()).map((n) => `${n.joint}@${Math.round(n.pos.e)},${Math.round(n.pos.n)}`).sort().join(' '), (v) => v === 'SW@300,0 THD@1000,400', 'SW at E300, THD at N400');
   await page.click('#tabs button:has-text("Items")');
   await page.waitForTimeout(200);
   const itemsText = await page.locator('#tab-body').innerText();
@@ -3762,7 +3765,17 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   check('the pipe into the socket is cut short of its centre by half the coupling and the set-back', rows.find((r) => /COUPLING SW/.test(r))?.split('\t').pop()?.trim(), (v) => v === 'A 292', 'A 292');
   await page.click('#tabs button:has-text("Route")');
   await page.waitForTimeout(150);
-  check('both are drawn, with their joint marks', `${await page.locator('#canvas .component[data-component] polygon.sym-fill').count()} ${await page.locator('#canvas .weld').count()}`, (v) => /^2 /.test(v) && Number(v.split(' ')[1]) >= 6, '2 sleeves, 6 marks or more');
+  check('both are drawn on their points, with their joint marks', `${await page.locator('#canvas .node polygon.sym-fill').count()} ${await page.locator('#canvas .weld').count()}`, (v) => /^2 /.test(v) && Number(v.split(' ')[1]) >= 6, '2 sleeves, 6 marks or more');
+  // Taken off, the pipe runs through as one again.
+  const sw = (await couplingsNow()).find((n) => n.joint === 'SW');
+  const dot = page.locator(`#canvas circle.hit-dot[data-node="${sw.id}"]`).first();
+  await dot.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await dot.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await page.waitForTimeout(250);
+  check('a coupling picked offers Remove coupling', await page.locator('#hud-delete').innerText(), (v) => v === 'Remove coupling', 'Remove coupling');
+  await page.click('#hud-delete');
+  await page.waitForTimeout(300);
+  check('removed, the pipe runs through as one', `${(await drawingNow()).runs.length} ${(await couplingsNow()).length}`, (v) => v === '3 1', '3 runs, 1 coupling left');
 }
 
 /* ------------------------------- a coupling every 6 m on small-bore pipe */
@@ -3770,15 +3783,44 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
 // "Pipe 1 1/2 and under needs a coupling added automatically every 6 m"
 // (2026-09-26): pipe comes in 6 m lengths; each is cut 6000 to a coupling.
 {
-  const autoOf = async () => (await drawingNow()).runs.map((r) => r.inline.filter((c) => c.auto).map((c) => `${c.kind}@${Math.round(c.offset)}`).join(',')).join(' ; ');
+  const autoOf = async () => (await couplingsNow()).filter((n) => n.autoCoupling).map((n) => `${n.joint}@${Math.round(n.pos.e)}`).sort().join(',');
   await routeLine('1"\nSCH80\nORIGIN 0 0 0\nE 15000\nN 800');
-  check('a 15 m 1" pipe gets a socket weld coupling at each 6 m, the short leg none', await autoOf(), (v) => v === 'COUPLING_SW@6008,COUPLING_SW@12024 ; ', 'two couplings on the 15 m leg');
+  check('a 15 m 1" pipe gets a socket weld coupling at each 6 m, the short leg none', await autoOf(), (v) => v === 'SW@12024,SW@6008', 'two couplings on the 15 m leg');
+  check('each splits the pipe: four runs', (await drawingNow()).runs.length, (v) => v === 4, '4');
   await page.click('#tabs button:has-text("Welds")');
   await page.waitForTimeout(200);
   const nets = (await page.locator('#tab-body table tbody tr').allInnerTexts()).map((r) => r.split('\t').pop().trim());
   check('each full length is cut 6000', [...new Set(nets)].join(' '), (v) => v.startsWith('A 6000 B 6000 C '), 'A 6000, B 6000, then the rest');
   await page.click('#tabs button:has-text("Route")');
   await page.waitForTimeout(150);
+  // Dragged along the pipe by hand it is his, and the next goes 6 m on from it.
+  {
+    await page.click('#fit');
+    await page.waitForTimeout(250);
+    const firstCpl = (await couplingsNow()).filter((n) => n.autoCoupling).sort((a, b) => a.pos.e - b.pos.e)[0];
+    const b0 = await page.locator(`#canvas circle.hit-dot[data-node="${firstCpl.id}"]`).boundingBox();
+    for (let i = 0; i < 6; i += 1) {
+      await page.mouse.move(b0.x + 4, b0.y + 4);
+      await page.mouse.wheel(0, -300);
+      await page.waitForTimeout(80);
+    }
+    const b1 = await page.locator(`#canvas circle.hit-dot[data-node="${firstCpl.id}"]`).boundingBox();
+    const x = b1.x + b1.width / 2;
+    const y = b1.y + b1.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    for (let i = 1; i <= 10; i += 1) {
+      await page.mouse.move(x - i * 6, y - i * 3.5);
+      await page.waitForTimeout(30);
+    }
+    await page.mouse.up();
+    await page.waitForTimeout(400);
+    const placed = (await couplingsNow()).sort((a, b) => a.pos.e - b.pos.e).map((n) => ({ e: Math.round(n.pos.e), auto: !!n.autoCoupling }));
+    check('a coupling dragged by hand stays where it is put, the next 6 m on from it', JSON.stringify(placed), (v) => {
+      const [p, q] = JSON.parse(v);
+      return p && q && !p.auto && q.auto && p.e < 6008 && Math.abs(q.e - (p.e + 6000 + 15.7)) <= 1;
+    }, 'the dragged one his, the next 6000 + its length on');
+  }
   // Under 6 m, or over 1 1/2", none.
   await routeLine('1"\nSCH80\nORIGIN 0 0 0\nE 5000');
   check('a pipe under 6 m gets none', await autoOf(), (v) => v === '', 'none');
@@ -3797,18 +3839,18 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
     await page.waitForTimeout(300);
     await page.keyboard.press('Escape');
     await page.waitForTimeout(150);
-    check('a coupling put in by hand on 2" pipe stays, and no others come', (await drawingNow()).runs[0].inline.map((c) => `${c.kind}${c.auto ? '*' : ''}`).join(), (v) => v === 'COUPLING_SW', 'COUPLING_SW');
+    check('a coupling put in by hand on 2" pipe stays, and no others come', (await couplingsNow()).map((n) => `${n.joint}${n.autoCoupling ? '*' : ''}`).join(), (v) => v === 'SW', 'SW');
   }
   await routeLine('1 1/2"\nSCH80\nORIGIN 0 0 0\nE 7000');
-  const cplId = (await drawingNow()).runs[0].inline.find((c) => c.auto)?.id;
-  const el = page.locator(`#canvas circle.hit-dot[data-component="${cplId}"]`);
+  const cpl = (await couplingsNow()).find((n) => n.autoCoupling);
+  const el = page.locator(`#canvas circle.hit-dot[data-node="${cpl?.id}"]`).first();
   await el.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
   await el.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
   await page.waitForTimeout(250);
   await page.click('#hud-delete');
   await page.waitForTimeout(300);
-  const after = (await drawingNow()).runs[0];
-  check('one taken out by hand stays out, that pipe marked to have none', `${after.inline.length} ${after.noAutoCoupling}`, (v) => v === '0 true', '0 true');
+  const after = await drawingNow();
+  check('one taken out by hand stays out, that pipe marked to have none', `${after.runs.length} ${(await couplingsNow()).length} ${after.runs[0].noAutoCoupling}`, (v) => v === '1 0 true', '1 run, 0 couplings, true');
 }
 
 /* -------------------------- a short spool between two valves, not to scale */

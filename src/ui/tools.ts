@@ -1,9 +1,9 @@
 import type { ComponentKind, FlangeKind, JointType, Run, TerminalKind } from '../model/types';
 import type { Host } from './types';
-import { COMPONENT_LABEL, COUPLING_REACH, TERMINAL_LABEL, chainStops, isCoupling, dimensionStops, isMark, itemHalf, isValve, oletEntries, oletLegs, oletMarks, resolveEnds, terminalTakeoutOf, valveOpenSide } from '../model/drawing';
-import { addComponent, addEquipment, addFlangeJoint, flangeOnItemFace, applyReducer, boltValveOnEnd, runLength, setLastFlange, setTerminal, splitRun } from '../model/edit';
+import { COMPONENT_LABEL, COUPLING_REACH, TERMINAL_LABEL, chainStops, isCoupling, nodeFittingTakeout, dimensionStops, isMark, itemHalf, isValve, oletEntries, oletLegs, oletMarks, resolveEnds, terminalTakeoutOf, valveOpenSide } from '../model/drawing';
+import { addComponent, isCouplingPoint, isPlainPoint, placeCoupling, addEquipment, addFlangeJoint, flangeOnItemFace, applyReducer, boltValveOnEnd, runLength, setLastFlange, setTerminal, splitRun } from '../model/edit';
 import { axisBetween } from '../model/iso';
-import { DN_LIST, componentTakeout, fittingTakeout, sizeLabel, valveFlangeKind } from '../model/pipe-data';
+import { DN_LIST, componentTakeout, sizeLabel, valveFlangeKind } from '../model/pipe-data';
 import { isFlange } from '../render/symbols';
 import { runOffsetAtPaper } from '../render/renderer';
 import { componentSymbol, jointMark, oletSymbol, type Frame } from '../render/symbols';
@@ -310,6 +310,10 @@ function place(host: Host, kind: ComponentKind, ends?: 'SW' | 'THD'): void {
     void placeReducer(host, kind);
     return;
   }
+  if (isCoupling(kind)) {
+    placeCouplingTool(host, kind);
+    return;
+  }
 
   // A blind picked with a flanged valve on the open end — the valve itself,
   // or the end point it stands on — bolts straight on the valve's last face.
@@ -389,7 +393,7 @@ function place(host: Host, kind: ComponentKind, ends?: 'SW' | 'THD'): void {
       }
       const run = info.runs[0];
       if (run) {
-        placeFlangeOnRun(host, run, kind, run.from === nodeId ? 'start' : 'end', fittingTakeout(info.fitting, run.dn));
+        placeFlangeOnRun(host, run, kind, run.from === nodeId ? 'start' : 'end', nodeFittingTakeout(info, run.dn));
         return;
       }
     }
@@ -634,6 +638,52 @@ function oletSpot(host: Host, run: Run): number | null {
   const hit = tapped !== null ? room.find(([a, b]) => tapped >= a - 1 && tapped <= b + 1) : undefined;
   const [a, b] = hit ?? room.reduce((best, g) => (g[1] - g[0] > best[1] - best[0] ? g : best));
   return Math.round((a + b) / 2);
+}
+
+/**
+ * A coupling is a fitting on a point: it splits the pipe it goes into in
+ * two (his word, 2026-09-26: "every fitting splits the pipe it goes into,
+ * except olets"). Along a pipe it goes in the middle of the length tapped,
+ * and the dimension up to it opens; on a point the line runs straight
+ * through, it goes on that point.
+ */
+function placeCouplingTool(host: Host, kind: ComponentKind): void {
+  const joint = kind === 'COUPLING_THD' ? 'THD' : 'SW';
+  const { selection, drawing } = host.state;
+  let where: { runId: string; at: number } | { nodeId: string };
+  if (selection?.kind === 'node') {
+    if (isCouplingPoint(drawing, selection.id)) {
+      host.notify('That point already has a coupling.');
+      return;
+    }
+    if (!isPlainPoint(drawing, selection.id)) {
+      host.notify('A coupling joins two pipes on one line — pick the pipe, or a point the line runs straight through.');
+      return;
+    }
+    where = { nodeId: selection.id };
+  } else {
+    const run = targetRun(host);
+    if (!run) {
+      host.notify('Select the pipe first.');
+      return;
+    }
+    const at = oletSpot(host, run);
+    if (at === null) {
+      host.notify('No pipe left on that run for a coupling.');
+      return;
+    }
+    where = { runId: run.id, at };
+  }
+  let nodeId: string | null = null;
+  host.edit(`Add ${COMPONENT_LABEL[kind]}`, (d) => {
+    nodeId = placeCoupling(d, joint, where);
+  });
+  if (!nodeId) {
+    host.notify('The pipe is too short to cut there.');
+    return;
+  }
+  host.select({ kind: 'node', id: nodeId });
+  if ('runId' in where) openDimensionUpTo(host, nodeId);
 }
 
 /** A dashed equipment box on the picked point, named there and then in its panel. */
