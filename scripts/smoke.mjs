@@ -3751,18 +3751,20 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   check('a pipe under 6 m gets none', await autoOf(), (v) => v === '', 'none');
   await routeLine('2"\nSTD\nORIGIN 0 0 0\nE 15000');
   check('2" pipe is welded, not coupled: none', await autoOf(), (v) => v === '', 'none');
-  // "Leave an option for 2" pipe too, put in every 6 m" (same day).
+  // "On 2" only the option to put one in by hand" (same day): no choice
+  // in the panel, the palette's coupling goes in and stays.
   {
     const id = (await drawingNow()).runs[0].id;
     const el = page.locator(`#canvas [data-run="${id}"]`).first();
     await el.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
     await el.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
     await page.waitForTimeout(250);
-    check('a 2" pipe\'s panel offers couplings, off to begin with', await page.inputValue('#tab-body [data-f="autocpl"]'), (v) => v === 'none', 'none');
-    await page.selectOption('#tab-body [data-f="autocpl"]', 'auto');
+    check('a 2" pipe\'s panel has no automatic couplings', await page.locator('#tab-body [data-f="autocpl"]').count(), (v) => v === 0, '0');
+    await page.click('.tool[data-kind="COUPLING_SW"]');
     await page.waitForTimeout(300);
-    check('turned on, the 2" pipe gets a coupling every 6 m', await autoOf(), (v) => /^COUPLING_SW@\d+,COUPLING_SW@\d+$/.test(v), 'two SW couplings');
     await page.keyboard.press('Escape');
+    await page.waitForTimeout(150);
+    check('a coupling put in by hand on 2" pipe stays, and no others come', (await drawingNow()).runs[0].inline.map((c) => `${c.kind}${c.auto ? '*' : ''}`).join(), (v) => v === 'COUPLING_SW', 'COUPLING_SW');
   }
   await routeLine('1 1/2"\nSCH80\nORIGIN 0 0 0\nE 7000');
   const cplId = (await drawingNow()).runs[0].inline.find((c) => c.auto)?.id;

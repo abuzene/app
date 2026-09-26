@@ -201,8 +201,6 @@ export interface Run {
   noDim?: boolean;
   /** No coupling put in every 6 m along this pipe (one of them was taken out by hand). */
   noAutoCoupling?: boolean;
-  /** 2" pipe with a coupling put in every 6 m, as asked for in its panel (under 2" it is the rule). */
-  autoCoupling?: boolean;
   /**
    * The fittings at each end are joined to each other directly, with no pipe
    * between: one weld where they meet, no cut length, no pipe on the list.

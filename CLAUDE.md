@@ -326,10 +326,9 @@ ships, and the decisions already taken, so they are not re-litigated.
   loses `auto` (his); one deleted sets `run.noAutoCoupling`; the run
   panel's Couplings select turns them on/off along the line
   (`setAutoCoupling`, through elbows and plain points of the same size).
-  **2" pipe on request** (his ask, same day): the select is offered up to
-  2" (`offersAutoCoupling`), off by default there; on sets
-  `run.autoCoupling` (`wantsAutoCoupling`: under 2" unless turned off, 2"
-  only when turned on).
+  2" and over: never automatic, a coupling only by hand from the palette
+  (his word, same day: "on 2" only the option to put it in by hand");
+  `wantsAutoCoupling`/`offersAutoCoupling` are small bore only.
   Branch (tee, olets), Marks
   (Support, L50 support, AG/UG), Joints (a BW weld: `placeWeld` splits the
   run at a plain point, welded pipe to pipe, dimension opened). Two columns

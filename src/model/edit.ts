@@ -313,19 +313,19 @@ export function addComponent(
 export const PIPE_STOCK = 6000;
 /** Small bore: 1 1/2" and under is joined by couplings, not welded pipe to pipe. */
 const SMALL_BORE_OD = 48.3 + 0.01;
-/** 2" pipe takes them too when asked for (his ask, 2026-09-26). */
-const COUPLING_ON_ASK_OD = 60.3 + 0.01;
-
-/** Whether a run gets a coupling every 6 m: 1 1/2" and under unless turned off, 2" when turned on. */
+/**
+ * Whether a run gets a coupling every 6 m: 1 1/2" and under unless turned
+ * off. Bigger pipe only ever takes one by hand, from the palette (his word,
+ * 2026-09-26: on 2" "only the option to put it in by hand").
+ */
 export function wantsAutoCoupling(run: Run): boolean {
   if (run.dashed || run.direct || run.noAutoCoupling) return false;
-  const od = sizeOf(run.dn).od;
-  return od <= SMALL_BORE_OD || (od <= COUPLING_ON_ASK_OD && run.autoCoupling === true);
+  return sizeOf(run.dn).od <= SMALL_BORE_OD;
 }
 
-/** Whether a run's panel offers the choice at all: pipe up to 2". */
+/** Whether a run's panel offers the choice at all: small bore only. */
 export function offersAutoCoupling(run: Run): boolean {
-  return !run.dashed && sizeOf(run.dn).od <= COUPLING_ON_ASK_OD;
+  return !run.dashed && sizeOf(run.dn).od <= SMALL_BORE_OD;
 }
 
 /**
@@ -342,7 +342,6 @@ export function setAutoCoupling(drawing: Drawing, runIds: string[], on: boolean)
     if (seen.has(run.id)) continue;
     seen.add(run.id);
     run.noAutoCoupling = on ? undefined : true;
-    run.autoCoupling = on && sizeOf(run.dn).od > SMALL_BORE_OD ? true : undefined;
     if (!on) run.inline = run.inline.filter((c) => !c.auto);
     if (hasReducer(run)) continue;
     for (const end of [run.from, run.to]) {
