@@ -146,6 +146,13 @@ main { flex: 1 1 auto; display: flex; min-height: 0; }
   background: #fff; color: var(--ink); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
 }
 .dim-editor:focus { outline: none; }
+/* In the keypad's top row, the width of the pad, larger: what is typed. */
+.dim-keypad .dim-editor {
+  position: static; grid-column: 1 / -1; width: auto; min-width: 0;
+  font-size: 22px; padding: 6px 8px; box-shadow: none; -moz-appearance: textfield; appearance: textfield;
+}
+.dim-keypad .dim-editor::-webkit-inner-spin-button,
+.dim-keypad .dim-editor::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 .dim-keypad {
   position: absolute; z-index: 5; width: 156px;
   display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;

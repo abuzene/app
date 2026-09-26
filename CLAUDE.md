@@ -151,7 +151,11 @@ ships, and the decisions already taken, so they are not re-litigated.
   never two welds on one spot.
 - Dimensions are typed on the drawing: tap the figure. The editor opens on
   **pointerdown** (iOS only shows a keyboard inside the touch gesture) with a
-  **keypad** beside it, above the tap, and the canvas captures the pointer so
+  **keypad** above the tap (the box itself is the keypad's top row, so
+  what is typed is always in sight: a keypad taller than the 168 px it was
+  placed by — its Delete row — once covered the box, "I type the dimension
+  and cannot see it", 2026-09-26; placed by its measured height, clear of
+  the figure), and the canvas captures the pointer so
   the lift is not lost (a lost lift once turned every later tap into a
   pinch — `onPointerGone` in canvas.ts guards this).
 - Not-to-scale mode draws each run at its tapped length (`run.visual`);

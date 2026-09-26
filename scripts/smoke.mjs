@@ -1608,6 +1608,19 @@ await page.waitForTimeout(150);
 check('the box stays open when the pencil lifts', await page.locator('.dim-editor').count(), (v) => v === 1, '1');
 for (const k of ['9', '0', '0']) await page.locator(`.dim-keypad [data-key="${k}"]`).dispatchEvent('pointerdown', { bubbles: true });
 check('the keypad types over the old figure', await page.locator('.dim-editor').inputValue(), (v) => v === '900', '900');
+// "Once I type the dimension I cannot see it, so I don't know if I got it
+// right" (2026-09-26): the keypad, taller with its Delete row, covered the
+// box. The box is now the keypad's top row, in sight, with the figure clear.
+const inSight = await page.evaluate(() => {
+  const box = document.querySelector('.dim-editor');
+  const r = box.getBoundingClientRect();
+  const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+  return `${box.parentElement.classList.contains('dim-keypad')} ${top === box}`;
+});
+check('what is typed shows at the top of the keypad, nothing over it', inSight, (v) => v === 'true true', 'true true');
+const padBox = await page.locator('.dim-keypad').boundingBox();
+const figureY = figure.y + figure.height / 2;
+check('and the keypad leaves the figure being typed in sight', padBox.y + padBox.height < figureY || padBox.y > figureY, (v) => v === true, 'true');
 await page.locator('.dim-keypad [data-key="OK"]').dispatchEvent('pointerdown', { bubbles: true });
 await page.waitForTimeout(400);
 check('and OK sets the dimension', await page.evaluate(() => [...document.querySelectorAll('#canvas .dim-text')].map((t) => t.textContent)), (v) => v.includes('900'), 'a 900 figure');
