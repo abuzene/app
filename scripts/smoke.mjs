@@ -27,6 +27,15 @@ const executablePath = process.env.CHROMIUM_PATH ?? '/opt/pw-browsers/chromium-1
 const launchOptions = existsSync(executablePath) ? { executablePath } : {};
 const browser = await chromium.launch(launchOptions);
 const page = await browser.newPage({ viewport: { width: 1500, height: 940 } });
+// What the sheet shows lives in the View menu (his ask, 2026-09-27: the
+// bar one row): opened for the switch, closed again after.
+const inViewMenu = async (act) => {
+  if (!(await page.locator('#view-menu.open').count())) await page.click('#view-menu-button');
+  await page.waitForTimeout(120);
+  await act();
+  if (await page.locator('#view-menu.open').count()) await page.click('#view-menu-button');
+  await page.waitForTimeout(120);
+};
 
 const consoleErrors = [];
 page.on('console', (m) => m.type() === 'error' && consoleErrors.push(m.text()));
@@ -158,12 +167,12 @@ check('redo restores it', await page.locator('#canvas .component').count(), (v) 
 
 // Sheet orientation and not-to-scale mode.
 await page.click('#rotate');
-await page.check('#opt-schematic');
+await inViewMenu(() => page.check('#opt-schematic'));
 await page.waitForTimeout(350);
 // At least one line per run: one crossing another is drawn in two, with a gap.
 check('not-to-scale mode still draws', await page.locator('#canvas line.pipe').count(), (v) => v >= 6, 'at least 6');
 await page.screenshot({ path: join(out, '03-rotated-schematic.png') });
-await page.uncheck('#opt-schematic');
+await inViewMenu(() => page.uncheck('#opt-schematic'));
 for (let i = 0; i < 3; i += 1) await page.click('#rotate');
 await page.waitForTimeout(300);
 
@@ -940,12 +949,25 @@ for (const [width, height, shape] of [
 }
 await page.setViewportSize({ width: 1500, height: 940 });
 await page.waitForTimeout(300);
+// "Put all these under View, so the top bar is one row" (2026-09-27).
 check(
-  'on a wide screen the switches sit in the toolbar',
-  await page.locator('#opt-welds').isVisible(),
-  (v) => v === true,
-  'true',
+  'on a wide screen too the switches are in the View menu, and the bar is one row',
+  `${await page.locator('#opt-welds').isVisible()} ${Math.round((await page.locator('.toolbar').boundingBox()).height)}`,
+  (v) => v.startsWith('false ') && Number(v.split(' ')[1]) < 70,
+  'hidden until View is opened; the bar under 70 px',
 );
+for (const [w, h] of [[1180, 820], [1366, 1024]]) {
+  await page.setViewportSize({ width: w, height: h });
+  await page.waitForTimeout(250);
+  check(`on an iPad ${w} wide the bar is one row, Print on screen`, `${Math.round((await page.locator('.toolbar').boundingBox()).height)} ${await page.evaluate(() => document.querySelector('#print').getBoundingClientRect().right <= innerWidth)}`, (v) => Number(v.split(' ')[0]) < 70 && v.endsWith('true'), 'under 70 px, true');
+  await page.click('#view-menu-button');
+  await page.waitForTimeout(200);
+  check(`and View holds the symbol size too, ${w} wide`, await page.locator('#opt-symbols').isVisible(), (v) => v === true, 'true');
+  await page.click('#view-menu-button');
+  await page.waitForTimeout(150);
+}
+await page.setViewportSize({ width: 1500, height: 940 });
+await page.waitForTimeout(250);
 
 /* --------------------------------------------- what the drawing is made of */
 
@@ -1235,8 +1257,7 @@ await page.waitForTimeout(300);
 
 // Not to scale, a run is drawn to where the pencil put it, and stays there
 // when its true length is typed; dragging its end changes only the drawing.
-await page.click('#view-menu-button').catch(() => {});
-await page.click('#opt-schematic');
+await inViewMenu(() => page.click('#opt-schematic'));
 await page.waitForTimeout(400);
 await page.keyboard.press('Escape');
 await page.waitForTimeout(150);
@@ -1292,8 +1313,7 @@ check('without touching the elbows', await page.evaluate(() => document.querySel
 await page.locator('#canvas [data-run]').last().click({ force: true });
 await page.waitForTimeout(250);
 check('and without changing the true length', Number(await page.locator('#tab-body [data-f="length"]').inputValue()), (v) => v === 2500, '2500');
-await page.click('#view-menu-button').catch(() => {});
-await page.click('#opt-schematic');
+await inViewMenu(() => page.click('#opt-schematic'));
 await page.waitForTimeout(400);
 
 // A weld number tag is dragged to where it reads best; its leader stays put.
@@ -2750,7 +2770,7 @@ await page.waitForTimeout(150);
 // changes only how long it is drawn, and the typed length stays.
 {
   await routeLine('2"\nSTD\nORIGIN 0 0 0\nE 300\nN 19240');
-  await page.check('#opt-schematic');
+  await inViewMenu(() => page.check('#opt-schematic'));
   await page.waitForTimeout(400);
   const longRun = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).runs[1].id);
   const drawnOf = async (id) => page.evaluate((runId) => {
@@ -2805,7 +2825,7 @@ await page.waitForTimeout(150);
   const farSideAt = await page.locator(`#canvas circle.hit-dot[data-node="${farSide}"]`).boundingBox();
   check('and the point on its far side is drawn beyond the box, not back at the origin', Math.hypot(farSideAt.x - originAt.x, farSideAt.y - originAt.y) > 100, (v) => v === true, 'well away from the origin');
   await page.keyboard.press('Escape');
-  await page.uncheck('#opt-schematic');
+  await inViewMenu(() => page.uncheck('#opt-schematic'));
   await page.waitForTimeout(300);
   // New once kept the last sheet's equipment (Object.assign left optional
   // parts behind); undoing the first box did not take it away either.
@@ -3442,7 +3462,7 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   await startNewDrawing();
   await page.click('[data-a="load-sample"]');
   await page.waitForTimeout(500);
-  await page.selectOption('#opt-symbols', '22');
+  await inViewMenu(() => page.selectOption('#opt-symbols', '22'));
   await page.waitForTimeout(300);
   check('View → Symbols sets the drawing\'s symbol size', (await drawingNow()).options.sheetScale, (v) => v === 22, '22 (147%)');
   const proportion = (sel) => page.evaluate((sel) => {
@@ -3469,7 +3489,7 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   check('and all of the drawing sits inside the frame', inFrame, (v) => v === 0, '0 outside');
   await page.click('.dialog [data-close]');
   await page.waitForTimeout(200);
-  await page.selectOption('#opt-symbols', '15');
+  await inViewMenu(() => page.selectOption('#opt-symbols', '15'));
   await page.waitForTimeout(200);
 }
 
@@ -3513,7 +3533,7 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   };
 
   await routeLine('6"\nSTD\nORIGIN 0 0 0\nEND FLG\nE 3000\nEND FLG');
-  await page.click('#opt-schematic');
+  await inViewMenu(() => page.click('#opt-schematic'));
   await page.waitForTimeout(300);
   const ends = await drawingNow();
   const [startId, endId] = [ends.runs[0].from, ends.runs[0].to];
@@ -3589,7 +3609,7 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   await page.waitForTimeout(300);
   const reset = await drawingNow();
   check('and is: 3000 drawn 1500, shared as the olet shares the true length', reset.runs.filter((r) => r.from === olet || r.to === olet).map((r) => Math.round(r.visual)).join(' + '), (v) => v === '750 + 750', '750 + 750');
-  await page.click('#opt-schematic');
+  await inViewMenu(() => page.click('#opt-schematic'));
   await page.waitForTimeout(300);
 
   await routeLine('6"\nSTD\nORIGIN 0 0 0\nEND FLG\nE 3000\n+BALL 600\n+BALL 2400\nEND FLG');
@@ -3970,8 +3990,8 @@ const couplingsNow = async () => (await drawingNow()).nodes.filter((n) => n.fitt
 // lengthen the pipe pieces, not the valves.
 {
   await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 1400\n+BALL 300\n+BALLAIR 1000\nEND BLIND');
-  await page.check('#opt-schematic');
-  await page.selectOption('#opt-symbols', '22');
+  await inViewMenu(() => page.check('#opt-schematic'));
+  await inViewMenu(() => page.selectOption('#opt-symbols', '22'));
   await page.waitForTimeout(200);
   // Drawn short by the pencil: under what its two valves need.
   await page.evaluate(() => {
@@ -4010,8 +4030,8 @@ const couplingsNow = async () => (await drawingNow()).nodes.filter((n) => n.fitt
   const [w1, w2] = await valves();
   const pipe = await page.evaluate(() => [...document.querySelectorAll('#canvas line.pipe')].map((l) => l.getBoundingClientRect().width).reduce((a, b) => a + b, 0));
   check('drawn longer, the spool between the valves grows', (w2.left - w1.right) / pipe, (v) => v > 0.1, 'more than a tenth of the pipe drawn');
-  await page.uncheck('#opt-schematic');
-  await page.selectOption('#opt-symbols', '15');
+  await inViewMenu(() => page.uncheck('#opt-schematic'));
+  await inViewMenu(() => page.selectOption('#opt-symbols', '15'));
   await page.waitForTimeout(200);
 }
 
@@ -4128,8 +4148,8 @@ const couplingsNow = async () => (await drawingNow()).nodes.filter((n) => n.fitt
 // towards the next valve, it now moves steadily and stops at its flange.
 {
   await routeLine('2"\nSTD\nORIGIN 0 0 0\nN 629');
-  await page.check('#opt-schematic');
-  await page.selectOption('#opt-symbols', '27');
+  await inViewMenu(() => page.check('#opt-schematic'));
+  await inViewMenu(() => page.selectOption('#opt-symbols', '27'));
   await page.evaluate(() => {
     const d = JSON.parse(localStorage.getItem('iso-draw.drawing.v1'));
     d.runs[0].inline = [{ id: 'cman', kind: 'BALL', offset: 151 }, { id: 'cact', kind: 'BALL_ACT', offset: 540, lastFlange: 'blind' }];
@@ -4160,8 +4180,8 @@ const couplingsNow = async () => (await drawingNow()).nodes.filter((n) => n.fitt
   check('dragged towards the next valve, the valve moves steadily, never back', `${backwards} ${seen.length > 5}`, (v) => v === '0 true', '0 true');
   check('taken hold of, it does not jump: it starts from where it stood', seen[0], (v) => Math.abs(v - 151) <= 20, 'within 20 mm of 151');
   check('and stops against the next valve\'s flange', (await drawingNow()).runs[0].inline.find((c) => c.id === 'cman').offset, (v) => Math.abs(v - 238) <= 1, '238');
-  await page.uncheck('#opt-schematic');
-  await page.selectOption('#opt-symbols', '15');
+  await inViewMenu(() => page.uncheck('#opt-schematic'));
+  await inViewMenu(() => page.selectOption('#opt-symbols', '15'));
   await page.waitForTimeout(200);
 }
 
@@ -4703,7 +4723,7 @@ const couplingsNow = async () => (await drawingNow()).nodes.filter((n) => n.fitt
   await page.waitForTimeout(600);
   await page.keyboard.press('Escape');
   await page.click('#tabs button:has-text("Route")');
-  await page.check('#opt-schematic');
+  await inViewMenu(() => page.check('#opt-schematic'));
   await page.waitForTimeout(300);
   await page.click('#fit');
   await page.click('#tidy');
@@ -4736,7 +4756,7 @@ const couplingsNow = async () => (await drawingNow()).nodes.filter((n) => n.fitt
     return `${dim} ${pipe} ${over}`;
   });
   check('after Tidy no leader crosses a dimension line or a pipe, no label on another', tidied, (v) => v === '0 0 0', '0 0 0');
-  await page.uncheck('#opt-schematic');
+  await inViewMenu(() => page.uncheck('#opt-schematic'));
   await page.waitForTimeout(200);
 }
 

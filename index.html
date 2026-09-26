@@ -60,23 +60,19 @@
             <label class="check"><input type="checkbox" id="opt-welds" checked /><span>Weld nos</span></label>
             <label class="check"><input type="checkbox" id="opt-grid" checked /><span>Grid</span></label>
             <label class="check"><input type="checkbox" id="opt-schematic" /><span>Not to scale</span></label>
+            <!-- Everything the sheet shows in one menu, so the bar is one row
+                 (his ask, 2026-09-27). -->
+            <label class="field named"><span>Symbols</span><select id="opt-symbols" title="Symbols, weld numbers and lettering against the pipe — on screen and on the printed sheet alike">
+              <option value="8">53%</option>
+              <option value="10">67%</option>
+              <option value="12">80%</option>
+              <option value="15">100%</option>
+              <option value="18">120%</option>
+              <option value="22">147%</option>
+              <option value="27">180%</option>
+              <option value="33">220%</option>
+            </select></label>
           </div>
-        </div>
-
-        <!-- A second row on a tablet: the toolbar never has to be dragged
-             sideways to reach Print (his ask, 2026-09-26). -->
-        <div class="row-break" aria-hidden="true"></div>
-        <div class="group">
-          <label class="field named"><span>Symbols</span><select id="opt-symbols" title="Symbols, weld numbers and lettering against the pipe — on screen and on the printed sheet alike">
-            <option value="8">53%</option>
-            <option value="10">67%</option>
-            <option value="12">80%</option>
-            <option value="15">100%</option>
-            <option value="18">120%</option>
-            <option value="22">147%</option>
-            <option value="27">180%</option>
-            <option value="33">220%</option>
-          </select></label>
         </div>
 
         <div class="group right">

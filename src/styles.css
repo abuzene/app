@@ -50,10 +50,6 @@ body {
   color: #e7ecf4;
   border-bottom: 1px solid #0d1219;
 }
-.row-break { display: none; flex-basis: 100%; height: 0; }
-@media (max-width: 1500px) {
-  .row-break { display: block; }
-}
 .toolbar::-webkit-scrollbar { display: none; }
 
 .brand { display: flex; align-items: center; gap: 9px; font-weight: 650; font-size: 14px; white-space: nowrap; }
@@ -95,9 +91,21 @@ body {
 .check { display: flex; align-items: center; gap: 5px; font-size: 12px; color: #b9c5d6; cursor: pointer; }
 /* Wide enough, and the view switches simply sit in the toolbar; the button
    that folds them away only appears when the screen cannot spare the room. */
+/* What the sheet shows sits in the View menu on every screen, so the bar
+   stays one row (his ask, 2026-09-27). */
 .view-menu { position: relative; }
-.view-menu > .btn { display: none; }
-.view-menu .menu { display: contents; }
+.view-menu .menu {
+  display: none;
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: 30;
+  flex-direction: column; gap: 10px;
+  padding: 12px 14px;
+  background: var(--chrome-2);
+  border: 1px solid #0d1219; border-radius: 9px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45);
+}
+.view-menu.open .menu { display: flex; }
+.view-menu.open > .btn { background: var(--chrome); color: #fff; }
+.view-menu .menu .field { white-space: nowrap; }
 .check input { accent-color: var(--accent); margin: 0; }
 
 /* ---------- layout ---------- */
@@ -388,21 +396,6 @@ tr.selected { background: var(--accent-soft); }
 
 @media (max-width: 1280px) {
   .panel { flex-basis: 300px; }
-  /* On a tablet the five switches used to be hidden outright, leaving no way
-     at all to turn the dimensions or the weld numbers off. Here they fold into
-     a button instead, which keeps Print on screen without losing them. */
-  .view-menu > .btn { display: inline-block; }
-  .view-menu .menu {
-    display: none;
-    position: absolute; top: calc(100% + 8px); right: 0; z-index: 30;
-    flex-direction: column; gap: 10px;
-    padding: 12px 14px;
-    background: var(--chrome-2);
-    border: 1px solid #0d1219; border-radius: 9px;
-    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45);
-  }
-  .view-menu.open .menu { display: flex; }
-  .view-menu.open > .btn { background: var(--chrome); color: #fff; }
 
   /* Drop the chrome that only labels things: each select already reads as its
      own label, so the buttons that do the work stay on screen. */

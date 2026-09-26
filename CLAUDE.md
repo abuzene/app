@@ -74,8 +74,8 @@ ships, and the decisions already taken, so they are not re-litigated.
   pipe** (`sheetScale` option, default 15 = "100%"; `symbolSizeFor`,
   `SYMBOL_MM` = 2.4 mm half-size). They do not scale with pipe length or
   zoom. Valves too (`faceReach` is capped). **View → Symbols**
-  (`#opt-symbols`, 53%…220% = sheetScale 8…33, `syncSymbolSelect` in
-  main.ts) and the print dialog's "Symbols against the pipe" set it.
+  (`#opt-symbols` in the View menu, 53%…220% = sheetScale 8…33,
+  `syncSymbolSelect` in main.ts) and the print dialog's "Symbols against the pipe" set it.
   The **printed sheet keeps the screen's proportions** (his complaint,
   2026-09-24: "on screen it looks good, printed the pipe comes out
   stretched"): `renderSheet` → `fitSheet` in sheet.ts uses the screen's
@@ -772,11 +772,14 @@ ships, and the decisions already taken, so they are not re-litigated.
   ask, 2026-09-26: "choose it on the arrow itself"). No select in the
   toolbar any more. Rotate still turns the whole drawing
   (`northRotation`); he asked to keep both.
-- **The toolbar wraps, never scrolls** (same day: "I don't want to drag the
-  bar to reach what I need"): `.toolbar` is `flex-wrap`, and up to 1500 px
-  a `.row-break` puts Symbols (`#opt-symbols`, a `.field.named` in its own
-  group, out of the View menu) and Wide/New/Open/Save/Print on a second
-  row. The folded View menu drops down under its button (absolute).
+- **The toolbar is one row** (his ask, 2026-09-27: "put all these under
+  View so the top bar is one row"): Dims, Items, Weld nos, Grid, Not to
+  scale and **Symbols** (`#opt-symbols`) live in the **View** menu
+  (`#view-menu`, a drop-down under its button on every screen width;
+  `viewMenuEl` in main.ts closes it on a touch elsewhere). `.toolbar` is
+  still `flex-wrap` as a last resort and never scrolls sideways; there is
+  no forced second row any more. The smoke reaches the switches through
+  `inViewMenu`.
 
 ## How he actually draws (learned from his sheets)
 
