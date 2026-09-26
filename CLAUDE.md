@@ -903,6 +903,24 @@ can land on a weld tag or on a handle a redraw replaced.
   removed sheet opened again gets a new id (`takeUp`). He set his own Google Cloud project up on
   2026-09-22 and is signed in on the PC.
 
+- **A folder on this computer** (`src/model/folder.ts`, Projects tab
+  "Folder on this computer"; his ask, 2026-09-26: "connect a local folder
+  too, besides Google Drive"): the File System Access API
+  (`showDirectoryPicker`, **Edge/Chrome only — Safari and so the iPad
+  cannot**; the section says so there). The folder's handle is kept in
+  IndexedDB (`iso-draw` / `handles`), its name in `iso-draw.folder.name`;
+  after a restart the browser may want it allowed again ("Allow the
+  folder", `requestPermission` needs a tap). One file per sheet, named as
+  in Drive (`fileName` exported from drive.ts), the drawing's JSON, which
+  Open reads too. `syncFolder`: per sheet, what changed since the last
+  sync (`iso-draw.folder.synced`: library stamp and file time) goes the
+  other way, changed on both the newer wins, identical content only gets
+  its name brought up to date; a file only the folder has is read in; a
+  removed sheet's file is deleted. Runs on connect, at start when still
+  allowed, **2.5 s after every edit** (`persist` → `folderTimer`, quiet:
+  says nothing unless a sheet came in), on Save, Sync now and Remove. The
+  smoke fakes the folder in the page (`window.showDirectoryPicker`).
+
 ## Ideas not yet done
 
 - Own domain for the app (CNAME on GitHub Pages) or hosting on Hostinger.

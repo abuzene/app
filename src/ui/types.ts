@@ -4,6 +4,7 @@ import type { Axis, Drawing, JointType } from '../model/types';
 import type { Preview, Selection, ViewBox } from '../render/renderer';
 import type { LibraryEntry } from '../model/library';
 import type { DriveStatus } from '../model/drive';
+import type { FolderStatus } from '../model/folder';
 
 export type TabId = 'route' | 'command' | 'items' | 'welds' | 'title' | 'projects';
 
@@ -77,6 +78,14 @@ export interface Host {
   /** Moves the newer copy of every sheet each way between this device and Drive. */
   driveSync(): void;
   driveSignOut(): void;
+  /** A folder on this computer: whether this browser can, which one, and the last sync. */
+  folderStatus(): FolderStatus;
+  /** Asks for a folder and syncs with it. */
+  folderConnect(): void;
+  /** Allows the folder kept from before again, after a restart. */
+  folderAllow(): void;
+  folderSync(): void;
+  folderForget(): void;
   /**
    * Asks how a reducer goes in: its two sizes, which way round, and whether
    * to carry on drawing from its far end. Null when the box is dismissed.

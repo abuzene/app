@@ -149,7 +149,7 @@ async function folderId(token: string): Promise<string> {
   return made.id;
 }
 
-function fileName(drawing: Drawing): string {
+export function fileName(drawing: Drawing): string {
   const m = drawing.meta;
   const what = [m.project || 'No project', m.lineNumber || m.drawingNo || '', m.sheet ? `sheet ${m.sheet}` : '']
     .filter(Boolean)

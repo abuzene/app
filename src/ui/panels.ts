@@ -703,7 +703,45 @@ function projectsTab(host: Host): string {
       : ''
   }
 </div>
-${driveSection(host)}`;
+${driveSection(host)}
+${folderSection(host)}`;
+}
+
+/** A folder on this computer, beside Google Drive: a file per sheet. */
+function folderSection(host: Host): string {
+  const status = host.folderStatus();
+  if (!status.supported) {
+    return `
+<div class="section" data-editor="folder">
+  <h3>Folder on this computer</h3>
+  <p class="empty-note">This browser cannot open a folder (Safari, and so the iPad, does not allow it). On the PC, open the app in Edge or Chrome to keep the sheets in a folder there; here, Google Drive keeps them.</p>
+</div>`;
+  }
+  const time = (t: number) => {
+    const d = new Date(t);
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  };
+  const last = status.last
+    ? `Last sync ${time(status.last.at)}: ${status.last.up} written, ${status.last.down} read in${status.last.removed ? `, ${status.last.removed} removed` : ''}.`
+    : '';
+  if (!status.name) {
+    return `
+<div class="section" data-editor="folder">
+  <h3>Folder on this computer</h3>
+  <p class="empty-note">Keep every sheet as a file in a folder you choose — on the PC's disk, a network drive, or a folder OneDrive or Dropbox keeps. Each change is written there a moment later, and a sheet file put in the folder shows up here.</p>
+  <div class="btn-row"><button class="btn-line solid" data-a="folder-connect">Choose a folder</button></div>
+</div>`;
+  }
+  return `
+<div class="section" data-editor="folder">
+  <h3>Folder on this computer</h3>
+  <p class="empty-note">${status.connected ? `Connected to <strong>${esc(status.name)}</strong>, one file per sheet; each change is written there a moment later.` : `The folder <strong>${esc(status.name)}</strong> needs to be allowed again (the browser asks after a restart).`} ${esc(last)}</p>
+  <div class="btn-row">
+    ${status.connected ? '<button class="btn-line solid" data-a="folder-sync">Sync now</button>' : '<button class="btn-line solid" data-a="folder-allow">Allow the folder</button>'}
+    <button class="btn-line" data-a="folder-connect">Another folder</button>
+    <button class="btn-line" data-a="folder-forget">Disconnect</button>
+  </div>
+</div>`;
 }
 
 /** Google Drive: one folder of sheets shared by every device signed in. */
@@ -749,6 +787,10 @@ function wire(body: HTMLElement, host: Host): void {
     host.driveConnect(field ? field.value : host.driveStatus().clientId);
   });
   body.querySelector('[data-a="drive-sync"]')?.addEventListener('click', () => host.driveSync());
+  body.querySelector('[data-a="folder-connect"]')?.addEventListener('click', () => host.folderConnect());
+  body.querySelector('[data-a="folder-allow"]')?.addEventListener('click', () => host.folderAllow());
+  body.querySelector('[data-a="folder-sync"]')?.addEventListener('click', () => host.folderSync());
+  body.querySelector('[data-a="folder-forget"]')?.addEventListener('click', () => host.folderForget());
   body.querySelector('[data-a="drive-signout"]')?.addEventListener('click', () => {
     if (!host.driveStatus().connected) setDriveClientId('');
     host.driveSignOut();

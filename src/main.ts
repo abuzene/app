@@ -6,6 +6,7 @@ import { reducerPreview } from './ui/reducer-preview';
 import { tidyLayout, type LayoutSpecs } from './render/tidy';
 import { analyse, chainStops, dimensionStops, drawnLength, drawnStations, runDrawnFloor, trueAtShare, type DrawnStations, isMark, isReducer, itemAtEnd, itemHalf, runGroupIds, emptyDrawing, oletLegs, oletMarks, uid } from './model/drawing';
 import { isRemoved, loadLibrary, projectsOf, removeDrawing, renumberProject, sheetNumber, upsertDrawing, worthKeeping } from './model/library';
+import { allowFolder, chooseFolder, folderStatus, forgetFolder, restoreFolder, syncFolder } from './model/folder';
 import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, setDriveClientId, syncDrive } from './model/drive';
 import { AXES, AXIS_VECTOR, add, length3, scale3, sub } from './model/iso';
 import { initialCommandState, runCommands } from './model/commands';
@@ -222,6 +223,7 @@ const host: Host = {
       render();
       // Its Drive copy goes now, not at some later sync (his ask,
       // 2026-09-26: "remove should delete the project's file from Drive").
+      if (folderStatus().connected) void runFolderSync();
       if (drive.connected) void runDriveSync();
       else if (drive.clientId) host.notify('Removed here. Its Drive copy goes at the next sync — sign in to Google Drive to do it now.');
     });
@@ -246,6 +248,37 @@ const host: Host = {
   },
   driveSync() {
     void runDriveSync();
+  },
+  folderStatus() {
+    return folderStatus();
+  },
+  folderConnect() {
+    chooseFolder()
+      .then((name) => {
+        host.notify(`Folder ${name} connected.`);
+        return runFolderSync();
+      })
+      .catch((error) => {
+        // Closing the picker is not an error worth a word.
+        if ((error as Error)?.name !== 'AbortError') host.notify(`The folder could not be opened (${(error as Error)?.message ?? 'unknown'}).`);
+      })
+      .finally(render);
+  },
+  folderAllow() {
+    void allowFolder().then((ok) => {
+      if (ok) void runFolderSync();
+      else host.notify('The folder was not allowed.');
+      render();
+    });
+  },
+  folderSync() {
+    void runFolderSync();
+  },
+  folderForget() {
+    void forgetFolder().then(() => {
+      host.notify('The folder is no longer connected; its files are left as they are.');
+      render();
+    });
   },
   reducerDialog(ask) {
     return reducerDialog(ask);
@@ -1896,6 +1929,10 @@ $('new').addEventListener('click', async () => {
 // has it; a file on this device only where Drive is not in use.
 $('save').addEventListener('click', () => {
   const drive = driveStatus();
+  const folder = folderStatus();
+  // Into the folder on this computer too, once one is connected.
+  if (folder.connected) void runFolderSync().then(() => !drive.clientId && host.notify(`Saved to the folder ${folder.name}.`));
+  if (folder.connected && !drive.clientId) return;
   if (drive.clientId) {
     keepNow();
     if (drive.connected) {
@@ -2664,6 +2701,47 @@ function persist(): void {
   // The library follows a moment later, so a run of quick edits writes it once.
   if (keepTimer) clearTimeout(keepTimer);
   keepTimer = setTimeout(keepNow, 800);
+  // And the folder a little after that, when one is connected.
+  if (folderTimer) clearTimeout(folderTimer);
+  if (folderStatus().connected) folderTimer = setTimeout(() => void runFolderSync(true), 2500);
+}
+
+let folderTimer: ReturnType<typeof setTimeout> | null = null;
+let folderBusy = false;
+
+/**
+ * Syncs the library with the folder on this computer. Quiet (after edits,
+ * at start) it says nothing unless a sheet came in from the folder.
+ */
+async function runFolderSync(quiet = false): Promise<void> {
+  if (folderBusy || !folderStatus().connected) return;
+  folderBusy = true;
+  keepNow();
+  let downloaded = false;
+  try {
+    const result = await syncFolder();
+    downloaded = result.down > 0;
+    const parts = [
+      result.up ? `${result.up} written` : '',
+      result.down ? `${result.down} read in` : '',
+      result.removed ? `${result.removed} removed` : '',
+    ].filter(Boolean);
+    if (!quiet || downloaded || result.removed) host.notify(parts.length ? `Folder: ${parts.join(', ')}.` : 'Folder: everything was already the same.');
+    // The sheet on screen changed in the folder: show that copy.
+    if (state.drawing.id && result.downloaded.includes(state.drawing.id)) {
+      const entry = loadLibrary().find((e) => e.id === state.drawing.id);
+      if (entry) {
+        undoStack.push(snapshot());
+        redoStack.length = 0;
+        takeUp(entry.drawing);
+      }
+    }
+  } catch (err) {
+    host.notify(`The folder could not be reached (${err instanceof Error ? err.message : 'unknown'}).`);
+  } finally {
+    folderBusy = false;
+    if (!quiet || downloaded) render();
+  }
 }
 
 let keepTimer: ReturnType<typeof setTimeout> | null = null;
@@ -2899,3 +2977,9 @@ if (signedIn) state.tab = 'projects';
 render();
 fitView();
 if (signedIn || driveStatus().connected) void runDriveSync();
+// The folder kept from before: synced at once when the browser still allows
+// it; otherwise the Projects tab offers to allow it again.
+void restoreFolder().then((access) => {
+  if (access === 'granted') void runFolderSync(true);
+  else if (access === 'prompt') render();
+});

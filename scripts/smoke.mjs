@@ -2217,6 +2217,93 @@ await page.unroute('https://www.googleapis.com/**');
 await page.unroute('https://accounts.google.com/**');
 await page.evaluate(() => { for (const k of Object.keys(localStorage)) if (k.startsWith('iso-draw.drive.')) localStorage.removeItem(k); });
 
+/* --------------------------------------------- a folder on this computer */
+
+// "Let me connect a local folder too, besides Google Drive" (2026-09-26):
+// a file per sheet in a folder he picks (Edge/Chrome's folder access,
+// stood in for here by a fake folder in the page).
+{
+  await page.evaluate(() => {
+    const files = new Map();
+    let clock = Date.now();
+    const tick = () => (clock = Math.max(Date.now(), clock + 1));
+    const fileHandle = (name) => ({
+      kind: 'file',
+      name,
+      async getFile() {
+        const f = files.get(name);
+        return { name, lastModified: f.time, text: async () => f.text };
+      },
+      async createWritable() {
+        let buf = '';
+        return { async write(d) { buf += d; }, async close() { files.set(name, { text: buf, time: tick() }); } };
+      },
+    });
+    const dir = {
+      kind: 'directory',
+      name: 'Piping sheets',
+      async *values() { for (const n of [...files.keys()]) yield fileHandle(n); },
+      async getFileHandle(name, o) {
+        if (!files.has(name)) {
+          if (!o?.create) throw new DOMException('not found', 'NotFoundError');
+          files.set(name, { text: '', time: tick() });
+        }
+        return fileHandle(name);
+      },
+      async removeEntry(name) { files.delete(name); },
+      async queryPermission() { return 'granted'; },
+      async requestPermission() { return 'granted'; },
+    };
+    window.__folder = { files, tick };
+    window.showDirectoryPicker = async () => dir;
+  });
+  const folderFiles = () => page.evaluate(() => [...window.__folder.files.entries()].map(([name, f]) => ({ name, text: f.text })));
+  await page.click('#tabs button:has-text("Projects")');
+  await page.waitForTimeout(200);
+  check('the Projects tab offers a folder on this computer', await page.locator('[data-editor="folder"]').innerText(), (v) => /Folder on this computer/i.test(v) && /Choose a folder/.test(v), 'Folder on this computer, Choose a folder');
+  await page.click('[data-a="folder-connect"]');
+  await page.waitForTimeout(1200);
+  const kept = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.library.v1')).length);
+  const written = await folderFiles();
+  check('connected, every kept sheet is written there, a file each, named as in Drive', `${written.length} ${written.every((f) => /\[[^\]]+\]\.iso\.json$/.test(f.name))} ${await page.locator('[data-editor="folder"]').innerText()}`, (v) => v.startsWith(`${kept} true`) && /Connected to Piping sheets/.test(v), `${kept} files, Connected to Piping sheets`);
+  // An edit is written to its file a moment later, with no Save pressed.
+  await page.click('#tabs button:has-text("Title")');
+  await page.fill('[data-meta="lineNumber"]', 'FOLDER-1');
+  await page.dispatchEvent('[data-meta="lineNumber"]', 'change');
+  await page.waitForTimeout(4000);
+  const screenId = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).id);
+  check('an edit reaches its file by itself', (await folderFiles()).some((f) => f.name.includes(`[${screenId}]`) && /FOLDER-1/.test(f.text)), (v) => v === true, 'FOLDER-1 in the sheet\'s file');
+  // A file changed in the folder (on the other computer, say) comes in.
+  const other = (await folderFiles()).find((f) => !f.name.includes(`[${screenId}]`));
+  await page.evaluate((name) => {
+    const f = window.__folder.files.get(name);
+    const d = JSON.parse(f.text);
+    d.meta.lineNumber = 'EDITED-IN-FOLDER';
+    window.__folder.files.set(name, { text: JSON.stringify(d), time: window.__folder.tick() + 5000 });
+  }, other.name);
+  await page.click('#tabs button:has-text("Projects")');
+  await page.waitForTimeout(200);
+  await page.click('[data-a="folder-sync"]');
+  await page.waitForTimeout(1200);
+  check('a sheet changed in the folder is read in', `${(await page.locator('#hud').innerText()).match(/Folder:[^\n]*/)?.[0]} ${await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.library.v1')).some((e) => e.drawing.meta.lineNumber === 'EDITED-IN-FOLDER'))}`, (v) => /1 read in/.test(v) && v.endsWith('true'), 'Folder: 1 read in; in the list');
+  // Removed from the list, its file goes from the folder too.
+  const otherId = other.name.match(/\[([^\]]+)\]\.iso\.json$/)[1];
+  await page.click(`[data-remove-sheet="${otherId}"]`);
+  await page.waitForTimeout(200);
+  await page.click('.dialog-backdrop [data-confirm]');
+  await page.waitForTimeout(1500);
+  check('a sheet removed here has its file taken out of the folder', (await folderFiles()).some((f) => f.name.includes(`[${otherId}]`)), (v) => v === false, 'false');
+  await page.click('[data-a="folder-forget"]');
+  await page.waitForTimeout(400);
+  check('disconnected, the folder can be chosen again', await page.locator('[data-editor="folder"]').innerText(), (v) => /Choose a folder/.test(v), 'Choose a folder');
+  await page.evaluate(() => { delete window.showDirectoryPicker; });
+  await page.click('#tabs button:has-text("Projects")');
+  await page.waitForTimeout(200);
+  check('a browser that cannot open a folder says so', await page.locator('[data-editor="folder"]').innerText(), (v) => /cannot open a folder/.test(v), 'cannot open a folder');
+  await page.click('#tabs button:has-text("Route")');
+  await page.waitForTimeout(150);
+}
+
 /* -------------------------- the sheet fits, symbols a set size on paper */
 
 // The printed sheet fills its drawing area whatever the on-screen scale, and
