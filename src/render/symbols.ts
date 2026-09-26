@@ -549,6 +549,14 @@ export function componentSymbol(kind: ComponentKind, f: Frame, reach?: number, f
         line(f, [s * 0.4, 0, -s], [s * 0.4, 0, s], 'sym-line') +
         line(f, [0, 0, -s * 0.7], [0, 0, s * 0.7], 'sym-line')
       );
+    case 'COUPLING_SW':
+    case 'COUPLING_THD': {
+      // A sleeve over the joint of two pipes, a little inside the joint
+      // marks on its ends (socket weld or thread), drawn with its welds.
+      const r = (reach ?? s * 0.7) * 0.72;
+      const w = s * 0.5;
+      return poly([pt(f, -r, 0, -w), pt(f, r, 0, -w), pt(f, r, 0, w), pt(f, -r, 0, w)], 'sym-hollow');
+    }
     case 'TRANSITION':
       return transitionSymbol(f, 1);
     case 'STRAINER':

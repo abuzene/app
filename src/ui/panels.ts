@@ -1,6 +1,6 @@
 import type { Axis, ComponentKind, EndType, Equipment, FittingKind, FlangeKind, JointType, TerminalKind } from '../model/types';
 import type { Host, TabId } from './types';
-import { COMPONENT_LABEL, DEFAULT_LOGO, ROOT_GAP, TERMINAL_LABEL, fittingLabel, fmtMm, isMark, isReducer, isSupport, isValve, oletLabel, oletLegs, oletMarks, pipeNetAt, reducerName, resolveEnds, runGroupIds, valveOpenSide } from '../model/drawing';
+import { COMPONENT_LABEL, DEFAULT_LOGO, ROOT_GAP, TERMINAL_LABEL, fittingLabel, fmtMm, isCoupling, isMark, isReducer, isSupport, isValve, oletLabel, oletLegs, oletMarks, pipeNetAt, reducerName, resolveEnds, runGroupIds, valveOpenSide } from '../model/drawing';
 import { COMMAND_HELP } from '../model/commands';
 import { DN_LIST, SIZE_LABELS, defaultValveEnds, schedulesFor, sizeLabel } from '../model/pipe-data';
 import { AXES, AXIS_VECTOR, axisBetween } from '../model/iso';
@@ -254,7 +254,7 @@ function componentProperties(host: Host, compId: string): string {
         })}</select></div>`
       : ''
   }
-  ${mark ? '' : `<div class="row"><label>Ends</label><select data-f="ends">${options(['auto', ...END_TYPES], comp.ends ?? 'auto', {
+  ${mark || isCoupling(comp.kind) ? '' : `<div class="row"><label>Ends</label><select data-f="ends">${options(['auto', ...END_TYPES], comp.ends ?? 'auto', {
     auto: isValve(comp.kind)
       ? `By size (${defaultValveEnds(comp.dn ?? run.dn) === 'FLG' ? 'flanged' : 'threaded'})`
       : `Drawing default (${host.state.drawing.options.joint})`,

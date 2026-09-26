@@ -1,6 +1,6 @@
 import type { Axis, ComponentKind, Drawing, EndType, Equipment, FlangeKind, InlineComponent, IsoNode, Measure, Run, TerminalKind, Vec3 } from './types';
 import { AXIS_VECTOR, add, axisBetween, direction, equals3, length3, scale3, step, sub } from './iso';
-import { chainStops, dimensionStops, drawnLength, fittingsTouchLength, reducerSides, isReducer, minDrawnLength, isMark, isValve, itemAtEnd, oletMarks, resolveEnds, runGroupIds, terminalTakeoutOf, uid, valveOpenSide, type Analysis } from './drawing';
+import { chainStops, dimensionStops, isCoupling, drawnLength, fittingsTouchLength, reducerSides, isReducer, minDrawnLength, isMark, isValve, itemAtEnd, oletMarks, resolveEnds, runGroupIds, terminalTakeoutOf, uid, valveOpenSide, type Analysis } from './drawing';
 import { componentTakeout, fittingTakeout, schedulesFor, sizeOf, valveFlangeKind } from './pipe-data';
 
 /** Finds an existing node at a position, so that routes join rather than overlap. */
@@ -859,6 +859,16 @@ export function applyDimension(drawing: Drawing, runId: string, index: number, v
       const half = componentTakeout(c.kind, c.dn ?? run.dn, false, c.ff);
       return Math.abs(c.offset + side * half - mm) < 0.5;
     });
+  // Up to a coupling's centre: the coupling slides so this piece is the value.
+  const coupling = run.inline.find((c) => isCoupling(c.kind) && Math.abs(c.offset - to) < 0.5);
+  if (coupling) {
+    const half = componentTakeout(coupling.kind, coupling.dn ?? run.dn);
+    const offset = from + value;
+    if (offset - half < -0.5 || offset + half > total + 0.5) return 'That would push the coupling off the end of the run.';
+    coupling.offset = offset;
+    run.inline.sort((x, y) => x.offset - y.offset);
+    return null;
+  }
   const lower = valveAt(to, -1);
   if (lower) {
     // Up to a valve face: the valve slides so this piece is the value.

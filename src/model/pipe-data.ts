@@ -158,6 +158,15 @@ const VALVE_FF: Record<string, Record<string, number>> = {
 // the same length between faces — and so drawn and dimensioned the same.
 VALVE_FF.BALL_ACT = VALVE_FF.BALL;
 
+/** Socket weld coupling, 3000#: socket bottom to socket bottom (ASME B16.11 "E"), mm. */
+const COUPLING_SW_E: Record<string, number> = { DN15: 9.5, DN20: 9.5, DN25: 12.5, DN32: 12.5, DN40: 12.5, DN50: 19, DN65: 19, DN80: 19, DN100: 19 };
+/** Threaded coupling, 3000#: overall length (ASME B16.11 "W"), mm. */
+const COUPLING_THD_W: Record<string, number> = { DN15: 48, DN20: 51, DN25: 60, DN32: 67, DN40: 79, DN50: 86, DN65: 92, DN80: 108, DN100: 121 };
+/** How far an NPT pipe end screws in, made up tight, mm. */
+const THREAD_ENGAGEMENT: Record<string, number> = { DN15: 13.6, DN20: 13.9, DN25: 17.3, DN32: 18, DN40: 18.4, DN50: 19.2, DN65: 28.9, DN80: 30.5, DN100: 33 };
+/** The pipe is set back from the bottom of a socket before it is welded (ASME B31.3), mm. */
+export const SOCKET_GAP = 1.6;
+
 /** Class 150 flange length through hub, mm. */
 const FLANGE_LEN: Record<string, Record<string, number>> = {
   WN: { DN15: 48, DN20: 52, DN25: 56, DN32: 57, DN40: 62, DN50: 62, DN65: 68, DN80: 68, DN100: 75, DN125: 87, DN150: 87, DN200: 100, DN250: 100, DN300: 113, DN350: 125, DN400: 125, DN450: 138, DN500: 143, DN600: 151 },
@@ -220,6 +229,11 @@ export function componentTakeout(kind: string, dn: string, flanged: boolean | st
   if (kind === 'SPECTACLE') return 0;
   if (kind === 'RED_CONC' || kind === 'RED_ECC') return reducerLength(dn, dn) / 2;
   if (kind === 'UNION') return 25;
+  // A coupling takes out, each side of its centre, what lies between the
+  // pipe ends: to the socket's bottom less the set-back, or to where the
+  // thread is made up.
+  if (kind === 'COUPLING_SW') return (lookup(COUPLING_SW_E, dn) ?? 19) / 2 + SOCKET_GAP;
+  if (kind === 'COUPLING_THD') return Math.max(3, (lookup(COUPLING_THD_W, dn) ?? 108) / 2 - (lookup(THREAD_ENGAGEMENT, dn) ?? 30.5));
   // A PE/steel transition: the steel stub to its weld is about this long.
   if (kind === 'TRANSITION') return 120;
   if (kind === 'INSTRUMENT' || kind === 'SUPPORT' || kind === 'SUPPORT_L' || kind === 'ANCHOR' || kind === 'GUIDE' || kind === 'GROUND') return 0;

@@ -1,6 +1,6 @@
 import type { Analysis } from '../model/drawing';
 import type { Axis, DimOverride, Drawing, FlangeKind, Run, Vec3 } from '../model/types';
-import { COMPONENT_LABEL, SYMBOL_MM, TERMINAL_LABEL, chainStops, dimensionStops, drawnShare, trueAtShare, fittingLabel, runGroupIds, isMark, isReducer, isSupport, isValve, itemAtEnd, oletEntries, oletLegs, resolveEnds, valveOpenSide } from '../model/drawing';
+import { COMPONENT_LABEL, COUPLING_REACH, SYMBOL_MM, isCoupling, TERMINAL_LABEL, chainStops, dimensionStops, drawnShare, trueAtShare, fittingLabel, runGroupIds, isMark, isReducer, isSupport, isValve, itemAtEnd, oletEntries, oletLegs, resolveEnds, valveOpenSide } from '../model/drawing';
 import { componentTakeout, sizeLabel, valveFlangeKind } from '../model/pipe-data';
 import { AXIS_VECTOR, axisBetween, axisScreenDir, equals3, northArrowDir, project, scale3, add, sub } from '../model/iso';
 import { LETTER_BESIDE, weldTagSize, type LayoutSpecs } from './tidy';
@@ -378,6 +378,7 @@ export function renderDrawing(state: RenderState): string {
   // is: drawn to scale a big valve stretched right across the sheet.
   const faceReach = (trueHalf: number, paperPerMm: number): number =>
     drawing.options.schematic ? size * 1.2 : Math.min(size * 1.2, Math.max(trueHalf * paperPerMm, size * 0.8));
+  const couplings = new Set(drawing.runs.flatMap((r) => r.inline.filter((c) => isCoupling(c.kind)).map((c) => c.id)));
   const towards = (from: Pt, to: Pt, by: number): Pt => {
     const len = Math.hypot(to.x - from.x, to.y - from.y) || 1;
     return { x: from.x + ((to.x - from.x) / len) * Math.min(by, len / 2), y: from.y + ((to.y - from.y) / len) * Math.min(by, len / 2) };
@@ -564,6 +565,9 @@ export function renderDrawing(state: RenderState): string {
       // The body reaches its real faces, so what bolts or welds to it sits
       // against it rather than floating off along the pipe.
       let faceHalf = isValve(comp.kind) || isReducer(comp.kind) ? faceReach(componentTakeout(comp.kind, dn, false, comp.ff), paperPerMm) : undefined;
+      // A coupling is a short sleeve, its welds or threads on its ends.
+      // A set size: to scale it is a few millimetres, too small to read.
+      const sleeve = isCoupling(comp.kind) ? size * COUPLING_REACH : undefined;
       // An item welded straight to the flange on the line's end sits against
       // the flange as drawn: its face on the hub, whatever the true lengths.
       if (faceHalf !== undefined) {
@@ -612,7 +616,7 @@ export function renderDrawing(state: RenderState): string {
             ? groundSymbol(f, groundSide(comp.flip))
             : isSupport(comp.kind)
               ? supportSymbol(f, comp.kind as 'SUPPORT' | 'SUPPORT_L')
-              : componentSymbol(comp.kind, f, faceHalf, comp.flip);
+              : componentSymbol(comp.kind, f, faceHalf ?? sleeve, comp.flip);
       if (isSupport(comp.kind)) {
         // The support's name, on a leader to it; dragged wherever it reads
         // best, like a balloon, and kept there with the drawing.
@@ -916,7 +920,9 @@ export function renderDrawing(state: RenderState): string {
                 ? 0
                 : r.kind === 'flange'
                   ? flangeHub(r.flange, size) + (r.paired ? size * FLANGE_GAP : 0)
-                  : faceReach(r.trueHalf, at.perMm) + (r.flange ? flangeHub(r.flange, size) : 0);
+                  : r.comp && couplings.has(r.comp)
+                    ? size * COUPLING_REACH
+                    : faceReach(r.trueHalf, at.perMm) + (r.flange ? flangeHub(r.flange, size) : 0);
         f = { ...f, cx: from.cx + (dx / len) * out, cy: from.cy + (dy / len) * out };
       }
     }

@@ -304,7 +304,17 @@ ships, and the decisions already taken, so they are not re-litigated.
   `comp.ends`; SW gets two SW welds, Thd marks and no welds, no flanges,
   never bolted on an end; the list names a valve with SW/THD ends like a
   fitting, `BALL VALVE SW 3000#` / `BALL VALVE SCR'D 3000#` via
-  `jointSuffix` — small bores that default to threaded read so too), Branch (tee, olets), Marks
+  `jointSuffix` — small bores that default to threaded read so too),
+  **Couplings** in Fittings (his ask, 2026-09-26: "COUPLING SW, the
+  socket one, and COUPLING NPT"): kinds `COUPLING_SW`/`COUPLING_THD`
+  (`isCoupling`), ends fixed by the kind in `resolveEnds` (no Ends select),
+  listed `COUPLING SW 3000#` / `COUPLING NPT 3000#`; SW: two SW welds,
+  take-out each side B16.11 "E"/2 + 1.6 mm set-back (`SOCKET_GAP`); NPT:
+  thread marks, no weld, take-out "W"/2 − thread engagement. Drawn as a
+  sleeve a set size (`COUPLING_REACH` 0.7 symbol, its joint marks there),
+  dimensioned to its **centre** (`dimensionStops`; typing that piece slides
+  it, `applyDimension`), placed like a valve (palette `Cplg SW`/`Cplg NPT`,
+  commands `+CPLSW`/`+CPLNPT`), Branch (tee, olets), Marks
   (Support, L50 support, AG/UG), Joints (a BW weld: `placeWeld` splits the
   run at a plain point, welded pipe to pipe, dimension opened). Two columns
   on tablets so all fit.

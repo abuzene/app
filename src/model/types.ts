@@ -43,6 +43,9 @@ export type ComponentKind =
   | 'RED_ECC'
   | 'CAP'
   | 'UNION'
+  /** A coupling joining two pipes: socket weld, or threaded (NPT). His ask, 2026-09-26. */
+  | 'COUPLING_SW'
+  | 'COUPLING_THD'
   | 'TRANSITION'
   | 'STRAINER'
   | 'INSTRUMENT'

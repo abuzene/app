@@ -200,6 +200,14 @@ function inferFitting(legs: Vec3[], runs: Run[], override?: FittingKind, pending
   return 'CROSS';
 }
 
+/** A coupling, socket weld or threaded: two pipes joined end to end through it. */
+export function isCoupling(kind: string): boolean {
+  return kind === 'COUPLING_SW' || kind === 'COUPLING_THD';
+}
+
+/** How far a coupling is drawn either side of its centre, in symbols: shorter than a valve. */
+export const COUPLING_REACH = 0.7;
+
 export function isReducer(kind: string): boolean {
   return kind === 'RED_CONC' || kind === 'RED_ECC';
 }
@@ -452,6 +460,8 @@ export const COMPONENT_LABEL: Record<string, string> = {
   RED_ECC: 'ECC RED',
   CAP: 'CAP',
   UNION: 'UNION',
+  COUPLING_SW: 'COUPLING SW 3000#',
+  COUPLING_THD: 'COUPLING NPT 3000#',
   TRANSITION: 'TRANSITION JOINT PE/CS',
   STRAINER: 'STRAINER',
   INSTRUMENT: 'INSTRUMENT',
@@ -528,6 +538,9 @@ export function resolveEnds(
   ends: EndType | undefined,
   fallback: JointType,
 ): EndType {
+  // A coupling's ends are what it is.
+  if (kind === 'COUPLING_SW') return 'SW';
+  if (kind === 'COUPLING_THD') return 'THD';
   if (ends) return ends;
   if (isValve(kind)) return defaultValveEnds(dn);
   if (isFlange(kind)) return 'FLG';
@@ -536,7 +549,7 @@ export function resolveEnds(
 
 function categoryOf(kind: string): BomLine['category'] {
   if (kind.startsWith('FLG_') || kind === 'SPECTACLE') return 'FLANGE';
-  if (['RED_CONC', 'RED_ECC', 'UNION', 'TRANSITION'].includes(kind)) return 'FITTING';
+  if (['RED_CONC', 'RED_ECC', 'UNION', 'TRANSITION', 'COUPLING_SW', 'COUPLING_THD'].includes(kind)) return 'FITTING';
   if (['SUPPORT', 'SUPPORT_L', 'ANCHOR', 'GUIDE', 'INSTRUMENT', 'GROUND'].includes(kind)) return 'ITEM';
   return 'VALVE';
 }
@@ -632,8 +645,9 @@ function drawnPieces(drawing: Drawing, run: Run, trueLength: number) {
     const hasFlange = (side: 0 | 1) => flanged && comp.bare !== side && !(comp.lastFlange && open === side);
     const trueLo = face + (hasFlange(0) ? flangeLen : 0);
     const trueHi = face + (hasFlange(1) ? flangeLen : 0);
-    const drawnLo = 1.2 * s + (hasFlange(0) ? hub * s : 0);
-    const drawnHi = 1.2 * s + (hasFlange(1) ? hub * s : 0);
+    const body = isCoupling(comp.kind) ? COUPLING_REACH : 1.2;
+    const drawnLo = body * s + (hasFlange(0) ? hub * s : 0);
+    const drawnHi = body * s + (hasFlange(1) ? hub * s : 0);
     const lo = Math.max(cursor, Math.min(trueLength, comp.offset - trueLo));
     const hi = Math.max(lo, Math.min(trueLength, comp.offset + trueHi));
     const gap = lo - cursor;
@@ -1777,6 +1791,11 @@ export function dimensionStops(drawing: Drawing, run: Run): number[] {
   const total = a && b ? length3(sub(b.pos, a.pos)) : 0;
   const breaks: number[] = [];
   for (const comp of run.inline) {
+    // A coupling is dimensioned to its centre, where the two pipes meet.
+    if (isCoupling(comp.kind)) {
+      breaks.push(comp.offset);
+      continue;
+    }
     if (!isValve(comp.kind)) continue;
     const half = componentTakeout(comp.kind, comp.dn ?? run.dn, false, comp.ff);
     if (half <= 0) continue;

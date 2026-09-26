@@ -140,7 +140,7 @@ check('a length can be typed', await page.locator('#tab-body .run-list input[dat
 // Palette.
 await page.locator('#tab-body .run-list tbody tr').first().click();
 await page.waitForTimeout(200);
-check('the palette carries the fittings, ball valves (flanged, air, SW, threaded), tee, olets, marks, equipment and a weld', await page.locator('.tool').count(), (v) => v === 22, '22');
+check('the palette carries the fittings, couplings (SW, NPT), ball valves (flanged, air, SW, threaded), tee, olets, marks, equipment and a weld', await page.locator('.tool').count(), (v) => v === 24, '24');
 check('and no slip-on or lap joint flange, which are not used here', await page.locator('.tool[data-kind="FLG_SO"], .tool[data-kind="FLG_LAP"]').count(), (v) => v === 0, '0');
 check('a tee can be placed on a header', await page.locator('.tool[data-branch="TEE"]').count(), (v) => v === 1, '1');
 check('the actuated ball valve is there', await page.locator('.tool[data-kind="BALL_ACT"]').count(), (v) => v === 1, '1');
@@ -3686,6 +3686,50 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   check('the socket weld valve has two SW welds, the threaded one none', `${rows.filter((r) => /\tSW\t.*BALL VALVE/.test(r)).length} ${rows.filter((r) => /BALL VALVE/.test(r)).length}`, (v) => v === '2 2', '2 2');
   await page.click('#tabs button:has-text("Route")');
   await page.waitForTimeout(150);
+}
+
+/* ------------------------------------ couplings, socket weld and threaded */
+
+// "Two more fittings: COUPLING SW, the socket one, and COUPLING NPT"
+// (2026-09-26): a sleeve joining two pipes, socket welded (two SW welds)
+// or screwed (thread marks, no weld), dimensioned to its centre.
+{
+  await routeLine('1"\nSCH80\nORIGIN 0 0 0\nE 1000\nN 800');
+  check('the palette has Cplg SW and Cplg NPT', await page.locator('.tool[data-kind^="COUPLING"]').allInnerTexts(), (v) => v.map((t) => t.trim()).join('|') === 'Cplg SW|Cplg NPT', 'Cplg SW | Cplg NPT');
+  const pickRun = async (i) => {
+    const id = (await drawingNow()).runs[i].id;
+    const el = page.locator(`#canvas [data-run="${id}"]`).first();
+    await el.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+    await el.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+    await page.waitForTimeout(250);
+  };
+  await pickRun(0);
+  await page.click('.tool[data-kind="COUPLING_SW"]');
+  await page.waitForTimeout(300);
+  // Placed, the pipe up to its centre is asked for.
+  await page.keyboard.press('Control+A');
+  await page.keyboard.type('300');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(300);
+  await pickRun(1);
+  await page.click('.tool[data-kind="COUPLING_THD"]');
+  await page.waitForTimeout(300);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(150);
+  check('each goes in along its run, the socket one where its dimension was typed', (await drawingNow()).runs.map((r) => r.inline.map((c) => `${c.kind}@${Math.round(c.offset)}`).join()).join(' '), (v) => v === 'COUPLING_SW@300 COUPLING_THD@400', 'COUPLING_SW@300 COUPLING_THD@400');
+  await page.click('#tabs button:has-text("Items")');
+  await page.waitForTimeout(200);
+  const itemsText = await page.locator('#tab-body').innerText();
+  check('named on the list with their class', `${itemsText.includes('COUPLING SW 3000#')} ${itemsText.includes('COUPLING NPT 3000#')}`, (v) => v === 'true true', 'COUPLING SW 3000# and COUPLING NPT 3000#');
+  await page.click('#tabs button:has-text("Welds")');
+  await page.waitForTimeout(200);
+  const rows = await page.locator('#tab-body table tbody tr').allInnerTexts();
+  check('the socket coupling has two SW welds, the threaded one none', `${rows.filter((r) => /\tSW\t.*COUPLING SW/.test(r)).length} ${rows.filter((r) => /COUPLING NPT/.test(r)).length}`, (v) => v === '2 0', '2 0');
+  // 1" SW coupling: 12.5 between socket bottoms, each pipe set back 1.6.
+  check('the pipe into the socket is cut short of its centre by half the coupling and the set-back', rows.find((r) => /COUPLING SW/.test(r))?.split('\t').pop()?.trim(), (v) => v === 'A 292', 'A 292');
+  await page.click('#tabs button:has-text("Route")');
+  await page.waitForTimeout(150);
+  check('both are drawn, with their joint marks', `${await page.locator('#canvas .component[data-component] polygon.sym-hollow').count()} ${await page.locator('#canvas .weld').count()}`, (v) => /^2 /.test(v) && Number(v.split(' ')[1]) >= 6, '2 sleeves, 6 marks or more');
 }
 
 /* -------------------------- a short spool between two valves, not to scale */

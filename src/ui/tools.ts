@@ -1,6 +1,6 @@
 import type { ComponentKind, FlangeKind, JointType, Run, TerminalKind } from '../model/types';
 import type { Host } from './types';
-import { COMPONENT_LABEL, TERMINAL_LABEL, chainStops, dimensionStops, isMark, itemHalf, isValve, oletEntries, oletLegs, oletMarks, resolveEnds, terminalTakeoutOf, valveOpenSide } from '../model/drawing';
+import { COMPONENT_LABEL, COUPLING_REACH, TERMINAL_LABEL, chainStops, isCoupling, dimensionStops, isMark, itemHalf, isValve, oletEntries, oletLegs, oletMarks, resolveEnds, terminalTakeoutOf, valveOpenSide } from '../model/drawing';
 import { addComponent, addEquipment, addFlangeJoint, flangeOnItemFace, applyReducer, boltValveOnEnd, runLength, setLastFlange, setTerminal, splitRun } from '../model/edit';
 import { axisBetween } from '../model/iso';
 import { DN_LIST, componentTakeout, fittingTakeout, sizeLabel, valveFlangeKind } from '../model/pipe-data';
@@ -23,7 +23,7 @@ interface ToolGroup {
 
 const GROUPS: ToolGroup[] = [
   { label: 'Flanges', kinds: ['FLG_WN', 'FLG_SW', 'FLG_THD', 'FLG_BLIND'] },
-  { label: 'Fittings', kinds: ['RED_CONC', 'RED_ECC', 'CAP', 'TRANSITION'] },
+  { label: 'Fittings', kinds: ['RED_CONC', 'RED_ECC', 'CAP', 'TRANSITION', 'COUPLING_SW', 'COUPLING_THD'] },
   { label: 'Valves', kinds: ['BALL', 'BALL_ACT', { valve: 'BALL', ends: 'SW' }, { valve: 'BALL', ends: 'THD' }] },
   { label: 'Branch', kinds: [{ branch: 'TEE' }, { olet: 'BW' }, { olet: 'SW' }, { olet: 'THD' }] },
   { label: 'Marks', kinds: ['SUPPORT', 'SUPPORT_L', 'GROUND', { equipment: true }, { measure: true }] },
@@ -44,6 +44,8 @@ const SHORT: Partial<Record<ComponentKind, string>> = {
   RED_ECC: 'Ecc',
   CAP: 'Cap',
   TRANSITION: 'PE/CS',
+  COUPLING_SW: 'Cplg SW',
+  COUPLING_THD: 'Cplg NPT',
   SUPPORT: 'Support',
   SUPPORT_L: 'L50',
   GROUND: 'AG/UG',
@@ -91,6 +93,13 @@ function icon(kind: ComponentKind): string {
     uy: UP.y,
     s: 5.2,
   };
+  // A coupling wears its joint marks on its ends, as on the line.
+  if (isCoupling(kind)) {
+    const ends = kind === 'COUPLING_SW' ? 'SW' : 'THD';
+    const r = f.s * COUPLING_REACH;
+    const at = (by: number, dx: number, dy: number): Frame => ({ ...f, cx: f.cx + EAST.x * by, cy: f.cy + EAST.y * by, dx, dy, s: 4.2 });
+    return iconSvg(stub(EAST) + componentSymbol(kind, f) + jointMark(at(-r, EAST.x, EAST.y), ends) + jointMark(at(r, -EAST.x, -EAST.y), ends));
+  }
   return iconSvg(stub(EAST) + componentSymbol(kind, f));
 }
 
@@ -410,7 +419,7 @@ function place(host: Host, kind: ComponentKind, ends?: 'SW' | 'THD'): void {
         // the end point, rather than half past it.
         const joint = d.options.joint ?? 'BW';
         const dn = target.dn;
-        const half = isValve(kind) ? componentTakeout(kind, dn, resolveEnds(kind, dn, ends, joint) === 'FLG' && valveFlangeKind(joint)) : 0;
+        const half = isValve(kind) ? componentTakeout(kind, dn, resolveEnds(kind, dn, ends, joint) === 'FLG' && valveFlangeKind(joint)) : isCoupling(kind) ? componentTakeout(kind, dn) : 0;
         const onEnd = (info?.degree ?? 0) <= 1;
         const total = runLength(d, target);
         const offset = target.from === nodeId ? (onEnd ? half : 0) : onEnd ? total - half : total;
@@ -449,13 +458,14 @@ function place(host: Host, kind: ComponentKind, ends?: 'SW' | 'THD'): void {
   });
   if (addedId) {
     host.select({ kind: 'component', id: addedId });
-    // A valve is placed by the pipe up to its face; the rest follows.
-    if (isValve(kind)) {
+    // A valve is placed by the pipe up to its face, a coupling by the pipe
+    // up to its centre; the rest follows.
+    if (isValve(kind) || isCoupling(kind)) {
       const d = host.state.drawing;
       const target = d.runs.find((r) => r.id === run.id);
       const comp = target?.inline.find((c) => c.id === addedId);
       if (target && comp) {
-        const face = comp.offset - componentTakeout(comp.kind, comp.dn ?? target.dn, false, comp.ff);
+        const face = isCoupling(kind) ? comp.offset : comp.offset - componentTakeout(comp.kind, comp.dn ?? target.dn, false, comp.ff);
         const stops = dimensionStops(d, target);
         const index = stops.findIndex((mm, i) => i > 0 && Math.abs(mm - face) < 0.5) - 1;
         host.editDimension(`${run.id}:${Math.max(0, index)}`);
