@@ -809,7 +809,61 @@ export function renderDrawing(state: RenderState): string {
   // weld numbers follow the Welds toggle.
   let welds = '';
   // Weld marks and tags sit on top of everything, so their touch targets do too.
-  let weldHits = calloutHits;
+  // A reducing tee's branch size is called out in words beside it — "6\"X2\" NS"
+  // — rather than drawn as a special shape, which is how these sheets read.
+  // An olet gets no such note: its sizes are on the list, and he asked for
+  // the drawing to stay clear of it.
+  let tees = '';
+  let teeHits = '';
+  for (const [nodeId, info] of analysis.nodeInfo) {
+    if (info.fitting !== 'TEE_REDUCING') continue;
+    const header = info.runs[0];
+    const branch = info.runs.find((r) => r.dn !== info.runs[0].dn);
+    if (!header || !branch || header.dn === branch.dn) continue;
+    const at = paper(nodeId);
+    if (!at) continue;
+    // Off the header on the side away from the branch, far enough that the
+    // words clear the pipe: set beside the point they ran across the line
+    // and cut it (his screenshot, 2026-09-26). Dragged wherever it reads
+    // best, with a leader back to the tee once moved.
+    const text = `${sizeLabel(header.dn)}X${sizeLabel(branch.dn)} NS`;
+    const hw = (text.length * size * 0.46) / 2 + size * 0.2;
+    const hh = size * 0.5;
+    const unitTo = (id: string): Pt | null => {
+      const q = paper(id);
+      if (!q) return null;
+      const l = Math.hypot(q.x - at.x, q.y - at.y);
+      return l > 1e-6 ? { x: (q.x - at.x) / l, y: (q.y - at.y) / l } : null;
+    };
+    const h = unitTo(header.from === nodeId ? header.to : header.from) ?? { x: 1, y: 0 };
+    const b = unitTo(branch.from === nodeId ? branch.to : branch.from) ?? { x: 0, y: -1 };
+    let nx = -h.y;
+    let ny = h.x;
+    if (nx * b.x + ny * b.y > 0) {
+      nx = -nx;
+      ny = -ny;
+    }
+    const clear = hw * Math.abs(nx) + hh * Math.abs(ny) + size * 0.7;
+    const placed = drawing.itemOverrides?.[`tn:${nodeId}`];
+    const cx = placed ? at.x + placed.dx : at.x + nx * clear;
+    const cy = placed ? at.y + placed.dy : at.y + ny * clear;
+    let leader = '';
+    if (placed) {
+      const dx = at.x - cx;
+      const dy = at.y - cy;
+      const reach = Math.min(Math.abs(dx) > 1e-6 ? hw / Math.abs(dx) : Infinity, Math.abs(dy) > 1e-6 ? hh / Math.abs(dy) : Infinity);
+      if (reach < 1) {
+        leader = `<line class="balloon-leader" x1="${at.x.toFixed(2)}" y1="${at.y.toFixed(2)}" x2="${(cx + dx * reach).toFixed(2)}" y2="${(cy + dy * reach).toFixed(2)}"/>`;
+      }
+    }
+    tees += `${leader}<text class="branch-note" x="${cx.toFixed(2)}" y="${cy.toFixed(2)}" text-anchor="middle" dominant-baseline="middle">${escapeText(text)}</text>`;
+    collect?.texts.push({ p: { x: cx, y: cy }, w: hw * 2, h: hh * 2 });
+    // Weld tags and balloons keep clear of the words, as of a figure.
+    figures.push({ x: cx, y: cy }, { x: cx - hw * 0.7, y: cy }, { x: cx + hw * 0.7, y: cy });
+    teeHits += `<circle class="hit-dot" data-balloon="tn:${nodeId}" data-ax="${at.x.toFixed(2)}" data-ay="${at.y.toFixed(2)}" cx="${cx.toFixed(2)}" cy="${cy.toFixed(2)}" r="${Math.max(hh * 1.6, hitR * 0.5).toFixed(2)}"/>`;
+  }
+
+  let weldHits = calloutHits + teeHits;
   const jointPoints = new Map<string, Pt>();
   const weldLabels: { x: number; y: number; text: string; fromX: number; fromY: number; key: string; placed: boolean }[] = [];
 
@@ -1083,23 +1137,6 @@ export function renderDrawing(state: RenderState): string {
     dims += dim.svg;
     dimHits += dim.hit;
     figures.push(dim.at);
-  }
-
-  // A reducing tee's branch size is called out in words beside it — "6\"X2\" NS"
-  // — rather than drawn as a special shape, which is how these sheets read.
-  // An olet gets no such note: its sizes are on the list, and he asked for
-  // the drawing to stay clear of it.
-  let tees = '';
-  for (const [nodeId, info] of analysis.nodeInfo) {
-    if (info.fitting !== 'TEE_REDUCING') continue;
-    const header = info.runs[0];
-    const branch = info.runs.find((r) => r.dn !== info.runs[0].dn);
-    if (!header || !branch || header.dn === branch.dn) continue;
-    const at = paper(nodeId);
-    if (!at) continue;
-    tees += `<text class="branch-note" x="${(at.x + size * 1.4).toFixed(2)}" y="${(at.y - size * 1.4).toFixed(2)}">${escapeText(
-      `${sizeLabel(header.dn)}X${sizeLabel(branch.dn)} NS`,
-    )}</text>`;
   }
 
   // Equipment: a dashed box with its name, standing on a point of the

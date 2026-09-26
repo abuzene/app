@@ -160,7 +160,8 @@ check('redo restores it', await page.locator('#canvas .component').count(), (v) 
 await page.click('#rotate');
 await page.check('#opt-schematic');
 await page.waitForTimeout(350);
-check('not-to-scale mode still draws', await page.locator('#canvas line.pipe').count(), (v) => v === 6, '6');
+// At least one line per run: one crossing another is drawn in two, with a gap.
+check('not-to-scale mode still draws', await page.locator('#canvas line.pipe').count(), (v) => v >= 6, 'at least 6');
 await page.screenshot({ path: join(out, '03-rotated-schematic.png') });
 await page.uncheck('#opt-schematic');
 for (let i = 0; i < 3; i += 1) await page.click('#rotate');
@@ -4295,6 +4296,75 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   await page.keyboard.press('Escape');
   await page.click('#tabs button:has-text("Route")');
   await page.waitForTimeout(150);
+}
+
+/* ---- a dimension to an elbow's centre; the tee's note; branches gone skew */
+
+// "I can't put a dimension from the centre of the elbow to the pipe", "the
+// 4"X3" NS must not sit on or cut the drawing", and two branches drawn
+// SKEW after a dimension along the header was typed (HILLEL sheet 4,
+// 2026-09-26): the tee slid along the header and its branch stayed put.
+{
+  await routeLine('3"\nSTD\nORIGIN 0 0 0\nN 600\nE 1000\nMARK t\nE 1000\nGOTO t\nDN50\nU 420');
+  const d0 = await drawingNow();
+  const pos = (d, id) => d.nodes.find((n) => n.id === id).pos;
+  const header = d0.runs[1];
+  const tee = header.to;
+  const branch = d0.runs.find((r) => r.from === tee && r.dn === 'DN50');
+  // The first header piece typed longer: the tee slides, its branch with it.
+  const fig = await page.locator(`#canvas circle.hit-dot[data-dim="${header.id}:0"]`).boundingBox();
+  await penTap(fig.x + fig.width / 2, fig.y + fig.height / 2);
+  await page.fill('.dim-editor', '1300');
+  await page.press('.dim-editor', 'Enter');
+  await page.waitForTimeout(400);
+  const d1 = await drawingNow();
+  const t1 = pos(d1, tee);
+  const b1 = pos(d1, branch.to);
+  check('a dimension typed along the header slides the tee and its branch with it', `${Math.round(t1.e)} ${Math.round(b1.e)} ${Math.round(b1.u - t1.u)}`, (v) => v === '1300 1300 420', '1300 1300 420');
+  // A sheet saved askew before this is squared up on opening.
+  await page.evaluate(([id]) => {
+    const d = JSON.parse(localStorage.getItem('iso-draw.drawing.v1'));
+    d.nodes.find((n) => n.id === id).pos.e -= 700;
+    localStorage.setItem('iso-draw.drawing.v1', JSON.stringify(d));
+  }, [branch.to]);
+  await page.reload();
+  await page.waitForTimeout(600);
+  const d2 = await drawingNow();
+  check('a branch left askew off its tee is squared up on opening', `${Math.round(pos(d2, branch.to).e)} ${Math.round(pos(d2, branch.to).u - pos(d2, tee).u)}`, (v) => v === '1300 420', '1300 420');
+  // The tee's note clear of the header line.
+  const clear = await page.evaluate(([a, b]) => {
+    const note = document.querySelector('#canvas text.branch-note');
+    if (!note) return 'no note';
+    const r = note.getBoundingClientRect();
+    const c = (id) => {
+      const q = document.querySelector(`#canvas circle.hit-dot[data-node="${id}"]`).getBoundingClientRect();
+      return { x: q.x + q.width / 2, y: q.y + q.height / 2 };
+    };
+    const p = c(a);
+    const q = c(b);
+    for (let k = 0; k <= 200; k += 1) {
+      const x = p.x + ((q.x - p.x) * k) / 200;
+      const y = p.y + ((q.y - p.y) * k) / 200;
+      if (x > r.left && x < r.right && y > r.top && y < r.bottom) return 'crosses';
+    }
+    return 'clear';
+  }, [header.from, d2.runs[2].to]);
+  check('the reducing tee\'s note sits clear of the header, not across it', clear, (v) => v === 'clear', 'clear');
+  // A dimension by hand from the elbow ends on the tee when its branch
+  // pipe is tapped: the point under the welds is hard to hit.
+  const elbow = header.from;
+  const dot = page.locator(`#canvas circle.hit-dot[data-node="${elbow}"]`).first();
+  await dot.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await dot.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await page.waitForTimeout(250);
+  await page.click('#hud-measure');
+  const pipe = page.locator(`#canvas line.hit[data-run="${branch.id}"]`).first();
+  await pipe.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await pipe.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await page.waitForTimeout(300);
+  const d3 = await drawingNow();
+  check('a dimension from the elbow, the branch pipe tapped: it ends on the tee', JSON.stringify((d3.measures ?? []).map((m) => `${m.a === elbow} ${m.b === tee}`)), (v) => v === '["true true"]', '["true true"]');
+  await page.keyboard.press('Escape');
 }
 
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');

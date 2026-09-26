@@ -9,7 +9,7 @@ import { loadLibrary, removeDrawing, renumberProject, sheetNumber, upsertDrawing
 import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, noteRemovedFromLibrary, setDriveClientId, syncDrive } from './model/drive';
 import { AXES, AXIS_VECTOR, add, length3, scale3, sub } from './model/iso';
 import { initialCommandState, runCommands } from './model/commands';
-import { addMeasure, applyMeasureToOlet, DASHED_NOTE, deleteRunGroup, measureTypeable, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, ensureNode, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, runLength, setLineSize, setRunDashed, setRunDirect, startFromEquipment, stretchRun, syncEquipment, uncoverPoints } from './model/edit';
+import { addMeasure, applyMeasureToOlet, DASHED_NOTE, deleteRunGroup, measureTypeable, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, ensureNode, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, runLength, setLineSize, setRunDashed, setRunDirect, startFromEquipment, straightenBranches, stretchRun, syncEquipment, uncoverPoints } from './model/edit';
 import { DN_LIST, schedulesFor, sizeLabel, sizeOf } from './model/pipe-data';
 import { northArrow, paperOf, renderDrawing, symbolSizeFor } from './render/renderer';
 import { SHEET_STAMPS, renderSheet, sheetStamp, sheetSymbolSize, type SheetSize } from './render/sheet';
@@ -50,6 +50,7 @@ document.addEventListener(
 const drawing = loadStored() ?? emptyDrawing();
 if (!drawing.id) drawing.id = uid('d');
 const asLoaded = JSON.stringify(drawing);
+straightenBranches(drawing);
 syncEquipment(drawing);
 uncoverPoints(drawing);
 // A sheet put right on opening (a box back on its line, a reducer's sizes
@@ -532,20 +533,57 @@ function closeDimensionEditor(): void {
   }
 }
 
+/**
+ * Ends a dimension by hand on what was tapped: a point; a pipe, at its end
+ * nearest the point it starts from; a weld mark or tag, at its point. The
+ * point under an elbow's or tee's welds and tags was hard to hit, and a tap
+ * on the pipe or a weld let the dimension go ("I can't put a dimension from
+ * the centre of the elbow to the pipe", 2026-09-26).
+ */
+let measureDoneAt = 0;
+function finishMeasure(selection: Selection): void {
+  const from = state.measureFrom;
+  state.measureFrom = null;
+  if (!from) return;
+  measureDoneAt = Date.now();
+  const d = state.drawing;
+  const start = d.nodes.find((n) => n.id === from);
+  const nearestEnd = (runId: string): string | null => {
+    const run = d.runs.find((r) => r.id === runId);
+    if (!run || !start) return null;
+    const ends = [run.from, run.to].filter((id) => id !== from);
+    const dist = (id: string) => {
+      const n = d.nodes.find((x) => x.id === id);
+      return n ? length3(sub(n.pos, start.pos)) : Infinity;
+    };
+    return ends.sort((a, b) => dist(a) - dist(b))[0] ?? null;
+  };
+  let to: string | null = null;
+  if (selection?.kind === 'node') to = selection.id;
+  else if (selection?.kind === 'run') to = nearestEnd(selection.id);
+  else if (selection?.kind === 'weld') {
+    const key = selection.key;
+    if (key.startsWith('n:')) to = key.split(':')[1] ?? null;
+    else if (key.startsWith('d:')) to = nearestEnd(key.slice(2));
+  }
+  if (to && to !== from && d.nodes.some((n) => n.id === to)) {
+    const target = to;
+    host.edit('Add dimension', (dr) => addMeasure(dr, from, target));
+    host.notify('Dimension added. Tap its figure to take it off.');
+    return;
+  }
+  host.notify('Dimension not added.');
+  render();
+}
+
 /* ----------------------------------------------------------------- canvas */
 
 const canvas = new Canvas(svg, {
   onSelect(selection: Selection) {
     // A dimension by hand under way: the point tapped ends it.
     if (state.measureFrom) {
-      const from = state.measureFrom;
-      state.measureFrom = null;
-      if (selection?.kind === 'node' && selection.id !== from) {
-        host.edit('Add dimension', (d) => addMeasure(d, from, selection.id));
-        host.notify('Dimension added. Tap its figure to take it off.');
-        return;
-      }
-      host.notify('Dimension not added.');
+      finishMeasure(selection);
+      return;
     }
     // Joining one open end to another: the end tapped next is the other.
     if (state.joinFrom) {
@@ -740,6 +778,12 @@ const canvas = new Canvas(svg, {
     stopDrawing();
   },
   onEditWeld(key, clientX, clientY) {
+    // A weld at the point a dimension by hand goes to: that point, no keypad.
+    if (state.measureFrom) {
+      finishMeasure({ kind: 'weld', key });
+      return;
+    }
+    if (Date.now() - measureDoneAt < 800) return;
     openWeldEditor(key, clientX, clientY);
   },
 
@@ -1739,7 +1783,9 @@ function replaceDrawing(next: Drawing): void {
   for (const key of Object.keys(state.drawing)) delete (state.drawing as unknown as Record<string, unknown>)[key];
   Object.assign(state.drawing, next);
   // An older sheet may have a valve lying across a point: joined through;
-  // a box that lost the point it stood on is put back on its line.
+  // a box that lost the point it stood on is put back on its line; a
+  // branch left askew off its tee is squared up.
+  straightenBranches(state.drawing);
   syncEquipment(state.drawing);
   uncoverPoints(state.drawing);
 }

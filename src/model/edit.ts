@@ -618,6 +618,60 @@ export function setLineSize(drawing: Drawing, runIds: string[], dn: string, sche
   }
 }
 
+/**
+ * Squares up a branch left askew off a tee: before a tee's branch moved
+ * with it, typing a dimension along the header slid the tee alone and the
+ * branch pipe ran skew to where its end had been. The branch is moved
+ * back along the header by as much, so it stands square off the tee at
+ * its own length again. Only a branch that is not joined back into the
+ * line, and whose skew is along the header alone, is moved. Returns
+ * whether anything changed.
+ */
+export function straightenBranches(drawing: Drawing): boolean {
+  let changed = false;
+  for (const run of drawing.runs) {
+    const a = drawing.nodes.find((n) => n.id === run.from);
+    const b = drawing.nodes.find((n) => n.id === run.to);
+    if (!a || !b || axisBetween(a.pos, b.pos)) continue;
+    for (const [tee, far] of [[a, b], [b, a]] as const) {
+      const others = drawing.runs.filter((r) => r.id !== run.id && (r.from === tee.id || r.to === tee.id));
+      if (others.length !== 2) continue;
+      const ends = others.map((r) => drawing.nodes.find((n) => n.id === (r.from === tee.id ? r.to : r.from)));
+      if (!ends[0] || !ends[1]) continue;
+      const h1 = axisBetween(tee.pos, ends[0].pos);
+      const h2 = axisBetween(ends[1].pos, tee.pos);
+      if (!h1 || h1 !== h2) continue;
+      const h = AXIS_VECTOR[h1];
+      const d = sub(far.pos, tee.pos);
+      const along = d.e * h.e + d.n * h.n + d.u * h.u;
+      const square = sub(d, scale3(h, along));
+      if (Math.abs(along) < 0.5 || !axisBetween({ e: 0, n: 0, u: 0 }, square)) continue;
+      // The branch: all reachable from its far end without the tee.
+      const branch = new Set<string>();
+      const queue = [far.id];
+      let loops = false;
+      while (queue.length > 0) {
+        const id = queue.shift()!;
+        if (branch.has(id)) continue;
+        if (id === tee.id) continue;
+        branch.add(id);
+        for (const r of drawing.runs) {
+          if (r.id === run.id) continue;
+          const next = r.from === id ? r.to : r.to === id ? r.from : null;
+          if (next === tee.id) loops = true;
+          if (next && !branch.has(next)) queue.push(next);
+        }
+      }
+      if (loops) continue;
+      const shift = scale3(h, -along);
+      for (const node of drawing.nodes) if (branch.has(node.id)) node.pos = add(node.pos, shift);
+      changed = true;
+      break;
+    }
+  }
+  return changed;
+}
+
 /** What a run made dashed says beside it unless typed over. */
 export const DASHED_NOTE = 'CONT. ON NEXT SHEET';
 
@@ -710,6 +764,25 @@ export function stretchRun(drawing: Drawing, runId: string, length: number, end:
     // The other side has to keep some pipe in it, on the same side of the point.
     if (length3(remaining) < 1) return false;
     if (remaining.e * still.e + remaining.n * still.n + remaining.u * still.u <= 0) return false;
+    // A tee's branch goes with it: left behind, it was drawn askew from the
+    // tee to where its end had been (his HILLEL sheet 4, 2026-09-26: two
+    // branches "SKEW" after a dimension along the header was typed).
+    const branch = new Set<string>();
+    const queue = drawing.runs
+      .filter((r) => r.id !== run.id && r.id !== next.id && (r.from === node.id || r.to === node.id))
+      .map((r) => (r.from === node.id ? r.to : r.from));
+    while (queue.length > 0) {
+      const id = queue.shift()!;
+      if (id === node.id || branch.has(id)) continue;
+      // Joined back into the line: it cannot go with the point.
+      if (id === farId || id === run.from || id === run.to) return false;
+      branch.add(id);
+      for (const r of drawing.runs) {
+        if (r.from === id && !branch.has(r.to)) queue.push(r.to);
+        else if (r.to === id && !branch.has(r.from)) queue.push(r.from);
+      }
+    }
+    for (const other of drawing.nodes) if (branch.has(other.id)) other.pos = add(other.pos, shift);
     node.pos = moved;
     // What sits along the other side stays where it is in space.
     const total = length3(remaining);

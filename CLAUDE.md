@@ -610,6 +610,23 @@ ships, and the decisions already taken, so they are not re-litigated.
   from the picked end's run and keeps it on the `CONT. FROM` point
   (`terminal.dn`/`schedule`), which `syncSizeFromSelection` (also called
   by `onStart`) reads, so it holds after the app is reopened.
+- **A tee slides with its branch** (HILLEL sheet 4, 2026-09-26: two
+  branches drawn SKEW after a dimension along the header was typed):
+  `stretchRun`'s `slideThrough` moves a through point's branch (all that
+  hangs off it, unless it loops back into the line) by as much as the
+  point. `straightenBranches` in edit.ts (on load and in `replaceDrawing`)
+  squares up a branch left askew off a tee on a straight header before
+  this, moving it back along the header.
+- **A dimension by hand ends on what is tapped** (`finishMeasure` in
+  main.ts; "I can't put a dimension from the centre of the elbow to the
+  pipe", same day): a point; a pipe, at its end nearest the start; a weld
+  mark or tag `n:<node>…`, at its point (no weld keypad then,
+  `measureDoneAt`). The point under a tee's welds and tags was hard to hit.
+- **A reducing tee's note** ("4"X3" NS", `.branch-note`) sits off the
+  header on the side away from the branch, far enough that the words
+  clear the pipe (it was set beside the point and ran across the line);
+  draggable (`itemOverrides['tn:<node>']`, leader once moved), in
+  `figures` so weld tags keep off it, and a fixed text for Tidy.
 - **Right click while drawing** puts the pencil down (`onStopDrawing`
   from canvas.ts; the right button still pans when not drawing).
 - Supports and the AG/UG mark are **notes, not material**: no BOM line, no
