@@ -31,7 +31,7 @@ const JOINT_LABEL: Record<string, string> = {
 const END_TYPES: EndType[] = ['BW', 'SW', 'THD', 'FLG', 'PLAIN'];
 const COMPONENT_KINDS = (Object.keys(COMPONENT_LABEL) as ComponentKind[]).filter((k) => k !== 'TRANSITION');
 
-function esc(value: string): string {
+export function esc(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
@@ -591,6 +591,7 @@ function titleTab(host: Host): string {
     (f) =>
       `<div class="row"><label>${esc(f.label)}</label><input type="text" data-meta="${f.key}" value="${esc(String(meta[f.key] ?? ''))}" placeholder="${esc(f.placeholder ?? '')}" /></div>`,
   ).join('')}
+  <div class="row"><label>Notes</label><textarea data-meta="notes" rows="3" placeholder="Printed on the sheet above the stamp, one note a line">${esc(meta.notes ?? '')}</textarea></div>
 </div>
 <div class="section" data-editor="line">
   <h3>Pipe and fittings</h3>
@@ -1256,7 +1257,8 @@ function wire(body: HTMLElement, host: Host): void {
     input.addEventListener('change', () => {
       const key = input.dataset.meta as keyof import('../model/types').Meta;
       host.edit('Edit title block', (d) => {
-        d.meta[key] = input.value;
+        if (key === 'notes') d.meta.notes = input.value.trim() ? input.value : undefined;
+        else d.meta[key] = input.value;
       }, { keepPanel: true });
     });
   });

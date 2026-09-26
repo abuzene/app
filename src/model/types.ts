@@ -290,6 +290,8 @@ export interface Meta {
   logo?: string;
   /** The stamp printed over the title block: one of `SHEET_STAMPS`; AS MADE when unset. */
   stamp?: string;
+  /** His own notes, one per line, printed with the sheet's notes above the stamp. */
+  notes?: string;
 }
 
 export interface DrawingOptions {

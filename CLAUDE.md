@@ -18,7 +18,13 @@ ships, and the decisions already taken, so they are not re-litigated.
   APPROVAL or APPROVED FOR CONSTRUCTION (`meta.stamp`, unset = AS MADE;
   `SHEET_STAMPS`/`sheetStamp`/`stampBox` in sheet.ts, a long label set
   smaller to fit an A4 box), picked in the Title tab (`[data-meta="stamp"]`)
-  or the print dialog (`#sheet-stamp`); his ask, 2026-09-24. Output is
+  or the print dialog (`#sheet-stamp`); his ask, 2026-09-24. **His own
+  notes** (`meta.notes`, one a line; Title tab `[data-meta="notes"]`,
+  print dialog `#sheet-notes`; his ask, 2026-09-26) print above the
+  sheet's own notes over the stamp, in capitals, wrapped to the column
+  (`sheetNotes` in sheet.ts, up to 10 lines; the weld list gives way);
+  the notes are set 1.2 mm in from the column's rule (they sat on it and
+  lost their first letter). Output is
   **print to PDF only** (no SVG/PNG export).
 
 ## How it ships

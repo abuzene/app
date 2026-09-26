@@ -14,7 +14,7 @@ import { DN_LIST, schedulesFor, sizeLabel, sizeOf } from './model/pipe-data';
 import { northArrow, paperOf, renderDrawing, symbolSizeFor } from './render/renderer';
 import { SHEET_STAMPS, renderSheet, sheetStamp, sheetSymbolSize, type SheetSize } from './render/sheet';
 import { Canvas } from './ui/canvas';
-import { fileStem, renderPanel, renderTabs } from './ui/panels';
+import { esc, fileStem, renderPanel, renderTabs } from './ui/panels';
 import { renderTools } from './ui/tools';
 
 const STORAGE_KEY = 'iso-draw.drawing.v1';
@@ -2003,6 +2003,7 @@ function openPrintDialog(): void {
   <div class="row"><label>Stamp</label><select id="sheet-stamp">
     ${SHEET_STAMPS.map((label) => `<option value="${label}"${sheetStamp(state.drawing) === label ? ' selected' : ''}>${label}</option>`).join('')}
   </select></div>
+  <div class="row"><label>Notes</label><textarea id="sheet-notes" rows="3" placeholder="Printed above the stamp, one note a line">${esc(state.drawing.meta.notes ?? '')}</textarea></div>
   <div class="row"><label>Paper</label><select id="sheet-paper">
     <option value="landscape"${tabletPrinter ? '' : ' selected'}>Landscape, as the sheet is</option>
     <option value="upright"${tabletPrinter ? ' selected' : ''}>Upright — the sheet is turned to fill it</option>
@@ -2043,6 +2044,13 @@ function openPrintDialog(): void {
     const value = (event.target as HTMLSelectElement).value;
     host.edit('Set stamp', (d) => {
       d.meta.stamp = value === 'AS MADE' ? undefined : value;
+    });
+  });
+  // His notes for the sheet: kept with the drawing, as in the Title tab.
+  backdrop.querySelector<HTMLTextAreaElement>('#sheet-notes')?.addEventListener('change', (event) => {
+    const value = (event.target as HTMLTextAreaElement).value;
+    host.edit('Sheet notes', (d) => {
+      d.meta.notes = value.trim() ? value : undefined;
     });
   });
   // The scale is the drawing's own, kept with it, and sizes the symbols on screen too.

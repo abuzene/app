@@ -397,6 +397,27 @@ function compass(drawing: Drawing, cx: number, cy: number, r: number): string {
   );
 }
 
+/** Most lines of his own notes the sheet gives room to; the weld list gives way to them. */
+const OWN_NOTE_LINES = 10;
+
+/** His notes, a line each, wrapped at `width` characters, in capitals. */
+export function sheetNotes(notes: string | undefined, width: number): string[] {
+  const out: string[] = [];
+  for (const raw of (notes ?? '').split(/\r?\n/)) {
+    const words = raw.trim().toUpperCase().split(/\s+/).filter(Boolean);
+    let line = '';
+    for (const word of words) {
+      if (line && line.length + 1 + word.length > width) {
+        out.push(line);
+        line = '';
+      }
+      line = line ? `${line} ${word}` : word.slice(0, width);
+    }
+    if (line) out.push(line);
+  }
+  return out.slice(0, OWN_NOTE_LINES);
+}
+
 /** Renders a complete, standalone drawing sheet. Units are millimetres. */
 export function renderSheet(drawing: Drawing, analysis: Analysis, size: SheetSize = 'A3'): string {
   const { w: W, h: H } = SHEETS[size];
@@ -421,7 +442,12 @@ export function renderSheet(drawing: Drawing, analysis: Analysis, size: SheetSiz
   // The tables stack with no gap: a blank strip reads as an empty row.
   const welds = weldTable(analysis, dividerX, MARGIN + bom.height, col);
 
+  // His own notes first, as typed (in capitals, like the rest of the
+  // sheet), each wrapped to the column; then the sheet's own.
+  const noteWidth = Math.floor((col - 2.4) / (1.95 * 0.56));
+  const own = sheetNotes(drawing.meta.notes, noteWidth);
   const notes = [
+    ...own,
     'ALL DIMENSIONS IN MILLIMETRES.',
     drawing.options.schematic ? 'DRAWING NOT TO SCALE.' : `SCALE 1:${scaleR} (FITTED TO SHEET), DIMENSIONS GOVERN.`,
     'DIMENSIONS ARE CENTRE TO CENTRE UNLESS NOTED.',
@@ -434,7 +460,8 @@ export function renderSheet(drawing: Drawing, analysis: Analysis, size: SheetSiz
   const list = weldList(analysis, dividerX, listY, col, Math.floor((listRoom - 8.4) / LIST_ROW));
   let notesSvg = '';
   notes.forEach((n, i) => {
-    notesSvg += text(dividerX, noteY + i * 3.2, n, 'note-text');
+    // Clear of the column's rule (it sat on it and lost its first letter).
+    notesSvg += text(dividerX + 1.2, noteY + i * 3.2, n, 'note-text');
   });
 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}mm" height="${H}mm">

@@ -3568,6 +3568,39 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   await page.waitForTimeout(150);
 }
 
+/* --------------------------------------------- his own notes on the sheet */
+
+// "Move the text away (from the line), and let me write notes into the
+// sheet where I marked" (2026-09-26): the notes were set on the column's
+// rule and lost their first letter; his notes, typed in the Title tab or
+// the print dialog, go above the sheet's own, in capitals, wrapped.
+{
+  await page.click('#tabs button:has-text("Title")');
+  await page.waitForTimeout(200);
+  await page.fill('#tab-body [data-meta="notes"]', 'Hydrotest at 15 bar.\nPaint primer and two coats RAL 1023 after pickling and passivation of every stainless weld on the skid.');
+  await page.dispatchEvent('#tab-body [data-meta="notes"]', 'change');
+  await page.waitForTimeout(300);
+  check('typed, the notes are kept with the drawing', (await drawingNow()).meta.notes, (v) => /^Hydrotest at 15 bar\./.test(v ?? ''), 'Hydrotest at 15 bar. …');
+  await page.click('#print');
+  await page.waitForTimeout(250);
+  check('the print dialog shows them too', await page.inputValue('#sheet-notes'), (v) => /^Hydrotest/.test(v), 'Hydrotest …');
+  await page.click('[data-x="preview"]');
+  await page.waitForTimeout(600);
+  const notes = await page.evaluate(() => {
+    const svg = document.querySelector('.sheet-preview svg');
+    const divider = svg.querySelector('line.frame');
+    const dx = Number(divider.getAttribute('x1'));
+    const lines = [...svg.querySelectorAll('text.note-text')];
+    return { texts: lines.map((t) => t.textContent), clear: lines.every((t) => Number(t.getAttribute('x')) > dx + 0.5) };
+  });
+  check('on the sheet: his notes first, in capitals, wrapped, then the sheet\'s own', `${notes.texts[0]} | ${notes.texts.length} | ${notes.texts.at(-3)}`, (v) => v.startsWith('HYDROTEST AT 15 BAR. | ') && Number(v.split(' | ')[1]) >= 6 && v.endsWith('| ALL DIMENSIONS IN MILLIMETRES.'), 'HYDROTEST first, 6 lines or more, then ALL DIMENSIONS');
+  check('every note clear of the column\'s rule', notes.clear, (v) => v === true, 'true');
+  await page.click('.dialog [data-close]');
+  await page.waitForTimeout(250);
+  await page.click('#tabs button:has-text("Route")');
+  await page.waitForTimeout(150);
+}
+
 /* ------------------------------ joining two ends of one line; a threaded line */
 
 // "I marked the point but cannot join the two lines" (2026-09-24): the two
