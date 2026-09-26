@@ -795,6 +795,12 @@ export function renderDrawing(state: RenderState): string {
 
     nodes += `<circle class="hit-dot" data-node="${node.id}" cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="${hitR.toFixed(2)}"/>`;
     if (selected) nodes += `<circle class="node-mark" cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="${(size * 0.8).toFixed(2)}"/>`;
+    // A point with no pipe yet (the first one put down, the pencil since put
+    // away) is shown on screen, so it can be seen and drawn on from; it used
+    // to vanish and the sheet could not be started again (2026-09-26).
+    else if (state.hitSize !== undefined && (!info || info.degree === 0)) {
+      nodes += `<circle class="node-mark start" cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="${(size * 0.8).toFixed(2)}"/>`;
+    }
     nodes += `</g>`;
   }
 

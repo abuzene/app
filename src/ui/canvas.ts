@@ -518,7 +518,10 @@ export class Canvas {
       return;
     }
 
-    if (this.drawing.nodes.length === 0 && !panRequested) {
+    // No pipe yet: a touch on the sheet starts (or starts again from the
+    // point already put down), whatever was done since — the title filled
+    // in, the pencil put away, the app reopened.
+    if (this.drawing.runs.length === 0 && !this.anchor && !panRequested) {
       this.cb.onStart();
       return;
     }

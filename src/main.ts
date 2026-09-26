@@ -594,7 +594,11 @@ const canvas = new Canvas(svg, {
   onStart() {
     let started: string | null = null;
     host.edit('Start route', (d) => {
-      const id = ensureNode(d, { e: 0, n: 0, u: 0 } as Vec3);
+      // A point already down with no pipe (the picked one, else the last)
+      // is where it starts; else the first point at the origin.
+      const picked = state.selection?.kind === 'node' ? state.selection.id : null;
+      const lone = d.nodes.filter((n) => !d.runs.some((r) => r.from === n.id || r.to === n.id));
+      const id = (lone.find((n) => n.id === picked) ?? lone[lone.length - 1])?.id ?? ensureNode(d, { e: 0, n: 0, u: 0 } as Vec3);
       started = id;
       state.selection = { kind: 'node', id };
       state.commandState.currentNode = id;
@@ -1286,7 +1290,7 @@ function fitView(): void {
 function renderCanvasOnly(): void {
   canvas.setState(state.drawing, state.analysis, state.selection, state.preview);
   compassEl.innerHTML = northArrow(state.drawing);
-  emptyHintEl.classList.toggle('hidden', state.drawing.nodes.length > 0);
+  emptyHintEl.classList.toggle('hidden', state.drawing.runs.length > 0 || canvas.drawingFrom !== null);
   renderHud();
   $<HTMLButtonElement>('undo').disabled = undoStack.length === 0;
   $<HTMLButtonElement>('redo').disabled = redoStack.length === 0;
@@ -1301,7 +1305,7 @@ function render(): void {
   const northSelect = document.getElementById('opt-north-arrow') as HTMLSelectElement | null;
   if (northSelect) northSelect.value = String(state.drawing.options.northArrow ?? 0);
   syncSymbolSelect();
-  emptyHintEl.classList.toggle('hidden', state.drawing.nodes.length > 0);
+  emptyHintEl.classList.toggle('hidden', state.drawing.runs.length > 0 || canvas.drawingFrom !== null);
   renderHud();
   $<HTMLButtonElement>('undo').disabled = undoStack.length === 0;
   $<HTMLButtonElement>('redo').disabled = redoStack.length === 0;

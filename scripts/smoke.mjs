@@ -4169,7 +4169,11 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   const tapNode = async (id) => {
     const dot = page.locator(`#canvas circle.hit-dot[data-node="${id}"]`).first();
     await dot.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
-    await dot.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true }, { timeout: 1000 }).catch(() => page.mouse.up());
+    // The join can take the tapped point away on the press: the lift then
+    // goes to the canvas, as the real one does (it holds the pointer).
+    await dot
+      .dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true }, { timeout: 1000 })
+      .catch(() => page.locator('#canvas').dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true }));
     await page.waitForTimeout(300);
   };
   await tapNode('nb');
@@ -4183,6 +4187,41 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   const largeAt = comp.flip ? pos(red.to) : pos(red.from);
   const smallAt = comp.flip ? pos(red.from) : pos(red.to);
   check('joined, one line out of the box, the reducer\'s 3" end still towards the box', `${joined.runs.length} ${largeAt < smallAt}`, (v) => v === '2 true', '2 true');
+}
+
+/* ------ a new sheet set up first: the start point vanished, no drawing */
+
+// "If I start drawing straight away on a new sheet it works, but if I set
+// the page up or fill in the details first, the start of the drawing
+// disappears and I cannot start drawing" (2026-09-26). The first point
+// put down, then the pencil put away (Escape, Stop drawing, the app
+// reopened), left a lone point that was not drawn and a sheet a touch no
+// longer started. Now it is shown and a touch draws on from it.
+{
+  await startNewDrawing();
+  const box = await page.locator('#canvas').boundingBox();
+  const cx = box.x + box.width * 0.45;
+  const cy = box.y + box.height * 0.5;
+  await penTap(cx, cy);
+  const placed = await drawingNow();
+  check('the first touch puts the start point down', `${placed.nodes.length} ${placed.runs.length}`, (v) => v === '1 0', '1 0');
+  await page.keyboard.press('Escape');
+  await page.click('#tabs button:has-text("Title")');
+  await page.waitForTimeout(200);
+  const project = page.locator('#tab-body input[data-meta="project"]');
+  await project.fill('START TEST');
+  await project.dispatchEvent('change');
+  await page.reload();
+  await page.waitForTimeout(600);
+  check('a start point with no pipe is shown on the sheet', await page.locator('#canvas .node-mark.start').count(), (v) => v === 1, '1');
+  check('and the sheet says to touch it to start', await page.locator('#empty-hint').isVisible(), (v) => v === true, 'true');
+  await penTap(cx, cy);
+  await penTap(cx + 160, cy);
+  const drawn = await drawingNow();
+  check('a touch then draws on from that point: one pipe, no second start', `${drawn.nodes.length} ${drawn.runs.length} ${drawn.meta.project}`, (v) => v === '2 1 START TEST', '2 1 START TEST');
+  await page.keyboard.press('Escape');
+  await page.click('#tabs button:has-text("Route")');
+  await page.waitForTimeout(150);
 }
 
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');

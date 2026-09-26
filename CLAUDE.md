@@ -584,6 +584,17 @@ ships, and the decisions already taken, so they are not re-litigated.
   point tapped second moves with everything beyond it, by stretching the
   run that leads to it (`stretchRun(..., moveEnd=true)`); from an olet the
   olet moves instead. Anything else still says "move a point".
+- **Starting a sheet** (his complaint, 2026-09-26: "set the page up or
+  fill in the details first and the start of the drawing disappears; I
+  cannot start drawing"): the first touch puts a point at the origin and
+  arms the pencil. Put away before any pipe (Escape, Stop drawing, the
+  app reopened), that lone point used to be drawn as nothing and a touch
+  no longer started (only an empty `nodes` did). Now a point with no
+  pipe is drawn on screen (`.node-mark.start`, dashed, not on the sheet:
+  only when `hitSize` is set), the "Start the route" hint shows while
+  there is no pipe and no pencil, and a touch with no pipe yet calls
+  `onStart`, which arms the lone point (the picked one, else the last)
+  instead of adding another.
 - **Right click while drawing** puts the pencil down (`onStopDrawing`
   from canvas.ts; the right button still pans when not drawing).
 - Supports and the AG/UG mark are **notes, not material**: no BOM line, no
