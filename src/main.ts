@@ -9,7 +9,7 @@ import { isRemoved, loadLibrary, removeDrawing, renumberProject, sheetNumber, up
 import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, setDriveClientId, syncDrive } from './model/drive';
 import { AXES, AXIS_VECTOR, add, length3, scale3, sub } from './model/iso';
 import { initialCommandState, runCommands } from './model/commands';
-import { addMeasure, applyMeasureToOlet, DASHED_NOTE, deleteRunGroup, measureTypeable, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, ensureNode, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, runLength, setLineSize, setRunDashed, setRunDirect, startFromEquipment, straightenBranches, stretchRun, syncEquipment, uncoverPoints } from './model/edit';
+import { addMeasure, applyMeasureToOlet, autoCouplings, DASHED_NOTE, deleteRunGroup, measureTypeable, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, ensureNode, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, runLength, setLineSize, setRunDashed, setRunDirect, startFromEquipment, straightenBranches, stretchRun, syncEquipment, uncoverPoints } from './model/edit';
 import { DN_LIST, schedulesFor, sizeLabel, sizeOf } from './model/pipe-data';
 import { northArrow, paperOf, renderDrawing, symbolSizeFor } from './render/renderer';
 import { SHEET_STAMPS, renderSheet, sheetStamp, sheetSymbolSize, type SheetSize } from './render/sheet';
@@ -53,6 +53,7 @@ const asLoaded = JSON.stringify(drawing);
 straightenBranches(drawing);
 syncEquipment(drawing);
 uncoverPoints(drawing);
+autoCouplings(drawing);
 // A sheet put right on opening (a box back on its line, a reducer's sizes
 // in order) is kept so, not only shown so.
 if (JSON.stringify(drawing) !== asLoaded) {
@@ -101,6 +102,7 @@ const host: Host = {
     // Equipment keeps with its point, and the line beyond it with the box.
     syncEquipment(state.drawing);
     uncoverPoints(state.drawing);
+    autoCouplings(state.drawing);
     recompute();
     persist();
     if (options?.keepPanel) renderCanvasOnly();
@@ -123,6 +125,7 @@ const host: Host = {
     redoStack.length = 0;
     state.commandText = text;
     const result = runCommands(state.drawing, text, state.commandState);
+    autoCouplings(state.drawing);
     state.commandState = result.state;
     state.commandErrors = result.errors;
     // Typed commands set the size as they go; drawing on carries it.
@@ -719,6 +722,8 @@ const canvas = new Canvas(svg, {
       host.edit('Move component', (d) => {
         const target = d.runs.flatMap((r) => r.inline).find((c) => c.id === componentId);
         if (target) target.offset = offset;
+        // A coupling put in every 6 m, moved by hand, is his: it stays there.
+        if (target) delete target.auto;
       });
       return;
     }
@@ -1829,6 +1834,7 @@ function replaceDrawing(next: Drawing): void {
   straightenBranches(state.drawing);
   syncEquipment(state.drawing);
   uncoverPoints(state.drawing);
+  autoCouplings(state.drawing);
 }
 
 $('new').addEventListener('click', async () => {

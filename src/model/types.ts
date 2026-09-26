@@ -97,6 +97,11 @@ export interface InlineComponent {
    */
   lastFlange?: 'none' | 'blind';
   /**
+   * Put in by the app: a coupling every 6 m along small-bore pipe, placed
+   * again after every change. Moved by hand, it is his and stays put.
+   */
+  auto?: boolean;
+  /**
    * The side (0 start, 1 end) of a flanged valve bolted straight to the
    * valve beside it: no flange there, nothing welded, off the list.
    */
@@ -194,6 +199,8 @@ export interface Run {
   inline: InlineComponent[];
   /** Suppresses the automatic length dimension for this run. */
   noDim?: boolean;
+  /** No coupling put in every 6 m along this pipe (one of them was taken out by hand). */
+  noAutoCoupling?: boolean;
   /**
    * The fittings at each end are joined to each other directly, with no pipe
    * between: one weld where they meet, no cut length, no pipe on the list.

@@ -1,6 +1,6 @@
 import type { Axis, ComponentKind, Drawing, EndType, Equipment, FlangeKind, InlineComponent, IsoNode, Measure, Run, TerminalKind, Vec3 } from './types';
 import { AXIS_VECTOR, add, axisBetween, direction, equals3, length3, scale3, step, sub } from './iso';
-import { chainStops, dimensionStops, isCoupling, drawnLength, fittingsTouchLength, reducerSides, isReducer, minDrawnLength, isMark, isValve, itemAtEnd, oletMarks, resolveEnds, runGroupIds, terminalTakeoutOf, uid, valveOpenSide, type Analysis } from './drawing';
+import { analyse, chainStops, dimensionStops, isCoupling, pipeSpans, drawnLength, fittingsTouchLength, reducerSides, isReducer, minDrawnLength, isMark, isValve, itemAtEnd, oletMarks, resolveEnds, runGroupIds, terminalTakeoutOf, uid, valveOpenSide, type Analysis } from './drawing';
 import { componentTakeout, fittingTakeout, schedulesFor, sizeOf, valveFlangeKind } from './pipe-data';
 
 /** Finds an existing node at a position, so that routes join rather than overlap. */
@@ -309,8 +309,50 @@ export function addComponent(
   return comp;
 }
 
+/** Pipe comes in 6 m lengths. */
+export const PIPE_STOCK = 6000;
+/** Small bore: 1 1/2" and under is joined by couplings, not welded pipe to pipe. */
+const SMALL_BORE_OD = 48.3 + 0.01;
+
+/**
+ * Small-bore pipe (1 1/2" and under) longer than a 6 m length gets a
+ * coupling every 6 m (his ask, 2026-09-26): socket weld, or NPT on a
+ * threaded line. They are put in again after every change, so they follow
+ * the pipe as it is lengthened or cut; one moved by hand is his and stays,
+ * and taking one out leaves that pipe without them (`noAutoCoupling`).
+ * Returns whether anything changed.
+ */
+export function autoCouplings(drawing: Drawing): boolean {
+  const before = JSON.stringify(drawing.runs);
+  const reuse = new Map<string, string[]>();
+  for (const run of drawing.runs) {
+    const ids = run.inline.filter((c) => c.auto).map((c) => c.id);
+    if (ids.length) reuse.set(run.id, ids);
+    run.inline = run.inline.filter((c) => !c.auto);
+  }
+  const analysis = analyse(drawing);
+  for (const run of drawing.runs) {
+    if (run.dashed || run.direct || run.noAutoCoupling || sizeOf(run.dn).od > SMALL_BORE_OD) continue;
+    const kind: ComponentKind = analysis.nodeJoint.get(run.from) === 'THD' ? 'COUPLING_THD' : 'COUPLING_SW';
+    const half = componentTakeout(kind, run.dn);
+    const ids = reuse.get(run.id) ?? [];
+    for (const [lo, hi] of pipeSpans(drawing, analysis.nodeInfo, run)) {
+      let from = lo;
+      while (hi - from > PIPE_STOCK + 2 * half + 1) {
+        const centre = from + PIPE_STOCK + half;
+        run.inline.push({ id: ids.shift() ?? uid('c'), kind, offset: centre, auto: true });
+        from = centre + half;
+      }
+    }
+    run.inline.sort((a, b) => a.offset - b.offset);
+  }
+  return JSON.stringify(drawing.runs) !== before;
+}
+
 export function removeComponent(drawing: Drawing, compId: string): void {
   for (const run of drawing.runs) {
+    // Taking out a coupling put in every 6 m leaves that pipe without them.
+    if (run.inline.some((c) => c.id === compId && c.auto)) run.noAutoCoupling = true;
     run.inline = run.inline.filter((c) => c.id !== compId);
   }
 }
@@ -866,6 +908,7 @@ export function applyDimension(drawing: Drawing, runId: string, index: number, v
     const offset = from + value;
     if (offset - half < -0.5 || offset + half > total + 0.5) return 'That would push the coupling off the end of the run.';
     coupling.offset = offset;
+    delete coupling.auto;
     run.inline.sort((x, y) => x.offset - y.offset);
     return null;
   }

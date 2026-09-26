@@ -314,7 +314,18 @@ ships, and the decisions already taken, so they are not re-litigated.
   sleeve a set size (`COUPLING_REACH` 0.7 symbol, its joint marks there),
   dimensioned to its **centre** (`dimensionStops`; typing that piece slides
   it, `applyDimension`), placed like a valve (palette `Cplg SW`/`Cplg NPT`,
-  commands `+CPLSW`/`+CPLNPT`), Branch (tee, olets), Marks
+  commands `+CPLSW`/`+CPLNPT`). The sleeve is filled with the paper
+  (`sym-fill`): no pipe seen through it (his ask). **A coupling every 6 m
+  on pipe 1 1/2" and under** (same day): `autoCouplings` in edit.ts, run
+  after every `host.edit`, typed commands, on load and in
+  `replaceDrawing`, takes out the `auto: true` couplings and puts them in
+  again (ids kept) along every stretch of bare pipe (`pipeSpans` in
+  drawing.ts, take-outs and items off) longer than `PIPE_STOCK` 6000: each
+  length cut 6000 to the coupling; NPT where the run's start point is
+  threaded, else SW; not on dashed/direct runs. One moved or typed by hand
+  loses `auto` (his); one deleted sets `run.noAutoCoupling`; the run
+  panel's Couplings select (small bore only) turns them on/off.
+  Branch (tee, olets), Marks
   (Support, L50 support, AG/UG), Joints (a BW weld: `placeWeld` splits the
   run at a plain point, welded pipe to pipe, dimension opened). Two columns
   on tablets so all fit.

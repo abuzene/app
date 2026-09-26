@@ -555,7 +555,8 @@ export function componentSymbol(kind: ComponentKind, f: Frame, reach?: number, f
       // marks on its ends (socket weld or thread), drawn with its welds.
       const r = (reach ?? s * 0.7) * 0.72;
       const w = s * 0.5;
-      return poly([pt(f, -r, 0, -w), pt(f, r, 0, -w), pt(f, r, 0, w), pt(f, -r, 0, w)], 'sym-hollow');
+      // Filled with the paper, so the pipe is not seen through it (his ask).
+      return poly([pt(f, -r, 0, -w), pt(f, r, 0, -w), pt(f, r, 0, w), pt(f, -r, 0, w)], 'sym-fill');
     }
     case 'TRANSITION':
       return transitionSymbol(f, 1);

@@ -3729,7 +3729,38 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   check('the pipe into the socket is cut short of its centre by half the coupling and the set-back', rows.find((r) => /COUPLING SW/.test(r))?.split('\t').pop()?.trim(), (v) => v === 'A 292', 'A 292');
   await page.click('#tabs button:has-text("Route")');
   await page.waitForTimeout(150);
-  check('both are drawn, with their joint marks', `${await page.locator('#canvas .component[data-component] polygon.sym-hollow').count()} ${await page.locator('#canvas .weld').count()}`, (v) => /^2 /.test(v) && Number(v.split(' ')[1]) >= 6, '2 sleeves, 6 marks or more');
+  check('both are drawn, with their joint marks', `${await page.locator('#canvas .component[data-component] polygon.sym-fill').count()} ${await page.locator('#canvas .weld').count()}`, (v) => /^2 /.test(v) && Number(v.split(' ')[1]) >= 6, '2 sleeves, 6 marks or more');
+}
+
+/* ------------------------------- a coupling every 6 m on small-bore pipe */
+
+// "Pipe 1 1/2 and under needs a coupling added automatically every 6 m"
+// (2026-09-26): pipe comes in 6 m lengths; each is cut 6000 to a coupling.
+{
+  const autoOf = async () => (await drawingNow()).runs.map((r) => r.inline.filter((c) => c.auto).map((c) => `${c.kind}@${Math.round(c.offset)}`).join(',')).join(' ; ');
+  await routeLine('1"\nSCH80\nORIGIN 0 0 0\nE 15000\nN 800');
+  check('a 15 m 1" pipe gets a socket weld coupling at each 6 m, the short leg none', await autoOf(), (v) => v === 'COUPLING_SW@6008,COUPLING_SW@12024 ; ', 'two couplings on the 15 m leg');
+  await page.click('#tabs button:has-text("Welds")');
+  await page.waitForTimeout(200);
+  const nets = (await page.locator('#tab-body table tbody tr').allInnerTexts()).map((r) => r.split('\t').pop().trim());
+  check('each full length is cut 6000', [...new Set(nets)].join(' '), (v) => v.startsWith('A 6000 B 6000 C '), 'A 6000, B 6000, then the rest');
+  await page.click('#tabs button:has-text("Route")');
+  await page.waitForTimeout(150);
+  // Under 6 m, or over 1 1/2", none.
+  await routeLine('1"\nSCH80\nORIGIN 0 0 0\nE 5000');
+  check('a pipe under 6 m gets none', await autoOf(), (v) => v === '', 'none');
+  await routeLine('2"\nSTD\nORIGIN 0 0 0\nE 15000');
+  check('2" pipe is welded, not coupled: none', await autoOf(), (v) => v === '', 'none');
+  await routeLine('1 1/2"\nSCH80\nORIGIN 0 0 0\nE 7000');
+  const cplId = (await drawingNow()).runs[0].inline.find((c) => c.auto)?.id;
+  const el = page.locator(`#canvas circle.hit-dot[data-component="${cplId}"]`);
+  await el.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await el.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await page.waitForTimeout(250);
+  await page.click('#hud-delete');
+  await page.waitForTimeout(300);
+  const after = (await drawingNow()).runs[0];
+  check('one taken out by hand stays out, that pipe marked to have none', `${after.inline.length} ${after.noAutoCoupling}`, (v) => v === '0 true', '0 true');
 }
 
 /* -------------------------- a short spool between two valves, not to scale */

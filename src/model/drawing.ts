@@ -831,6 +831,38 @@ function endTakeout(info: NodeInfo | undefined, run: Run, dn = run.dn): number {
 }
 
 /**
+ * The lengths of bare pipe along a run, from its start, as [from, to] in mm:
+ * between the take-outs at its ends and the items along it.
+ */
+export function pipeSpans(drawing: Drawing, nodeInfo: Map<string, NodeInfo>, run: Run, skip?: (comp: InlineComponent) => boolean): [number, number][] {
+  const a = drawing.nodes.find((n) => n.id === run.from);
+  const b = drawing.nodes.find((n) => n.id === run.to);
+  if (!a || !b) return [];
+  const defaultJoint = drawing.options.joint ?? 'BW';
+  const total = length3(sub(b.pos, a.pos));
+  const terminalBack = (node: IsoNode) => terminalTakeout(node, endDn(drawing, run, node.id === run.from));
+  const start = endTakeout(nodeInfo.get(run.from), run, endDn(drawing, run, true)) + terminalBack(a);
+  const finish = total - endTakeout(nodeInfo.get(run.to), run, endDn(drawing, run, false)) - terminalBack(b);
+  const taken: [number, number][] = [];
+  for (const comp of run.inline) {
+    if (skip?.(comp)) continue;
+    const dn = comp.dn ?? run.dn;
+    const ends = resolveEnds(comp.kind, dn, comp.ends, defaultJoint);
+    const half = componentTakeout(comp.kind, dn, ends === 'FLG' && valveFlangeKind(defaultJoint), comp.ff);
+    if (half > 0) taken.push([comp.offset - half, comp.offset + half]);
+  }
+  taken.sort((x, y) => x[0] - y[0]);
+  let cursor = start;
+  const spans: [number, number][] = [];
+  for (const [lo, hi] of taken) {
+    if (lo > cursor + 0.5) spans.push([cursor, Math.min(lo, finish)]);
+    cursor = Math.max(cursor, hi);
+  }
+  if (finish > cursor + 0.5) spans.push([cursor, finish]);
+  return spans;
+}
+
+/**
  * A header that runs straight on through one or more olets. The olets only
  * sit on it, so it is one length of pipe, dimensioned end to end as one,
  * with each olet placed by its own dimension from the start.
@@ -1385,26 +1417,9 @@ export function analyse(drawing: Drawing): Analysis {
     if (!a || !b || touching.has(run.id) || run.dashed) continue;
     const idx = runIndex.get(run.id) ?? 0;
     const total = length3(sub(b.pos, a.pos));
-    const terminalBack = (node: IsoNode) => terminalTakeout(node, endDn(drawing, run, node.id === run.from));
     const fromInfo = nodeInfo.get(run.from);
     const toInfo = nodeInfo.get(run.to);
-    const start = endTakeout(fromInfo, run, endDn(drawing, run, true)) + terminalBack(a);
-    const finish = total - endTakeout(toInfo, run, endDn(drawing, run, false)) - terminalBack(b);
-    const taken: [number, number][] = [];
-    for (const comp of run.inline) {
-      const dn = comp.dn ?? run.dn;
-      const ends = resolveEnds(comp.kind, dn, comp.ends, defaultJoint);
-      const half = componentTakeout(comp.kind, dn, ends === 'FLG' && valveFlangeKind(defaultJoint), comp.ff);
-      if (half > 0) taken.push([comp.offset - half, comp.offset + half]);
-    }
-    taken.sort((x, y) => x[0] - y[0]);
-    let cursor = start;
-    const spans: [number, number][] = [];
-    for (const [lo, hi] of taken) {
-      if (lo > cursor + 0.5) spans.push([cursor, Math.min(lo, finish)]);
-      cursor = Math.max(cursor, hi);
-    }
-    if (finish > cursor + 0.5) spans.push([cursor, finish]);
+    const spans = pipeSpans(drawing, nodeInfo, run);
     const headerOf = (info: NodeInfo | undefined) => {
       if (info?.fitting !== 'OLET') return false;
       const legs = oletLegs(info);
