@@ -1817,6 +1817,26 @@ await page.locator('[data-open-sheet]').first().click();
 await page.waitForTimeout(500);
 check('the first sheet opens again from the list', await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).meta.sheet), (v) => v === '1 of 2', '1 of 2');
 check('with its end marked as going on to sheet 2', await page.evaluate(() => JSON.stringify(JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).nodes.map((n) => n.terminal?.note).filter(Boolean))), (v) => v === '["CONT. ON SH.2"]', 'CONT. ON SH.2');
+// "Print one sheet of a project, or all its sheets in one PDF" (2026-09-26):
+// the Projects tab's PDF button, or the print dialog's Sheets choice.
+{
+  await page.click('#tabs button:has-text("Projects")');
+  await page.waitForTimeout(200);
+  await page.click('[data-project-pdf="Alpha Job"]');
+  await page.waitForTimeout(300);
+  check('the project\'s PDF button opens the print dialog with all its sheets picked', `${await page.inputValue('#sheet-pages')} | ${(await page.locator('#sheet-pages option').allInnerTexts()).join(' / ')}`, (v) => v.startsWith('all | ') && /This sheet — 1 of 2, on screen/.test(v) && /Sheet 2 of 2/.test(v) && /All 2 sheets of Alpha Job/.test(v), 'all; this sheet / Sheet 2 of 2 / All 2 sheets');
+  check('the stamp and notes, the sheet on screen\'s, are put away for all sheets', await page.locator('#sheet-stamp').isVisible(), (v) => v === false, 'false');
+  const [allPdf] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), page.click('.dialog-backdrop [data-x="pdf"]')]);
+  const allBytes = await readFile(await allPdf.path());
+  check('all the project\'s sheets go into one PDF, a page each', `${(allBytes.toString('latin1').match(/\/Type\s*\/Page[^s]/g) || []).length} ${allPdf.suggestedFilename()}`, (v) => v === '2 alpha-job-all-sheets.pdf', '2 alpha-job-all-sheets.pdf');
+  await page.click('#print');
+  await page.waitForTimeout(250);
+  check('from the Print button, the sheet on screen is picked', await page.inputValue('#sheet-pages'), (v) => v === 'here', 'here');
+  const second = await page.locator('#sheet-pages option').nth(1).getAttribute('value');
+  await page.selectOption('#sheet-pages', second);
+  const [onePdf] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), page.click('.dialog-backdrop [data-x="pdf"]')]);
+  check('another sheet of the project alone: one page, named for it', `${((await readFile(await onePdf.path())).toString('latin1').match(/\/Type\s*\/Page[^s]/g) || []).length} ${onePdf.suggestedFilename()}`, (v) => /^1 .*sheet-2\.pdf$/.test(v), '1 …sheet-2.pdf');
+}
 // Five projects are listed; the rest on request.
 for (const name of ['Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot']) {
   await startNewDrawing();

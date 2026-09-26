@@ -691,7 +691,7 @@ function projectsTab(host: Host): string {
       : shown
           .map(
             (p) => `<div class="project">
-      <div class="project-name">${esc(p.name || '(no project name)')} <span class="project-count">${p.sheets.length} sheet${p.sheets.length === 1 ? '' : 's'}</span></div>
+      <div class="project-name">${esc(p.name || '(no project name)')} <span class="project-count">${p.sheets.length} sheet${p.sheets.length === 1 ? '' : 's'}</span><button class="btn-line project-pdf" type="button" data-project-pdf="${esc(p.name)}" title="Print or make a PDF of this project's sheets">PDF</button></div>
       ${p.sheets.map(sheetRow).join('')}
     </div>`,
           )
@@ -741,6 +741,9 @@ function wire(body: HTMLElement, host: Host): void {
 
   // Projects.
   body.querySelector('[data-a="new-sheet"]')?.addEventListener('click', () => host.newSheetInProject());
+  body.querySelectorAll<HTMLElement>('[data-project-pdf]').forEach((button) => {
+    button.addEventListener('click', () => host.printProject(button.dataset.projectPdf ?? ''));
+  });
   body.querySelector('[data-a="drive-connect"]')?.addEventListener('click', () => {
     const field = body.querySelector<HTMLInputElement>('[data-f="drive-client"]');
     host.driveConnect(field ? field.value : host.driveStatus().clientId);

@@ -5,7 +5,7 @@ import type { AppState, Host, OletAsk, OletChoice, ReducerAsk, ReducerChoice } f
 import { reducerPreview } from './ui/reducer-preview';
 import { tidyLayout, type LayoutSpecs } from './render/tidy';
 import { analyse, chainStops, dimensionStops, drawnLength, drawnStations, runDrawnFloor, trueAtShare, type DrawnStations, isMark, isReducer, itemAtEnd, itemHalf, runGroupIds, emptyDrawing, oletLegs, oletMarks, uid } from './model/drawing';
-import { isRemoved, loadLibrary, removeDrawing, renumberProject, sheetNumber, upsertDrawing, worthKeeping } from './model/library';
+import { isRemoved, loadLibrary, projectsOf, removeDrawing, renumberProject, sheetNumber, upsertDrawing, worthKeeping } from './model/library';
 import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, setDriveClientId, syncDrive } from './model/drive';
 import { AXES, AXIS_VECTOR, add, length3, scale3, sub } from './model/iso';
 import { initialCommandState, runCommands } from './model/commands';
@@ -228,6 +228,9 @@ const host: Host = {
   },
   newSheetInProject() {
     newSheetInProject();
+  },
+  printProject(name) {
+    openPrintDialog({ project: name, all: true });
   },
   driveStatus() {
     return driveStatus();
@@ -1924,7 +1927,7 @@ fileInput.addEventListener('change', async () => {
   fileInput.value = '';
 });
 
-$('print').addEventListener('click', openPrintDialog);
+$('print').addEventListener('click', () => openPrintDialog());
 
 /* ------------------------------------------------------------------- logo */
 
@@ -1999,34 +2002,51 @@ const embedded = (() => {
  * "Save as PDF" puts it on the machine. Everything else a fabrication drawing
  * needs is on that sheet.
  */
-function openPrintDialog(): void {
+function openPrintDialog(ask: { project?: string; all?: boolean } = {}): void {
+  // Which sheets: this one, another of its project, or every sheet of the
+  // project in one PDF (his ask, 2026-09-26). The library has them all, the
+  // one on screen as it is now.
+  keepNow();
+  const onScreen = state.drawing.meta.project || '';
+  const project = ask.project ?? onScreen;
+  const sheets = (projectsOf(loadLibrary()).find((p) => p.name === project)?.sheets ?? []).map((e) =>
+    e.id === state.drawing.id ? state.drawing : ({ ...emptyDrawing(), ...e.drawing } as Drawing),
+  );
+  const here = project === onScreen;
+  if (here && !sheets.some((d) => d.id === state.drawing.id)) sheets.push(state.drawing);
+  const choices: { value: string; label: string }[] = [];
+  if (here) choices.push({ value: 'here', label: `This sheet — ${state.drawing.meta.sheet || '1 of 1'}, on screen` });
+  for (const d of sheets) if (d.id !== state.drawing.id || !here) choices.push({ value: d.id ?? '', label: `Sheet ${d.meta.sheet || '1 of 1'}` });
+  if (sheets.length > 1) choices.push({ value: 'all', label: `All ${sheets.length} sheets of ${project || 'this project'} — one PDF` });
+  const picked = ask.all && sheets.length > 1 ? 'all' : choices[0]?.value ?? 'here';
   const backdrop = document.createElement('div');
   backdrop.className = 'dialog-backdrop';
   backdrop.innerHTML = `
 <div class="dialog" role="dialog" aria-label="Print">
   <h3>Print</h3>
   <p>The sheet carries the drawing, the material list, the weld list and the title block. Choose <strong>Save as PDF</strong> in the printer dialog to keep a copy on this device.</p>
+  ${choices.length > 1 || !here ? `<div class="row"><label>Sheets</label><select id="sheet-pages">${choices.map((c) => `<option value="${esc(c.value)}"${c.value === picked ? ' selected' : ''}>${esc(c.label)}</option>`).join('')}</select></div>` : ''}
   <div class="row"><label>Sheet size</label><select id="sheet-size">
     <option value="A4">A4 landscape</option>
     <option value="A3" selected>A3 landscape</option>
     <option value="A2">A2 landscape</option>
   </select></div>
-  <div class="row"><label>Stamp</label><select id="sheet-stamp">
+  <div class="row" data-here-only><label>Stamp</label><select id="sheet-stamp">
     ${SHEET_STAMPS.map((label) => `<option value="${label}"${sheetStamp(state.drawing) === label ? ' selected' : ''}>${label}</option>`).join('')}
   </select></div>
-  <div class="row"><label>Notes</label><textarea id="sheet-notes" rows="3" placeholder="Printed above the stamp, one note a line">${esc(state.drawing.meta.notes ?? '')}</textarea></div>
+  <div class="row" data-here-only><label>Notes</label><textarea id="sheet-notes" rows="3" placeholder="Printed above the stamp, one note a line">${esc(state.drawing.meta.notes ?? '')}</textarea></div>
   <div class="row"><label>Paper</label><select id="sheet-paper">
     <option value="landscape"${tabletPrinter ? '' : ' selected'}>Landscape, as the sheet is</option>
     <option value="upright"${tabletPrinter ? ' selected' : ''}>Upright — the sheet is turned to fill it</option>
   </select></div>
   <p class="empty-note">A tablet prints on upright paper unless told otherwise, so the sheet is turned to lie along it; a printer fed landscape paper takes the sheet as it is.</p>
-  <div class="row"><label>Symbols against the pipe</label><select id="sheet-scale">
+  <div class="row" data-here-only><label>Symbols against the pipe</label><select id="sheet-scale">
     ${[...new Set([8, 10, 12, 15, 18, 22, 27, 33, state.drawing.options.sheetScale ?? 15])]
       .sort((a, b) => a - b)
       .map((r) => `<option value="${r}"${(state.drawing.options.sheetScale ?? 15) === r ? ' selected' : ''}>${r === 0 ? 'Fit to the sheet' : `${Math.round((r / 15) * 100)}%`}</option>`)
       .join('')}
   </select></div>
-  <p class="empty-note">The sheet fits the whole drawing to the page, with the pipe and the symbols in the proportions you see on screen (View → Symbols sets them too); lettering is never printed smaller than the standard size.</p>
+  <p class="empty-note" data-here-only>The sheet fits the whole drawing to the page, with the pipe and the symbols in the proportions you see on screen (View → Symbols sets them too); lettering is never printed smaller than the standard size.</p>
   <div class="btn-row">
     <button class="btn-line${tabletPrinter ? ' solid' : ''}" data-x="pdf">PDF sheet</button>
     <button class="btn-line${tabletPrinter ? '' : ' solid'}" data-x="print">Print / Save as PDF</button>
@@ -2049,6 +2069,13 @@ function openPrintDialog(): void {
   });
 
   const sheetSize = () => (backdrop.querySelector<HTMLSelectElement>('#sheet-size')?.value ?? 'A3') as SheetSize;
+  // The stamp and notes set here are the sheet on screen's: shown only for it.
+  const showHereOnly = () => {
+    const pick = backdrop.querySelector<HTMLSelectElement>('#sheet-pages')?.value ?? picked;
+    backdrop.querySelectorAll<HTMLElement>('[data-here-only]').forEach((row) => (row.style.display = pick === 'here' ? '' : 'none'));
+  };
+  showHereOnly();
+  backdrop.querySelector<HTMLSelectElement>('#sheet-pages')?.addEventListener('change', showHereOnly);
   const upright = () => backdrop.querySelector<HTMLSelectElement>('#sheet-paper')?.value === 'upright';
   // What the sheet is stamped: kept with the drawing, as in the Title tab.
   backdrop.querySelector<HTMLSelectElement>('#sheet-stamp')?.addEventListener('change', (event) => {
@@ -2081,20 +2108,32 @@ function openPrintDialog(): void {
         void checkForUpdate();
         return;
       }
-      const sheet = renderSheet(state.drawing, state.analysis, sheetSize());
-      if (what === 'pdf') {
+      const pick = backdrop.querySelector<HTMLSelectElement>('#sheet-pages')?.value ?? picked;
+      const chosen = pick === 'here' ? [state.drawing] : pick === 'all' ? sheets : sheets.filter((d) => d.id === pick);
+      if (chosen.length === 0) return close();
+      const rendered = chosen.map((d) => renderSheet(d, d === state.drawing ? state.analysis : analyse(d), sheetSize()));
+      const stem = (d: Drawing) =>
+        (d.meta.lineNumber || d.meta.drawingNo || d.meta.project || 'isometric').replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'isometric';
+      const fileName =
+        pick === 'all'
+          ? `${(project || 'project').replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'project'}-all-sheets.pdf`
+          : chosen[0] === state.drawing
+            ? `${fileStem(host)}.pdf`
+            : `${stem(chosen[0])}-sheet-${sheetNumber(chosen[0].meta.sheet)}.pdf`;
+      // Several sheets go as one PDF, a page each, whichever button.
+      if (what === 'pdf' || (what === 'print' && rendered.length > 1)) {
         close();
-        void makePdfSheet(sheet, sheetSize());
+        void makePdfSheet(rendered, sheetSize(), fileName);
         return;
       }
       if (what === 'preview') {
         openOverlay(
-          'Sheet preview',
-          `<div class="sheet-preview">${sheet}</div>`,
+          rendered.length > 1 ? `${rendered.length} sheets` : 'Sheet preview',
+          rendered.map((sheet) => `<div class="sheet-preview">${sheet}</div>`).join(''),
           true,
         );
       } else {
-        printSheet(sheet, sheetSize(), upright());
+        printSheet(rendered[0], sheetSize(), upright());
       }
       close();
     });
@@ -2124,12 +2163,13 @@ const SHEET_MM: Record<SheetSize, { w: number; h: number }> = {
  * onto a canvas at print resolution and put in the PDF as one image, which
  * the share sheet then prints, saves or sends.
  */
-async function makePdfSheet(sheet: string, size: SheetSize): Promise<void> {
-  const name = `${fileStem(host)}.pdf`;
-  host.notify('Making the PDF sheet…');
+async function makePdfSheet(sheets: string | string[], size: SheetSize, fileName?: string): Promise<void> {
+  const all = Array.isArray(sheets) ? sheets : [sheets];
+  const name = fileName ?? `${fileStem(host)}.pdf`;
+  host.notify(all.length > 1 ? `Making the PDF, ${all.length} sheets…` : 'Making the PDF sheet…');
   let blob: Blob;
   try {
-    blob = await sheetToPdf(sheet, size);
+    blob = await sheetsToPdf(all, size);
   } catch (error) {
     host.notify(`The PDF could not be made here (${(error as Error)?.message ?? 'unknown'}) — use Print instead.`);
     return;
@@ -2150,7 +2190,22 @@ async function makePdfSheet(sheet: string, size: SheetSize): Promise<void> {
   await saveFile(blob, name);
 }
 
-async function sheetToPdf(sheet: string, size: SheetSize): Promise<Blob> {
+/** Every sheet a page of its own, in order, in one PDF. */
+async function sheetsToPdf(sheets: string[], size: SheetSize): Promise<Blob> {
+  const { w, h } = SHEET_MM[size];
+  const pages: PdfImage[] = [];
+  for (const sheet of sheets) pages.push(await sheetToImage(sheet, size));
+  return assemblePdf(pages, (w / 25.4) * 72, (h / 25.4) * 72);
+}
+
+interface PdfImage {
+  data: Uint8Array;
+  filter: string;
+  pxW: number;
+  pxH: number;
+}
+
+async function sheetToImage(sheet: string, size: SheetSize): Promise<PdfImage> {
   const { w, h } = SHEET_MM[size];
   // Print resolution, within what a tablet lets one canvas hold.
   const budget = 11e6;
@@ -2195,14 +2250,14 @@ async function sheetToPdf(sheet: string, size: SheetSize): Promise<Blob> {
       data = new Uint8Array(await jpeg.arrayBuffer());
       filter = '/DCTDecode';
     }
-    return assemblePdf(data, filter, pxW, pxH, (w / 25.4) * 72, (h / 25.4) * 72);
+    return { data, filter, pxW, pxH };
   } finally {
     URL.revokeObjectURL(url);
   }
 }
 
-/** One page, one image filling it: the smallest PDF there is. */
-function assemblePdf(image: Uint8Array, filter: string, pxW: number, pxH: number, wPt: number, hPt: number): Blob {
+/** A page for each image, the image filling it: the smallest PDF there is. */
+function assemblePdf(pages: PdfImage[], wPt: number, hPt: number): Blob {
   const enc = new TextEncoder();
   const chunks: Uint8Array[] = [];
   const offsets: number[] = [];
@@ -2223,23 +2278,29 @@ function assemblePdf(image: Uint8Array, filter: string, pxW: number, pxH: number
     put('endobj\n');
   };
   const content = enc.encode(`q ${wPt.toFixed(3)} 0 0 ${hPt.toFixed(3)} 0 0 cm /Im0 Do Q`);
+  // 1 catalog, 2 pages, then page, contents and image for each: 3 + 3k.
+  const kids = pages.map((_, k) => `${3 + k * 3} 0 R`).join(' ');
   put('%PDF-1.4\n%\u00e2\u00e3\u00cf\u00d3\n');
   object(1, '<< /Type /Catalog /Pages 2 0 R >>');
-  object(2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
-  object(
-    3,
-    `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${wPt.toFixed(3)} ${hPt.toFixed(3)}] /Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>`,
-  );
-  object(4, `<< /Length ${content.length} >>`, content);
-  object(
-    5,
-    `<< /Type /XObject /Subtype /Image /Width ${pxW} /Height ${pxH} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter ${filter} /Length ${image.length} >>`,
-    image,
-  );
+  object(2, `<< /Type /Pages /Kids [${kids}] /Count ${pages.length} >>`);
+  pages.forEach((page, k) => {
+    const n = 3 + k * 3;
+    object(
+      n,
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${wPt.toFixed(3)} ${hPt.toFixed(3)}] /Resources << /XObject << /Im0 ${n + 2} 0 R >> >> /Contents ${n + 1} 0 R >>`,
+    );
+    object(n + 1, `<< /Length ${content.length} >>`, content);
+    object(
+      n + 2,
+      `<< /Type /XObject /Subtype /Image /Width ${page.pxW} /Height ${page.pxH} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter ${page.filter} /Length ${page.data.length} >>`,
+      page.data,
+    );
+  });
+  const count = 3 + pages.length * 3;
   const xref = length;
-  put(`xref\n0 6\n0000000000 65535 f \n`);
-  for (let n = 1; n <= 5; n += 1) put(`${String(offsets[n]).padStart(10, '0')} 00000 n \n`);
-  put(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+  put(`xref\n0 ${count}\n0000000000 65535 f \n`);
+  for (let n = 1; n < count; n += 1) put(`${String(offsets[n]).padStart(10, '0')} 00000 n \n`);
+  put(`trailer\n<< /Size ${count} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
   return new Blob(chunks as BlobPart[], { type: 'application/pdf' });
 }
 

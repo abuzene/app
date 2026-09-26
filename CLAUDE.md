@@ -718,6 +718,18 @@ ships, and the decisions already taken, so they are not re-litigated.
   This is the way to a printout with the sheet's own 5 mm margins on iPad:
   its printer dialog always adds ~13 mm margins and a URL footer. It is the
   primary button on tablets; browser Print stays for desktop.
+  **A project's sheets in one PDF** (his ask, 2026-09-26: "print one sheet
+  of a project, or all its sheets in one PDF"): the print dialog's
+  **Sheets** select (`#sheet-pages`: `here` = on screen, another sheet's
+  id, `all`) lists the project's library sheets (`openPrintDialog({
+  project, all })`, `keepNow` first, the on-screen one as it is now); the
+  Projects tab's **PDF** button on each project (`[data-project-pdf]`,
+  `host.printProject`) opens it with `all` picked. Several sheets always
+  go as one PDF, a page each (`sheetsToPdf` → `assemblePdf(pages)`), from
+  PDF sheet or Print alike; named `<project>-all-sheets.pdf`, one other
+  sheet `<line>-sheet-k.pdf`. Stamp, notes and symbol-size rows
+  (`[data-here-only]`) show only for the sheet on screen; each other sheet
+  prints with its own.
 - The toolbar pads for the iPad status bar (`env(safe-area-inset-top)`).
 - **Only the drawing zooms** (his ask, 2026-09-26: "zoom in/out only the
   sheet, without moving the bars round it"): the viewport has

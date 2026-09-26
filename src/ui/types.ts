@@ -68,6 +68,8 @@ export interface Host {
    * as continuing on the new sheet, and the new sheet starts from it.
    */
   newSheetInProject(): void;
+  /** The print dialog for a project, all its sheets picked. */
+  printProject(name: string): void;
   /** Google Drive: whether the app is signed in, and what the last sync moved. */
   driveStatus(): DriveStatus;
   /** Keeps the OAuth client id and goes to Google's sign-in page. */
