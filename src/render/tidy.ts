@@ -136,6 +136,26 @@ function dimCapsules(a: Pt, b: Pt, n: Pt, off: number, along: number, text: stri
   return Math.abs(off) > s * 0.6 ? [line, figure, full, extFrom(a), extFrom(b)] : [line, figure, full];
 }
 
+/**
+ * A weld number's box: as tight round the number as it reads (his ask,
+ * 2026-09-26: "make the text's rectangle as small as it can be"). The
+ * width comes from the characters themselves, bold sans at one symbol:
+ * a dot or a space is narrow, a W wide.
+ */
+export function weldTagSize(text: string, s: number): { w: number; h: number } {
+  let em = 0;
+  for (const ch of text) {
+    if (/[0-9]/.test(ch)) em += 0.56;
+    else if (ch === '.' || ch === ' ' || ch === ',' || ch === 'I' || ch === '/') em += 0.3;
+    else if (ch === '-') em += 0.34;
+    else if (ch === 'W' || ch === 'M') em += 0.94;
+    else if (/[A-Z]/.test(ch)) em += 0.7;
+    else em += 0.58;
+  }
+  const h = s * 1.3;
+  return { w: Math.max(h * 1.25, em * s + s * 0.55), h };
+}
+
 /** How near its pipe a letter is drawn with no leader, in symbols. */
 export const LETTER_BESIDE = 2.2;
 
@@ -389,8 +409,8 @@ export function tidyLayout(specs: LayoutSpecs): TidyResult {
       id: `t:${tag.key}`,
       at: tag.at,
       n: tag.n,
-      w: Math.max(s * 2.2, tag.text.length * s * 0.64 + s * 0.9),
-      h: s * 1.55,
+      w: weldTagSize(tag.text, s).w,
+      h: weldTagSize(tag.text, s).h,
       reaches: [2.4, 3.1, 3.8, 4.6, 5.6, 6.8, 8.2, 10, 12].map((k) => k * s),
     });
   }

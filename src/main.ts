@@ -204,9 +204,11 @@ const host: Host = {
   removeFromLibrary(id) {
     const entry = loadLibrary().find((e) => e.id === id);
     if (!entry) return;
+    const drive = driveStatus();
+    const where = drive.clientId ? 'on this device and in the Google Drive folder' : 'on this device';
     void confirmDialog(
       'Remove this sheet',
-      `Sheet ${entry.drawing.meta.sheet || '1 of 1'} of ${entry.drawing.meta.project || 'the unnamed project'} will be forgotten on this device. A file you saved of it is untouched.`,
+      `Sheet ${entry.drawing.meta.sheet || '1 of 1'} of ${entry.drawing.meta.project || 'the unnamed project'} will be removed ${where}. A file you saved of it elsewhere is untouched.`,
       'Remove',
     ).then((ok) => {
       if (!ok) return;
@@ -214,6 +216,10 @@ const host: Host = {
       noteRemovedFromLibrary(id);
       if (id === state.drawing.id) state.drawing.id = uid('d');
       render();
+      // Its Drive copy goes now, not at some later sync (his ask,
+      // 2026-09-26: "remove should delete the project's file from Drive").
+      if (drive.connected) void runDriveSync();
+      else if (drive.clientId) host.notify('Removed here. Its Drive copy goes at the next sync — sign in to Google Drive to do it now.');
     });
   },
   newSheetInProject() {

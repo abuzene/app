@@ -81,9 +81,12 @@ ships, and the decisions already taken, so they are not re-litigated.
   hidden SVG (`measureContent`, the `.hits` groups removed) and fitting
   again (up to three passes), so bigger lettering never runs off the
   frame. The note reads "SCALE 1:R (FITTED TO SHEET)". Dimension figures
-  (`.dim-text` 1.15 × symbol) and weld numbers (`.weld-no` 1.0 ×, bold,
-  in a box 1.55 × tall) are set large on his request; balloons stay at
-  0.72 ×.
+  (`.dim-text` 1.15 × symbol) and weld numbers (`.weld-no` 1.0 ×, bold)
+  are set large on his request; balloons stay at 0.72 ×. The weld
+  number's box is **as tight as it reads** (`weldTagSize` in tidy.ts,
+  used by the renderer and Tidy alike: width from the characters, a dot
+  or space narrow, W wide, plus 0.55 symbol; 1.3 tall; his ask,
+  2026-09-26: "the rectangle as small as it can be").
 - Fitting reach is fixed (`FITTING_REACH`); weld marks sit on the symbol's
   end and are part of it — no line between dot and symbol.
 - A flange **breaks the line** (`node.flange`, flanged joint). Continuing
@@ -829,7 +832,10 @@ can land on a weld tag or on a handle a redraw replaced.
   googleapis.com) and a stub for accounts.google.com. **Save** goes to
   Drive once a client ID is set (connected: sync + "Saved to Google
   Drive."; expired: the sign-in page); a `.iso.json` download only where
-  Drive is not set up. He set his own Google Cloud project up on
+  Drive is not set up. **Remove** in the Projects list (confirm says "on
+  this device and in the Google Drive folder") runs a sync at once when
+  connected, so the tombstone deletes the Drive file then and there (his
+  ask, 2026-09-26); not connected, it goes at the next sync. He set his own Google Cloud project up on
   2026-09-22 and is signed in on the PC.
 
 ## Ideas not yet done

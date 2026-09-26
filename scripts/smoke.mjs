@@ -2131,11 +2131,12 @@ check('and the sheet on screen took the newer copy', await page.inputValue('[dat
 await page.click('#tabs button:has-text("Projects")');
 await page.click('[data-remove-sheet="dother"]');
 await page.waitForTimeout(200);
+check('removing says it goes from Drive too', await page.locator('.dialog-backdrop').innerText(), (v) => /Google Drive/.test(v), 'mentions Google Drive');
 await page.click('.dialog-backdrop [data-confirm]');
-await page.waitForTimeout(300);
-await page.click('[data-a="drive-sync"]');
-await page.waitForTimeout(1000);
-check('a sheet forgotten here goes out of Drive, and nothing comes back down', `${[...drive.files.values()].some((f) => f.appProperties?.isoId === 'dother')} ${(await page.locator('#hud').innerText()).match(/Drive:[^\n]*/)?.[0]}`, (v) => v === 'false Drive: 1 removed.', 'dother gone, "Drive: 1 removed."');
+// "Remove should delete the project's file from Drive" (2026-09-26): at
+// once, with no Sync pressed.
+await page.waitForTimeout(1200);
+check('a sheet removed here goes out of Drive at once, and nothing comes back down', `${[...drive.files.values()].some((f) => f.appProperties?.isoId === 'dother')} ${(await page.locator('#hud').innerText()).match(/Drive:[^\n]*/)?.[0]}`, (v) => v === 'false Drive: 1 removed.', 'dother gone, "Drive: 1 removed."');
 // Save, with Drive set up, saves there rather than to a file on this device.
 const uploadsBefore = drive.state.calls.filter((c) => /upload/.test(c)).length;
 await page.click('#tabs button:has-text("Title")');
@@ -4508,6 +4509,22 @@ for (const [w, h] of [[1366, 1024], [1180, 820]]) {
 }
 await page.setViewportSize({ width: 1500, height: 940 });
 await page.waitForTimeout(250);
+
+/* -------------------------------- a weld number's box as tight as it reads */
+
+// "Make the text's rectangle as small as it can be" (2026-09-26): the box
+// hugs the number, a few points of padding either side.
+{
+  await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 1000\nN 1000');
+  const tagFit = await page.evaluate(() => {
+    const g = document.querySelector('#canvas .weld-box').parentElement;
+    const box = g.querySelector('.weld-box').getBoundingClientRect();
+    const text = g.querySelector('.weld-no').getBoundingClientRect();
+    return { spare: (box.width - text.width) / text.height, fits: box.width >= text.width && box.height >= text.height * 0.9 };
+  });
+  check('the weld number fits its box', tagFit.fits, (v) => v === true, 'true');
+  check('with little to spare either side', Math.round(tagFit.spare * 100) / 100, (v) => v < 1.0, 'under one letter height in all');
+}
 
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 

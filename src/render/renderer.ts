@@ -3,7 +3,7 @@ import type { Axis, DimOverride, Drawing, FlangeKind, Run, Vec3 } from '../model
 import { COMPONENT_LABEL, SYMBOL_MM, TERMINAL_LABEL, chainStops, dimensionStops, drawnShare, trueAtShare, fittingLabel, runGroupIds, isMark, isReducer, isSupport, isValve, itemAtEnd, oletEntries, oletLegs, resolveEnds, valveOpenSide } from '../model/drawing';
 import { componentTakeout, sizeLabel, valveFlangeKind } from '../model/pipe-data';
 import { AXIS_VECTOR, axisBetween, axisScreenDir, equals3, northArrowDir, project, scale3, add, sub } from '../model/iso';
-import { LETTER_BESIDE, type LayoutSpecs } from './tidy';
+import { LETTER_BESIDE, weldTagSize, type LayoutSpecs } from './tidy';
 import { componentSymbol, counterFlange, flangeHub, flangeSymbol, frameFor, gasketLine, groundSymbol, isFlange, jointMark, oletSymbol, supportCallout, supportSymbol, terminalSymbol, transitionSymbol, type Facing, type Frame } from './symbols';
 
 export interface ViewBox {
@@ -960,8 +960,7 @@ export function renderDrawing(state: RenderState): string {
     // The number sits in a rounded box on a leader to its weld — the weld's
     // own kind of balloon, told from an item balloon by its shape.
     // Big enough to read on the sheet: the number is the size of a fitting.
-    const boxW = Math.max(size * 2.2, label.text.length * size * 0.64 + size * 0.9);
-    const boxH = size * 1.55;
+    const { w: boxW, h: boxH } = weldTagSize(label.text, size);
     const ddx = label.x - label.fromX;
     const ddy = label.y - label.fromY;
     const stopAt = Math.max(Math.abs(ddx) / (boxW / 2), Math.abs(ddy) / (boxH / 2), 1e-6);
@@ -970,8 +969,8 @@ export function renderDrawing(state: RenderState): string {
     welds +=
       `<g class="weld${selectedWeld ? ' selected' : ''}">` +
       `<line class="weld-leader" x1="${label.fromX.toFixed(2)}" y1="${label.fromY.toFixed(2)}" x2="${ex.toFixed(2)}" y2="${ey.toFixed(2)}"/>` +
-      `<rect class="weld-box" x="${(label.x - boxW / 2).toFixed(2)}" y="${(label.y - boxH / 2).toFixed(2)}" width="${boxW.toFixed(2)}" height="${boxH.toFixed(2)}" rx="${(size * 0.3).toFixed(2)}"/>` +
-      `<text class="weld-no" x="${label.x.toFixed(2)}" y="${(label.y + size * 0.36).toFixed(2)}" text-anchor="middle">${escapeText(label.text)}</text></g>`;
+      `<rect class="weld-box" x="${(label.x - boxW / 2).toFixed(2)}" y="${(label.y - boxH / 2).toFixed(2)}" width="${boxW.toFixed(2)}" height="${boxH.toFixed(2)}" rx="${(size * 0.25).toFixed(2)}"/>` +
+      `<text class="weld-no" x="${label.x.toFixed(2)}" y="${(label.y + size * 0.35).toFixed(2)}" text-anchor="middle">${escapeText(label.text)}</text></g>`;
 
     // The tag itself is a touch target too: it is what is read, so it is what gets tapped.
     // The target is the box itself, so a small box on a small drawing does not
