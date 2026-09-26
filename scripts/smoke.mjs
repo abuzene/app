@@ -4420,6 +4420,67 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   await page.waitForTimeout(200);
 }
 
+/* --------------------------------- moving the "CONT. FROM SH.1" text */
+
+// "I want to move the text of sheet 1 and cannot; and put it in Tidy too,
+// clear of the lines" (2026-09-26).
+{
+  await startNewDrawing();
+  await page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem('iso-draw.drawing.v1'));
+    d.nodes = [
+      { id: 'ca', pos: { e: 0, n: 0, u: 0 }, terminal: { kind: 'CONTINUATION', note: 'CONT. FROM SH.1' } },
+      { id: 'cb', pos: { e: -200, n: 0, u: 0 } },
+      { id: 'cc', pos: { e: -200, n: 0, u: -1500 } },
+      { id: 'cd', pos: { e: -3000, n: 0, u: -1500 } },
+    ];
+    d.runs = [
+      { id: 'c1', from: 'ca', to: 'cb', dn: 'DN100', schedule: 'SCH40', inline: [] },
+      { id: 'c2', from: 'cb', to: 'cc', dn: 'DN100', schedule: 'SCH40', inline: [] },
+      { id: 'c3', from: 'cc', to: 'cd', dn: 'DN100', schedule: 'SCH40', inline: [] },
+    ];
+    d.options.schematic = true;
+    localStorage.setItem('iso-draw.drawing.v1', JSON.stringify(d));
+  });
+  await page.reload();
+  await page.waitForTimeout(600);
+  await page.click('#fit');
+  await page.waitForTimeout(200);
+  const noteHit = await page.locator('#canvas circle.hit-dot[data-balloon="en:ca"]').boundingBox();
+  const nx = noteHit.x + noteHit.width / 2;
+  const ny = noteHit.y + noteHit.height / 2;
+  await pen('mousePressed', nx, ny);
+  for (let k = 1; k <= 8; k += 1) {
+    await pen('mouseMoved', nx - k * 6, ny - k * 6);
+    await page.waitForTimeout(20);
+  }
+  await pen('mouseReleased', nx - 48, ny - 48);
+  await page.waitForTimeout(300);
+  const movedNote = (await drawingNow()).itemOverrides?.['en:ca'];
+  check('the line-end note is dragged where it is put', !!movedNote, (v) => v === true, 'true');
+  await page.click('#tidy');
+  await page.waitForTimeout(400);
+  const noteClear = await page.evaluate(() => {
+    const r = document.querySelector('#canvas text.note').getBoundingClientRect();
+    let lines = 0;
+    for (const l of document.querySelectorAll('#canvas line.pipe')) {
+      lines += 1;
+      const m = l.getScreenCTM();
+      const p = (x, y) => ({ x: m.a * x + m.c * y + m.e, y: m.b * x + m.d * y + m.f });
+      const p1 = p(+l.getAttribute('x1'), +l.getAttribute('y1'));
+      const p2 = p(+l.getAttribute('x2'), +l.getAttribute('y2'));
+      for (let k = 0; k <= 50; k += 1) {
+        const x = p1.x + ((p2.x - p1.x) * k) / 50;
+        const y = p1.y + ((p2.y - p1.y) * k) / 50;
+        if (x > r.left && x < r.right && y > r.top && y < r.bottom) return 'on the pipe';
+      }
+    }
+    if (lines === 0) return 'no pipe drawn';
+    return 'clear';
+  });
+  check('Tidy sets the line-end note clear of the pipe', noteClear, (v) => v === 'clear', 'clear');
+}
+
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 
 await browser.close();

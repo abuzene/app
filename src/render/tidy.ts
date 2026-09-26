@@ -28,6 +28,8 @@ export interface LayoutSpecs {
   /** `feet`: the pipe a pipe's balloon leads to, from its nearest point. */
   balloons: { key: string; line: string; at: Pt; n: Pt; feet?: [Pt, Pt][] }[];
   letters: { key: string; at: Pt; n: Pt; text: string; dflt: Pt; feet?: [Pt, Pt][] }[];
+  /** Notes at a line's end ("CONT. FROM SH.1"): moved like a label, `dflt` where they sit anyway. */
+  notes: { key: string; at: Pt; n: Pt; w: number; h: number; dflt: Pt }[];
 }
 
 export interface TidyResult {
@@ -35,6 +37,8 @@ export interface TidyResult {
   tags: Record<string, { dx: number; dy: number }>;
   balloons: Record<string, { dx: number; dy: number; line: string }>;
   letters: Record<string, { dx: number; dy: number }>;
+  /** Moved line-end notes; one left out sits where it does anyway. */
+  notes: Record<string, { dx: number; dy: number }>;
 }
 
 interface Capsule {
@@ -164,7 +168,7 @@ export function tidyLayout(specs: LayoutSpecs): TidyResult {
     ...specs.texts.map(({ p, w, h }) => ({ ...boxCapsule(p, w, h), kind: 'text' as const })),
   ];
   const placed: Capsule[] = [];
-  const result: TidyResult = { dims: {}, tags: {}, balloons: {}, letters: {} };
+  const result: TidyResult = { dims: {}, tags: {}, balloons: {}, letters: {}, notes: {} };
   const forDims = (cs: Capsule[]) => cs.filter((c) => !c.labelsOnly);
   const clash = (cs: Capsule[]) => forDims(cs).reduce((n, c) => n + hits(c, fixed, gap) + hits(c, forDims(placed), gap), 0);
 
@@ -407,6 +411,9 @@ export function tidyLayout(specs: LayoutSpecs): TidyResult {
       along: besideAlong(letter.feet ?? [], letter.dflt, Math.max(s * 1.7, letter.text.length * s * 0.8 + s * 0.7), s * 1.5, s * 0.6),
     });
   }
+  for (const note of specs.notes) {
+    labels.push({ id: `e:${note.key}`, at: note.at, n: note.n, w: note.w, h: note.h, reaches: [2.4, 3.2, 4.2, 5.4, 7.0, 9.0].map((k) => k * s), home: note.dflt });
+  }
   const where = new Map<string, Pt>();
   // Weld tags first, round their welds; then balloons; letters last, as
   // they slide along their pipe into whatever room is left.
@@ -428,6 +435,11 @@ export function tidyLayout(specs: LayoutSpecs): TidyResult {
   for (const balloon of specs.balloons) {
     const p = where.get(`b:${balloon.key}`)!;
     result.balloons[balloon.key] = { dx: p.x - balloon.at.x, dy: p.y - balloon.at.y, line: balloon.line };
+  }
+  for (const note of specs.notes) {
+    const p = where.get(`e:${note.key}`)!;
+    if (Math.hypot(p.x - note.dflt.x, p.y - note.dflt.y) < 1e-6) continue;
+    result.notes[note.key] = { dx: p.x - note.at.x, dy: p.y - note.at.y };
   }
   for (const letter of specs.letters) {
     const p = where.get(`l:${letter.key}`)!;

@@ -746,6 +746,7 @@ export function renderDrawing(state: RenderState): string {
 
   // Nodes: fitting corners, terminals and labels.
   let nodes = '';
+  let noteHits = '';
   for (const node of drawing.nodes) {
     const p = paper(node.id);
     if (!p) continue;
@@ -784,12 +785,26 @@ export function renderDrawing(state: RenderState): string {
         const f = frameFor(q.x, q.y, p.x, p.y, 1, size, endPlane?.across, endPlane?.up);
         nodes += terminalSymbol(node.terminal.kind, f, analysis.nodeJoint.get(node.id) ?? node.joint ?? drawing.options.joint ?? 'BW');
         if (node.terminal.note) {
+          // Off the end, and dragged wherever it reads best, with a leader
+          // back to the end once moved (his ask, 2026-09-26: "I want to
+          // move the text of sheet 1 and cannot"); Tidy places it too.
+          const noteW = node.terminal.note.length * size * 0.5 + size * 0.4;
+          const noteH = size * 1.1;
           const tx = p.x + f.dx * size * 2.4;
           const ty = p.y + f.dy * size * 2.4;
-          nodes += `<text class="note" x="${tx.toFixed(2)}" y="${ty.toFixed(2)}">${escapeText(node.terminal.note)}</text>`;
-          // For Tidy, a box to keep off (a pipe letter once sat on "CONT. FROM SH.1").
-          const noteW = node.terminal.note.length * size * 0.5;
-          collect?.texts.push({ p: { x: tx + noteW / 2, y: ty - size * 0.35 }, w: noteW + size * 0.4, h: size * 1.1 });
+          const home = { x: tx + noteW / 2 - size * 0.2, y: ty - size * 0.35 };
+          const moved = drawing.itemOverrides?.[`en:${node.id}`];
+          const cx = moved ? p.x + moved.dx : home.x;
+          const cy = moved ? p.y + moved.dy : home.y;
+          if (moved) {
+            const ddx = p.x - cx;
+            const ddy = p.y - cy;
+            const reach = Math.min(Math.abs(ddx) > 1e-6 ? noteW / 2 / Math.abs(ddx) : Infinity, Math.abs(ddy) > 1e-6 ? noteH / 2 / Math.abs(ddy) : Infinity);
+            if (reach < 1) nodes += `<line class="balloon-leader" x1="${p.x.toFixed(2)}" y1="${p.y.toFixed(2)}" x2="${(cx + ddx * reach).toFixed(2)}" y2="${(cy + ddy * reach).toFixed(2)}"/>`;
+          }
+          nodes += `<text class="note" x="${cx.toFixed(2)}" y="${cy.toFixed(2)}" text-anchor="middle" dominant-baseline="middle">${escapeText(node.terminal.note)}</text>`;
+          collect?.notes.push({ key: `en:${node.id}`, at: { x: p.x, y: p.y }, n: { x: f.dx, y: f.dy }, w: noteW, h: noteH, dflt: home });
+          noteHits += `<circle class="hit-dot" data-balloon="en:${node.id}" data-ax="${p.x.toFixed(2)}" data-ay="${p.y.toFixed(2)}" cx="${cx.toFixed(2)}" cy="${cy.toFixed(2)}" r="${Math.max(noteH, hitR * 0.5).toFixed(2)}"/>`;
         }
       }
     }
@@ -871,7 +886,7 @@ export function renderDrawing(state: RenderState): string {
     teeHits += `<circle class="hit-dot" data-balloon="tn:${nodeId}" data-ax="${at.x.toFixed(2)}" data-ay="${at.y.toFixed(2)}" cx="${cx.toFixed(2)}" cy="${cy.toFixed(2)}" r="${Math.max(hh * 1.6, hitR * 0.5).toFixed(2)}"/>`;
   }
 
-  let weldHits = calloutHits + teeHits;
+  let weldHits = calloutHits + teeHits + noteHits;
   const jointPoints = new Map<string, Pt>();
   const weldLabels: { x: number; y: number; text: string; fromX: number; fromY: number; key: string; placed: boolean }[] = [];
 

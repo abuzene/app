@@ -148,8 +148,11 @@ ships, and the decisions already taken, so they are not re-litigated.
   symbols off the pipe so the **pipe letter** fits between, and a letter
   may sit anywhere along its pipe, close beside it with no leader
   (`besideAlong`; the renderer draws no leader within `LETTER_BESIDE`).
-  Line-end notes ("CONT. FROM SH.1") and a reducing tee's note are fixed
-  texts for it; the tee's note is set along the header off the tee, clear
+  **Line-end notes** ("CONT. FROM SH.1", `node.terminal.note`) are
+  dragged with the pen like a balloon (`itemOverrides['en:<node>']`, the
+  text centred there, a leader back to the end once moved; his ask,
+  2026-09-26) and placed by Tidy as a label (`LayoutSpecs.notes`, left at
+  home when that is clear). A reducing tee's note is a fixed text for it; the tee's note is set along the header off the tee, clear
   of the extension lines that leave the tee.
   A tag or balloon dragged over a figure sits above its target and once
   made the figure untappable ("the 468 won't let me edit it",

@@ -1691,7 +1691,7 @@ $('tidy').addEventListener('click', () => tidyDrawing());
 function tidyDrawing(): void {
   if (state.drawing.runs.length === 0) return;
   const size = Math.max(symbolSizeFor(state.drawing, state.analysis), sheetSymbolSize(state.drawing, state.analysis));
-  const specs: LayoutSpecs = { size, centroid: { x: 0, y: 0 }, pipes: [], points: [], texts: [], dims: [], tags: [], balloons: [], letters: [] };
+  const specs: LayoutSpecs = { size, centroid: { x: 0, y: 0 }, pipes: [], points: [], texts: [], dims: [], tags: [], balloons: [], letters: [], notes: [] };
   renderDrawing({ drawing: state.drawing, analysis: state.analysis, view: { x: 0, y: 0, w: 1, h: 1 }, selection: null, symbol: size, collect: specs });
   const result = tidyLayout(specs);
   host.edit('Tidy', (d) => {
@@ -1710,6 +1710,12 @@ function tidyDrawing(): void {
       const moved = result.letters[letter.key];
       if (moved) items[letter.key] = moved;
       else delete items[letter.key];
+    }
+    // Line-end notes: moved, or back where they sit anyway.
+    for (const note of specs.notes) {
+      const moved = result.notes[note.key];
+      if (moved) items[note.key] = moved;
+      else delete items[note.key];
     }
     d.itemOverrides = items;
     d.balloons = balloons;
