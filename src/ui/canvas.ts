@@ -656,7 +656,9 @@ export class Canvas {
       const box = figure.getBoundingClientRect();
       const near = Math.min(16, Math.max(6, box.width / 2));
       const distance = Math.hypot(box.left + box.width / 2 - clientX, box.top + box.height / 2 - clientY);
-      if (distance <= near && distance < ownDistance) return figure;
+      // Level with the tag's own (a tag dropped right on the figure), the
+      // buried figure wins: that is what could not be reached otherwise.
+      if (distance <= near && distance < ownDistance + 2) return figure;
       return null;
     }
     return null;

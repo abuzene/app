@@ -39,14 +39,20 @@ body {
   align-items: center;
   gap: 13px;
   /* Installed on a tablet the page runs under the status bar; the bar keeps clear of it. */
-  padding: env(safe-area-inset-top, 0px) 14px 0;
-  height: calc(52px + env(safe-area-inset-top, 0px));
+  /* Wraps to a second row rather than scrolling sideways: on a tablet
+     Print sat off the edge and the bar had to be dragged to reach it. */
+  flex-wrap: wrap;
+  row-gap: 7px;
+  padding: calc(env(safe-area-inset-top, 0px) + 8px) 14px 8px;
+  min-height: calc(52px + env(safe-area-inset-top, 0px));
   flex: 0 0 auto;
   background: var(--chrome);
   color: #e7ecf4;
   border-bottom: 1px solid #0d1219;
-  overflow-x: auto;
-  scrollbar-width: none;
+}
+.row-break { display: none; flex-basis: 100%; height: 0; }
+@media (max-width: 1500px) {
+  .row-break { display: block; }
 }
 .toolbar::-webkit-scrollbar { display: none; }
 
@@ -115,6 +121,24 @@ main { flex: 1 1 auto; display: flex; min-height: 0; }
 .compass-overlay { top: 12px; left: 12px; cursor: pointer; pointer-events: auto; }
 .view-menu .menu select { font: inherit; font-size: 12px; padding: 2px 4px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); }
 .compass-overlay svg { display: block; }
+/* Which way north points: a tap on the compass opens a choice of arrows. */
+.north-picker {
+  position: absolute; top: 76px; left: 12px; z-index: 8;
+  display: grid; grid-template-columns: repeat(4, 70px); gap: 6px;
+  padding: 10px; background: #fff; border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.22);
+}
+.north-picker .north-title { grid-column: 1 / -1; font-size: 12px; font-weight: 600; color: var(--ink); margin-bottom: 2px; }
+.north-choice {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 4px 2px 6px; font: inherit; font-size: 11px; color: var(--ink);
+  background: #fff; border: 1px solid var(--line); border-radius: 8px; cursor: pointer;
+}
+.north-choice.on { border-color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+.north-choice svg { display: block; overflow: visible; margin: 6px; }
+.north-choice .compass-ring { fill: #fff; stroke: var(--muted); stroke-width: 1; }
+.north-choice .compass-needle { fill: var(--ink); }
+.north-choice text { font: 600 10px var(--font); fill: var(--ink); text-anchor: middle; }
 .compass-overlay .compass-ring { fill: rgba(255, 255, 255, 0.85); stroke: var(--muted); stroke-width: 1; }
 .compass-overlay .compass-needle { fill: var(--ink); }
 .compass-overlay text { font: 600 12px var(--font); fill: var(--ink); text-anchor: middle; }
@@ -370,7 +394,7 @@ tr.selected { background: var(--accent-soft); }
   .view-menu > .btn { display: inline-block; }
   .view-menu .menu {
     display: none;
-    position: fixed; top: 56px; right: 14px; z-index: 30;
+    position: absolute; top: calc(100% + 8px); right: 0; z-index: 30;
     flex-direction: column; gap: 10px;
     padding: 12px 14px;
     background: var(--chrome-2);
@@ -394,15 +418,11 @@ tr.selected { background: var(--accent-soft); }
   .tool { margin: 2px 0; }
   .brand-text { display: none; }
   .field span { display: none; }
+  /* A bare "67%" says nothing: this one keeps its name. */
+  .field.named span { display: inline; }
   .group { gap: 6px; }
   .btn { padding: 6px 9px; }
-  /* Narrower than this the toolbar scrolls sideways, so Print and its
-     neighbours are pinned to the right: the work buttons never scroll away. */
-  .group.right {
-    position: sticky; right: 0;
-    padding-left: 10px; margin-left: auto;
-    background: linear-gradient(to right, transparent, var(--chrome) 10px);
-  }
+  .group.right { margin-left: auto; }
 }
 
 @media (max-width: 760px) {

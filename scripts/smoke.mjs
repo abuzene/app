@@ -3046,14 +3046,26 @@ await page.waitForTimeout(150);
   const before = await nodesAt();
   const needle = () => page.locator('#compass .compass-needle').getAttribute('points');
   const needleBefore = await needle();
+  // "Choose it on the arrow itself, not in the toolbar" (2026-09-26): a
+  // tap on the compass opens a choice of arrows.
+  const chooseNorth = async (turn) => {
+    await page.click('#compass');
+    await page.waitForTimeout(200);
+    await page.click(`.north-picker [data-north="${turn}"]`);
+    await page.waitForTimeout(300);
+  };
   await page.click('#compass');
+  await page.waitForTimeout(200);
+  check('a tap on the compass opens a choice of eight arrows', await page.locator('.north-picker [data-north]').count(), (v) => v === 8, '8');
+  check('the one in use marked', await page.locator('.north-picker .north-choice.on').getAttribute('data-north'), (v) => v === '0', '0');
+  await page.click('.north-picker [data-north="45"]');
   await page.waitForTimeout(300);
-  check('a tap on the compass turns the north arrow 45°', await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).options.northArrow), (v) => v === 45, '45');
+  check('picking one turns the north arrow to it', await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).options.northArrow), (v) => v === 45, '45');
+  check('and the choice closes', await page.locator('.north-picker').count(), (v) => v === 0, '0');
   check('the arrow points another way', (await needle()) !== needleBefore, (v) => v === true, 'needle moved');
   check('and the drawing itself has not turned', JSON.stringify(await nodesAt()) === JSON.stringify(before), (v) => v === true, 'points unchanged');
-  check('the View menu shows it', await page.locator('#opt-north-arrow').inputValue(), (v) => v === '45', '45');
-  await page.selectOption('#opt-north-arrow', '0');
-  await page.waitForTimeout(300);
+  check('the toolbar no longer carries a north arrow select', await page.locator('#opt-north-arrow').count(), (v) => v === 0, '0');
+  await chooseNorth(0);
   check('and puts it back with the drawing', (await needle()) === needleBefore, (v) => v === true, 'needle back');
   await page.click('#print');
   await page.waitForTimeout(250);
@@ -3062,8 +3074,7 @@ await page.waitForTimeout(150);
   const sheetNeedle0 = (await page.locator('.sheet-preview').innerHTML()).match(/compass-needle" points="([^"]+)"/)?.[1];
   await page.click('[data-close]');
   await page.waitForTimeout(250);
-  await page.selectOption('#opt-north-arrow', '90');
-  await page.waitForTimeout(300);
+  await chooseNorth(90);
   await page.click('#print');
   await page.waitForTimeout(250);
   await page.click('[data-x="preview"]');
@@ -3072,8 +3083,7 @@ await page.waitForTimeout(150);
   check('the printed sheet turns its compass the same way', !!sheetNeedle0 && !!sheetNeedle90 && sheetNeedle0 !== sheetNeedle90, (v) => v === true, 'a different needle on the sheet');
   await page.click('[data-close]');
   await page.waitForTimeout(250);
-  await page.selectOption('#opt-north-arrow', '0');
-  await page.waitForTimeout(200);
+  await chooseNorth(0);
 }
 
 /* ----------------------------------------------- an olet taken off again */
@@ -4480,6 +4490,24 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   });
   check('Tidy sets the line-end note clear of the pipe', noteClear, (v) => v === 'clear', 'clear');
 }
+
+/* ------------------ a second toolbar row: nothing dragged into view */
+
+// "Take these to a second row of the top bar: I don't want to drag the
+// bar to reach what I need" (2026-09-26): at iPad widths the toolbar wraps,
+// never scrolls sideways, and Print is on screen.
+for (const [w, h] of [[1366, 1024], [1180, 820]]) {
+  await page.setViewportSize({ width: w, height: h });
+  await page.waitForTimeout(250);
+  const bar = await page.evaluate(() => {
+    const t = document.querySelector('.toolbar');
+    const p = document.querySelector('#print').getBoundingClientRect();
+    return `${t.scrollWidth <= t.clientWidth} ${p.right <= window.innerWidth && p.left >= 0}`;
+  });
+  check(`at ${w} px the toolbar fits without scrolling, Print in view`, bar, (v) => v === 'true true', 'true true');
+}
+await page.setViewportSize({ width: 1500, height: 940 });
+await page.waitForTimeout(250);
 
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 

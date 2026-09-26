@@ -712,9 +712,17 @@ ships, and the decisions already taken, so they are not re-litigated.
   sheet's equipment, undoing the first box did not remove it.
 - **North arrow on its own** (`options.northArrow`, degrees clockwise,
   `northArrowDir` in iso.ts used by the canvas compass and the sheet's):
-  a tap on the compass overlay turns the arrow 45°, the View menu has a
-  select (`#opt-north-arrow`, synced in `render`). Rotate still turns the
-  whole drawing (`northRotation`); he asked to keep both.
+  a tap on the compass overlay opens a **picker** of eight small compasses
+  drawn as each would point (`openNorthPicker` in main.ts, `.north-picker`,
+  `[data-north]`; the one in use marked; a touch elsewhere closes it; his
+  ask, 2026-09-26: "choose it on the arrow itself"). No select in the
+  toolbar any more. Rotate still turns the whole drawing
+  (`northRotation`); he asked to keep both.
+- **The toolbar wraps, never scrolls** (same day: "I don't want to drag the
+  bar to reach what I need"): `.toolbar` is `flex-wrap`, and up to 1500 px
+  a `.row-break` puts Symbols (`#opt-symbols`, a `.field.named` in its own
+  group, out of the View menu) and Wide/New/Open/Save/Print on a second
+  row. The folded View menu drops down under its button (absolute).
 
 ## How he actually draws (learned from his sheets)
 

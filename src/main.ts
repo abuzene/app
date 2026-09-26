@@ -1352,8 +1352,6 @@ function render(): void {
   renderPanel(tabBodyEl, host);
   renderTools(toolsEl, host);
   compassEl.innerHTML = northArrow(state.drawing);
-  const northSelect = document.getElementById('opt-north-arrow') as HTMLSelectElement | null;
-  if (northSelect) northSelect.value = String(state.drawing.options.northArrow ?? 0);
   syncSymbolSelect();
   emptyHintEl.classList.toggle('hidden', state.drawing.runs.length > 0 || canvas.drawingFrom !== null);
   renderHud();
@@ -1728,16 +1726,47 @@ $('rotate').addEventListener('click', () => {
   });
   fitView();
 });
-// The north arrow turns on its own, a tap at a time or from the View menu,
-// for a sheet whose north lies off the isometric axes; Rotate still turns
-// the whole drawing.
+// The north arrow turns on its own, for a sheet whose north lies off the
+// isometric axes; Rotate still turns the whole drawing. A tap on the
+// compass opens a choice of arrows, each drawn as it would point (his ask,
+// 2026-09-26: "choose it on the arrow itself, not in the toolbar").
 const turnNorthArrow = (turn: number) => {
   updateOptions((o) => {
     o.northArrow = ((turn % 360) + 360) % 360 || undefined;
   });
-  const select = document.getElementById('opt-north-arrow') as HTMLSelectElement | null;
-  if (select) select.value = String(state.drawing.options.northArrow ?? 0);
 };
+let northPicker: HTMLElement | null = null;
+function closeNorthPicker(): void {
+  northPicker?.remove();
+  northPicker = null;
+}
+function openNorthPicker(): void {
+  closeNorthPicker();
+  const current = state.drawing.options.northArrow ?? 0;
+  const picker = document.createElement('div');
+  picker.className = 'north-picker';
+  picker.innerHTML =
+    '<div class="north-title">Which way north points</div>' +
+    [0, 45, 90, 135, 180, 225, 270, 315]
+      .map((turn) => {
+        const look = { ...state.drawing, options: { ...state.drawing.options, northArrow: turn } };
+        return `<button type="button" class="north-choice${turn === current ? ' on' : ''}" data-north="${turn}">${northArrow(look, 46)}<span>${turn === 0 ? 'With drawing' : `${turn}°`}</span></button>`;
+      })
+      .join('');
+  picker.addEventListener('pointerdown', (event) => event.stopPropagation());
+  picker.addEventListener('click', (event) => {
+    const choice = (event.target as HTMLElement).closest<HTMLElement>('[data-north]');
+    if (!choice) return;
+    turnNorthArrow(Number(choice.dataset.north));
+    closeNorthPicker();
+  });
+  compassEl.parentElement?.appendChild(picker);
+  northPicker = picker;
+}
+// Anywhere else touched, the choice goes away.
+document.addEventListener('pointerdown', (event) => {
+  if (northPicker && !(event.target instanceof Element && (event.target.closest('.north-picker') || event.target.closest('#compass')))) closeNorthPicker();
+});
 // Symbols against the pipe: the drawing's sheetScale (1:15 is 100%), the
 // same the print dialog sets. A bigger share makes the pipe read shorter
 // against its fittings, on screen and on the sheet alike.
@@ -1759,8 +1788,7 @@ document.getElementById('opt-symbols')?.addEventListener('change', (event) => {
     d.options.sheetScale = value;
   });
 });
-compassEl.addEventListener('click', () => turnNorthArrow((state.drawing.options.northArrow ?? 0) + 45));
-document.getElementById('opt-north-arrow')?.addEventListener('change', (event) => turnNorthArrow(Number((event.target as HTMLSelectElement).value)));
+compassEl.addEventListener('click', () => (northPicker ? closeNorthPicker() : openNorthPicker()));
 
 for (const [id, key] of [
   ['opt-dims', 'showDimensions'],
