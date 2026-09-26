@@ -110,6 +110,9 @@ export interface Terminal {
   tag?: string;
   /** Free text such as 'TO V-101 NOZZLE N3' or a continuation sheet reference. */
   note?: string;
+  /** A line coming in from the sheet before: the size and schedule it left that sheet at. */
+  dn?: string;
+  schedule?: string;
 }
 
 export interface IsoNode {

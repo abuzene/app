@@ -1805,7 +1805,7 @@ await page.click('[data-a="new-sheet"]');
 await page.waitForTimeout(1200);
 check('a new sheet in the project is numbered on', await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).meta.sheet), (v) => v === '2 of 2', '2 of 2');
 check('and the first sheet is renumbered with it', await libraryNow(), (v) => v.includes('Alpha Job|1 of 2|2'), 'Alpha Job|1 of 2|2 kept');
-check('the new sheet starts where the line comes in', await page.evaluate(() => JSON.stringify(JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).nodes[0]?.terminal)), (v) => v === '{"kind":"CONTINUATION","note":"CONT. FROM SH.1"}', 'CONT. FROM SH.1');
+check('the new sheet starts where the line comes in', await page.evaluate(() => { const t = JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).nodes[0]?.terminal; return `${t?.kind} ${t?.note}`; }), (v) => v === 'CONTINUATION CONT. FROM SH.1', 'CONTINUATION CONT. FROM SH.1');
 const contOrigin = await page.evaluate(() => { const r = document.querySelector('#canvas circle.hit-dot[data-node]').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
 await penTap(contOrigin.x + 200, contOrigin.y + 115);
 check('and the pencil draws on from it', await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).runs.length), (v) => v === 1, '1');
@@ -4232,6 +4232,66 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   await penTap(cx + 160, cy);
   const drawn = await drawingNow();
   check('a touch then draws on from that point: one pipe, no second start', `${drawn.nodes.length} ${drawn.runs.length} ${drawn.meta.project}`, (v) => v === '2 1 START TEST', '2 1 START TEST');
+  await page.keyboard.press('Escape');
+  await page.click('#tabs button:has-text("Route")');
+  await page.waitForTimeout(150);
+}
+
+/* ------------- an elbow does not change the size; the next sheet goes on */
+
+// "An elbow does not change the size: both sides the same, change one and
+// the other follows. And the next sheet keeps the size the line left the
+// sheet before at" (2026-09-26).
+{
+  await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 1000\nMARK t\nN 1000\nE 800\nGOTO t\nE 900');
+  const before = await drawingNow();
+  const first = before.runs[0].id;
+  const hit = page.locator(`#canvas line.hit[data-run="${first}"]`).first();
+  await hit.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await hit.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await page.waitForTimeout(300);
+  await page.selectOption('#tab-body [data-f="dn"]', 'DN100');
+  await page.waitForTimeout(300);
+  const after = await drawingNow();
+  const sizes = after.runs.map((r) => r.dn).join(' ');
+  check('a size changed on one side of the tee: that pipe only (a branch has its own)', sizes, (v) => v === 'DN100 DN80 DN80 DN80', 'DN100 DN80 DN80 DN80');
+  const second = after.runs[1].id;
+  const hit2 = page.locator(`#canvas line.hit[data-run="${second}"]`).first();
+  await hit2.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await hit2.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await page.waitForTimeout(300);
+  await page.selectOption('#tab-body [data-f="dn"]', 'DN50');
+  await page.waitForTimeout(300);
+  const bent = await drawingNow();
+  check('changed before an elbow, the pipe after it follows: an elbow is one size', bent.runs.map((r) => r.dn).join(' '), (v) => v === 'DN100 DN50 DN50 DN80', 'DN100 DN50 DN50 DN80');
+  await page.keyboard.press('Escape');
+
+  // The next sheet: picked on a 2" end, reopened (the toolbar back at 3"),
+  // the line drawn on is 2".
+  await routeLine('2"\nSTD\nORIGIN 0 0 0\nE 1000');
+  await page.click('#tabs button:has-text("Title")');
+  await page.fill('[data-meta="project"]', 'Size Job');
+  await page.locator('[data-meta="project"]').blur();
+  await page.waitForTimeout(300);
+  await page.click('#tabs button:has-text("Route")');
+  const two = await drawingNow();
+  const endId = two.runs[0].to;
+  const endDot = page.locator(`#canvas circle.hit-dot[data-node="${endId}"]`).first();
+  await endDot.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await endDot.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await page.waitForTimeout(200);
+  await page.click('#tabs button:has-text("Projects")');
+  await page.waitForTimeout(200);
+  await page.click('[data-a="new-sheet"]');
+  await page.waitForTimeout(800);
+  check('the next sheet starts at the size the line left the sheet before at', await page.locator('#dn').inputValue(), (v) => v === 'DN50', 'DN50');
+  await page.reload();
+  await page.waitForTimeout(600);
+  const box = await page.locator('#canvas').boundingBox();
+  await penTap(box.x + box.width * 0.3, box.y + box.height * 0.3);
+  await penTap(box.x + box.width * 0.3 + 160, box.y + box.height * 0.3);
+  const next = await drawingNow();
+  check('and still so when the app is reopened before drawing on', next.runs.map((r) => r.dn).join(' '), (v) => v === 'DN50', 'DN50');
   await page.keyboard.press('Escape');
   await page.click('#tabs button:has-text("Route")');
   await page.waitForTimeout(150);

@@ -1,7 +1,7 @@
 import type { Axis, ComponentKind, Drawing, EndType, Equipment, FlangeKind, InlineComponent, IsoNode, Measure, Run, TerminalKind, Vec3 } from './types';
 import { AXIS_VECTOR, add, axisBetween, direction, equals3, length3, scale3, step, sub } from './iso';
 import { chainStops, dimensionStops, drawnLength, fittingsTouchLength, reducerSides, isReducer, minDrawnLength, isMark, isValve, itemAtEnd, oletMarks, resolveEnds, runGroupIds, terminalTakeoutOf, uid, valveOpenSide, type Analysis } from './drawing';
-import { componentTakeout, fittingTakeout, sizeOf, valveFlangeKind } from './pipe-data';
+import { componentTakeout, fittingTakeout, schedulesFor, sizeOf, valveFlangeKind } from './pipe-data';
 
 /** Finds an existing node at a position, so that routes join rather than overlap. */
 export function findNodeAt(drawing: Drawing, pos: Vec3, tol = 0.5): string | null {
@@ -583,6 +583,39 @@ export function sortReducerSizes(drawing: Drawing): boolean {
     }
   }
   return changed;
+}
+
+/**
+ * Sets the size of a line: the runs given, and on along the line through
+ * every point that does not change the size — an elbow, a plain point, a
+ * flanged joint — up to a branch or a reducer, which have sizes of their
+ * own (his complaint, 2026-09-26: "an elbow does not change the size; both
+ * sides must be the same"). A run holding a reducer takes the size alone.
+ * Items on the runs that carried the old size take the new one.
+ */
+export function setLineSize(drawing: Drawing, runIds: string[], dn: string, schedule?: string): void {
+  const hasReducer = (run: Run) => run.inline.some((c) => isReducer(c.kind));
+  const seen = new Set<string>();
+  const queue: Run[] = drawing.runs.filter((r) => runIds.includes(r.id));
+  const spread = queue.every((r) => !hasReducer(r));
+  const degree = (id: string) => drawing.runs.filter((r) => r.from === id || r.to === id).length;
+  while (queue.length > 0) {
+    const run = queue.shift()!;
+    if (seen.has(run.id)) continue;
+    seen.add(run.id);
+    const old = run.dn;
+    run.dn = dn;
+    for (const comp of run.inline) if (!isReducer(comp.kind) && comp.dn === old) comp.dn = dn;
+    const schedules = schedulesFor(dn);
+    if (schedule && schedules.includes(schedule)) run.schedule = schedule;
+    else if (!schedules.includes(run.schedule)) run.schedule = schedules[0] ?? 'STD';
+    if (!spread) continue;
+    for (const end of [run.from, run.to]) {
+      if (degree(end) !== 2) continue;
+      const other = drawing.runs.find((r) => r.id !== run.id && (r.from === end || r.to === end));
+      if (other && !seen.has(other.id) && !hasReducer(other)) queue.push(other);
+    }
+  }
 }
 
 /** What a run made dashed says beside it unless typed over. */

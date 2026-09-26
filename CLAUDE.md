@@ -599,6 +599,17 @@ ships, and the decisions already taken, so they are not re-litigated.
   there is no pipe and no pencil, and a touch with no pipe yet calls
   `onStart`, which arms the lone point (the picked one, else the last)
   instead of adding another.
+- **An elbow is one size** (his complaint, 2026-09-26: "an elbow does not
+  change the size; change one side and the other follows"): the run
+  panel's Size and the toolbar size with a run picked go through
+  `setLineSize` in edit.ts: the run (its header group) and on along the
+  line through every degree-2 point (elbow, plain point, flanged joint),
+  up to a branch or a reducer's run; a run holding a reducer takes the
+  size alone; items that had the old size take the new. **The next sheet
+  goes on at the same size**: `newSheetInProject` sets the toolbar size
+  from the picked end's run and keeps it on the `CONT. FROM` point
+  (`terminal.dn`/`schedule`), which `syncSizeFromSelection` (also called
+  by `onStart`) reads, so it holds after the app is reopened.
 - **Right click while drawing** puts the pencil down (`onStopDrawing`
   from canvas.ts; the right button still pans when not drawing).
 - Supports and the AG/UG mark are **notes, not material**: no BOM line, no

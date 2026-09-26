@@ -5,7 +5,7 @@ import { COMMAND_HELP } from '../model/commands';
 import { DN_LIST, SIZE_LABELS, defaultValveEnds, schedulesFor, sizeLabel } from '../model/pipe-data';
 import { AXES, AXIS_VECTOR, axisBetween } from '../model/iso';
 import { projectsOf } from '../model/library';
-import { applyReducer, resetDrawnLength, deletePoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, runLength, setGroupLength, setLastFlange, deleteRunGroup, DASHED_NOTE, setRunDashed, setRunDirect, setRunLength, setTerminal, splitRun } from '../model/edit';
+import { applyReducer, resetDrawnLength, deletePoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, runLength, setGroupLength, setLastFlange, deleteRunGroup, DASHED_NOTE, setLineSize, setRunDashed, setRunDirect, setRunLength, setTerminal, splitRun } from '../model/edit';
 import { setDriveClientId } from '../model/drive';
 import { reducerPreview } from './reducer-preview';
 import { SHEET_STAMPS, sheetStamp } from '../render/sheet';
@@ -791,12 +791,8 @@ function wire(body: HTMLElement, host: Host): void {
     });
     field('dn')?.addEventListener('change', (e) => {
       const value = (e.target as HTMLSelectElement).value;
-      host.edit('Change size', (d) => {
-        for (const run of d.runs.filter((r) => group.includes(r.id))) {
-          run.dn = value;
-          if (!schedulesFor(value).includes(run.schedule)) run.schedule = schedulesFor(value)[0] ?? 'STD';
-        }
-      });
+      // On along the line through its elbows, up to a branch or a reducer.
+      host.edit('Change size', (d) => setLineSize(d, group, value));
     });
     field('schedule')?.addEventListener('change', (e) => {
       const value = (e.target as HTMLSelectElement).value;

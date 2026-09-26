@@ -9,7 +9,7 @@ import { loadLibrary, removeDrawing, renumberProject, sheetNumber, upsertDrawing
 import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, noteRemovedFromLibrary, setDriveClientId, syncDrive } from './model/drive';
 import { AXES, AXIS_VECTOR, add, length3, scale3, sub } from './model/iso';
 import { initialCommandState, runCommands } from './model/commands';
-import { addMeasure, applyMeasureToOlet, DASHED_NOTE, deleteRunGroup, measureTypeable, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, ensureNode, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, runLength, setRunDashed, setRunDirect, startFromEquipment, stretchRun, syncEquipment, uncoverPoints } from './model/edit';
+import { addMeasure, applyMeasureToOlet, DASHED_NOTE, deleteRunGroup, measureTypeable, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, ensureNode, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, runLength, setLineSize, setRunDashed, setRunDirect, startFromEquipment, stretchRun, syncEquipment, uncoverPoints } from './model/edit';
 import { DN_LIST, schedulesFor, sizeLabel, sizeOf } from './model/pipe-data';
 import { northArrow, paperOf, renderDrawing, symbolSizeFor } from './render/renderer';
 import { SHEET_STAMPS, renderSheet, sheetStamp, sheetSymbolSize, type SheetSize } from './render/sheet';
@@ -609,6 +609,7 @@ const canvas = new Canvas(svg, {
       state.commandState.currentNode = id;
     });
     if (started) canvas.setAnchor(started);
+    syncSizeFromSelection();
     fitView();
     host.notify('Point placed — now click where the pipe goes.');
   },
@@ -1479,9 +1480,15 @@ function syncSizeFromSelection(): void {
   if (sel?.kind === 'run') run = state.drawing.runs.find((r) => r.id === sel.id);
   else if (sel?.kind === 'node') run = state.drawing.runs.find((r) => r.from === sel.id || r.to === sel.id);
   else if (sel?.kind === 'component') run = state.drawing.runs.find((r) => r.inline.some((c) => c.id === sel.id));
+  // A sheet's start carried on from the sheet before: the size it left at.
+  const carried = sel?.kind === 'node' && !run ? state.drawing.nodes.find((n) => n.id === sel.id)?.terminal : undefined;
   if (run) {
     state.currentDn = run.dn;
     state.currentSchedule = run.schedule;
+    refreshSizeSelects();
+  } else if (carried?.dn) {
+    state.currentDn = carried.dn;
+    if (carried.schedule) state.currentSchedule = carried.schedule;
     refreshSizeSelects();
   }
   // The joint in the toolbar shows the picked point's own joint, since that
@@ -1521,12 +1528,7 @@ scheduleSelect.addEventListener('change', () => {
 function applyToSelectedRun(): void {
   const sel = state.selection;
   if (sel?.kind !== 'run') return;
-  host.edit('Change size', (d) => {
-    const run = d.runs.find((r) => r.id === sel.id);
-    if (!run) return;
-    run.dn = state.currentDn;
-    run.schedule = state.currentSchedule;
-  });
+  host.edit('Change size', (d) => setLineSize(d, runGroupIds(state.analysis, sel.id), state.currentDn, state.currentSchedule));
 }
 
 /**
@@ -2526,6 +2528,9 @@ function newSheetInProject(): void {
   const prevNo = sheetNumber(prev.meta.sheet);
   const picked = state.selection?.kind === 'node' ? state.selection.id : null;
   const pickedEnd = picked && state.analysis.nodeInfo.get(picked)?.degree === 1 ? picked : null;
+  // The line goes on at the size it leaves this sheet at (his complaint,
+  // 2026-09-26: the next sheet started at the toolbar's size instead).
+  const leaving = pickedEnd ? prev.runs.find((r) => r.from === pickedEnd || r.to === pickedEnd) : undefined;
 
   // This sheet first: kept, with the continuation marked on it.
   keepNow();
@@ -2558,8 +2563,17 @@ function newSheetInProject(): void {
   };
   // The point the line comes in at, marked as continuing from the sheet before.
   const startId = uid('n');
-  fresh.nodes.push({ id: startId, pos: { e: 0, n: 0, u: 0 }, terminal: { kind: 'CONTINUATION', note: `CONT. FROM SH.${prevNo}` } });
+  fresh.nodes.push({
+    id: startId,
+    pos: { e: 0, n: 0, u: 0 },
+    terminal: { kind: 'CONTINUATION', note: `CONT. FROM SH.${prevNo}`, ...(leaving ? { dn: leaving.dn, schedule: leaving.schedule } : {}) },
+  });
+  if (leaving) {
+    state.currentDn = leaving.dn;
+    state.currentSchedule = leaving.schedule;
+  }
   takeUp(fresh);
+  refreshSizeSelects();
   canvas.setAnchor(startId);
   state.selection = { kind: 'node', id: startId };
   state.commandState.currentNode = startId;
