@@ -313,6 +313,45 @@ export function addComponent(
 export const PIPE_STOCK = 6000;
 /** Small bore: 1 1/2" and under is joined by couplings, not welded pipe to pipe. */
 const SMALL_BORE_OD = 48.3 + 0.01;
+/** 2" pipe takes them too when asked for (his ask, 2026-09-26). */
+const COUPLING_ON_ASK_OD = 60.3 + 0.01;
+
+/** Whether a run gets a coupling every 6 m: 1 1/2" and under unless turned off, 2" when turned on. */
+export function wantsAutoCoupling(run: Run): boolean {
+  if (run.dashed || run.direct || run.noAutoCoupling) return false;
+  const od = sizeOf(run.dn).od;
+  return od <= SMALL_BORE_OD || (od <= COUPLING_ON_ASK_OD && run.autoCoupling === true);
+}
+
+/** Whether a run's panel offers the choice at all: pipe up to 2". */
+export function offersAutoCoupling(run: Run): boolean {
+  return !run.dashed && sizeOf(run.dn).od <= COUPLING_ON_ASK_OD;
+}
+
+/**
+ * Couplings every 6 m on or off for a line: the runs given and on along
+ * it through every elbow and plain point, up to a branch or a reducer.
+ */
+export function setAutoCoupling(drawing: Drawing, runIds: string[], on: boolean): void {
+  const degree = (id: string) => drawing.runs.filter((r) => r.from === id || r.to === id).length;
+  const hasReducer = (run: Run) => run.inline.some((c) => isReducer(c.kind));
+  const seen = new Set<string>();
+  const queue = drawing.runs.filter((r) => runIds.includes(r.id));
+  while (queue.length > 0) {
+    const run = queue.shift()!;
+    if (seen.has(run.id)) continue;
+    seen.add(run.id);
+    run.noAutoCoupling = on ? undefined : true;
+    run.autoCoupling = on && sizeOf(run.dn).od > SMALL_BORE_OD ? true : undefined;
+    if (!on) run.inline = run.inline.filter((c) => !c.auto);
+    if (hasReducer(run)) continue;
+    for (const end of [run.from, run.to]) {
+      if (degree(end) !== 2) continue;
+      const other = drawing.runs.find((r) => r.id !== run.id && (r.from === end || r.to === end));
+      if (other && !seen.has(other.id) && !hasReducer(other) && other.dn === run.dn) queue.push(other);
+    }
+  }
+}
 
 /**
  * Small-bore pipe (1 1/2" and under) longer than a 6 m length gets a
@@ -332,7 +371,7 @@ export function autoCouplings(drawing: Drawing): boolean {
   }
   const analysis = analyse(drawing);
   for (const run of drawing.runs) {
-    if (run.dashed || run.direct || run.noAutoCoupling || sizeOf(run.dn).od > SMALL_BORE_OD) continue;
+    if (!wantsAutoCoupling(run)) continue;
     const kind: ComponentKind = analysis.nodeJoint.get(run.from) === 'THD' ? 'COUPLING_THD' : 'COUPLING_SW';
     const half = componentTakeout(kind, run.dn);
     const ids = reuse.get(run.id) ?? [];

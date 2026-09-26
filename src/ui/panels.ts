@@ -2,10 +2,10 @@ import type { Axis, ComponentKind, EndType, Equipment, FittingKind, FlangeKind, 
 import type { Host, TabId } from './types';
 import { COMPONENT_LABEL, DEFAULT_LOGO, ROOT_GAP, TERMINAL_LABEL, fittingLabel, fmtMm, isCoupling, isMark, isReducer, isSupport, isValve, oletLabel, oletLegs, oletMarks, pipeNetAt, reducerName, resolveEnds, runGroupIds, valveOpenSide } from '../model/drawing';
 import { COMMAND_HELP } from '../model/commands';
-import { DN_LIST, SIZE_LABELS, defaultValveEnds, schedulesFor, sizeLabel, sizeOf } from '../model/pipe-data';
+import { DN_LIST, SIZE_LABELS, defaultValveEnds, schedulesFor, sizeLabel } from '../model/pipe-data';
 import { AXES, AXIS_VECTOR, axisBetween } from '../model/iso';
 import { projectsOf } from '../model/library';
-import { applyReducer, resetDrawnLength, deletePoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, runLength, setGroupLength, setLastFlange, deleteRunGroup, DASHED_NOTE, setLineSize, setRunDashed, setRunDirect, setRunLength, setTerminal, splitRun } from '../model/edit';
+import { applyReducer, offersAutoCoupling, resetDrawnLength, setAutoCoupling, wantsAutoCoupling, deletePoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, runLength, setGroupLength, setLastFlange, deleteRunGroup, DASHED_NOTE, setLineSize, setRunDashed, setRunDirect, setRunLength, setTerminal, splitRun } from '../model/edit';
 import { setDriveClientId } from '../model/drive';
 import { reducerPreview } from './reducer-preview';
 import { SHEET_STAMPS, sheetStamp } from '../render/sheet';
@@ -87,7 +87,7 @@ function runProperties(host: Host, runId: string): string {
   <div class="row"><label>Schedule</label><select data-f="schedule">${options(schedulesFor(run.dn), run.schedule)}</select></div>
   <div class="row"><label>Line</label><select data-f="dashed">${options(['solid', 'dashed'], run.dashed ? 'dashed' : 'solid', { solid: 'Solid — pipe on this sheet', dashed: 'Dashed — continued on the next sheet' })}</select></div>
   <div class="row"><label>Note</label><input type="text" data-f="note" value="${esc(run.note ?? '')}" placeholder="${run.dashed ? 'CONT. ON NEXT SHEET' : 'optional, drawn beside the pipe'}" /></div>
-  ${sizeOf(run.dn).od <= 48.31 && !run.dashed ? `<div class="row"><label>Couplings</label><select data-f="autocpl">${options(['auto', 'none'], run.noAutoCoupling ? 'none' : 'auto', { auto: 'One every 6 m of pipe', none: 'None put in by the app' })}</select></div>` : ''}
+  ${offersAutoCoupling(run) ? `<div class="row"><label>Couplings</label><select data-f="autocpl">${options(['auto', 'none'], wantsAutoCoupling(run) ? 'auto' : 'none', { auto: 'One every 6 m of pipe', none: 'None put in by the app' })}</select></div>` : ''}
   <div class="row"><label>Dimension</label><select data-f="nodim">${options(['show', 'hide'], run.noDim ? 'hide' : 'show')}</select></div>
   ${header ? '' : `<div class="row"><label>Pipe</label><select data-f="direct">${options(['pipe', 'touch'], run.direct ? 'touch' : 'pipe', { pipe: 'A pipe between the fittings', touch: 'None — fittings joined directly' })}</select></div>`}
   <p class="empty-note">Cut length after take-outs: <strong>${mm(cut)} mm</strong>${header ? '. The olets ride on it: place each by its own dimension from the header\'s start, or a hand dimension from the olet to any point on the header.' : ''}</p>
@@ -818,12 +818,7 @@ function wire(body: HTMLElement, host: Host): void {
     });
     field('autocpl')?.addEventListener('change', (e) => {
       const off = (e.target as HTMLSelectElement).value === 'none';
-      host.edit(off ? 'No couplings every 6 m' : 'Couplings every 6 m', (d) => {
-        for (const run of d.runs.filter((r) => group.includes(r.id))) {
-          run.noAutoCoupling = off || undefined;
-          if (off) run.inline = run.inline.filter((c) => !c.auto);
-        }
-      });
+      host.edit(off ? 'No couplings every 6 m' : 'Couplings every 6 m', (d) => setAutoCoupling(d, group, !off));
     });
     field('nodim')?.addEventListener('change', (e) => {
       const value = (e.target as HTMLSelectElement).value;

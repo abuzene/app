@@ -324,7 +324,12 @@ ships, and the decisions already taken, so they are not re-litigated.
   length cut 6000 to the coupling; NPT where the run's start point is
   threaded, else SW; not on dashed/direct runs. One moved or typed by hand
   loses `auto` (his); one deleted sets `run.noAutoCoupling`; the run
-  panel's Couplings select (small bore only) turns them on/off.
+  panel's Couplings select turns them on/off along the line
+  (`setAutoCoupling`, through elbows and plain points of the same size).
+  **2" pipe on request** (his ask, same day): the select is offered up to
+  2" (`offersAutoCoupling`), off by default there; on sets
+  `run.autoCoupling` (`wantsAutoCoupling`: under 2" unless turned off, 2"
+  only when turned on).
   Branch (tee, olets), Marks
   (Support, L50 support, AG/UG), Joints (a BW weld: `placeWeld` splits the
   run at a plain point, welded pipe to pipe, dimension opened). Two columns
