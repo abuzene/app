@@ -20,6 +20,15 @@ export interface Project {
 }
 
 const KEY = 'iso-draw.library.v1';
+/**
+ * Every sheet removed, for good: never kept again, never taken back from
+ * Drive, and handed to the other device through Drive (his complaint,
+ * 2026-09-26: "I delete this drawing and it keeps coming back").
+ */
+const KEY_REMOVED = 'iso-draw.library.removed';
+/** Where the removed sheets were noted before, for Drive only. */
+const KEY_REMOVED_OLD = 'iso-draw.drive.removed';
+const REMOVED_LIMIT = 2000;
 /** Enough for a long run of jobs; the oldest go when it is full. */
 const LIMIT = 80;
 
@@ -53,7 +62,7 @@ export function worthKeeping(drawing: Drawing): boolean {
  * can still be compared.
  */
 export function upsertDrawing(drawing: Drawing, savedAt?: number): void {
-  if (!drawing.id) return;
+  if (!drawing.id || isRemoved(drawing.id)) return;
   const all = loadLibrary();
   const json = JSON.stringify(drawing);
   const before = all.find((e) => e.id === drawing.id);
@@ -68,8 +77,40 @@ export function upsertDrawing(drawing: Drawing, savedAt?: number): void {
   saveLibrary(entries.slice(0, LIMIT));
 }
 
+/** Takes a sheet out of the library for good: it is not kept again. */
 export function removeDrawing(id: string): void {
+  markRemoved([id]);
   saveLibrary(loadLibrary().filter((e) => e.id !== id));
+}
+
+function readIds(key: string): string[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) ?? '[]') as unknown;
+    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+/** The ids of every sheet removed, here or on another device. */
+export function removedIds(): Set<string> {
+  return new Set([...readIds(KEY_REMOVED_OLD), ...readIds(KEY_REMOVED)]);
+}
+
+export function isRemoved(id: string): boolean {
+  return removedIds().has(id);
+}
+
+/** Notes sheets as removed for good (the newest kept when the list is full). */
+export function markRemoved(ids: Iterable<string>): void {
+  const all = [...readIds(KEY_REMOVED_OLD), ...readIds(KEY_REMOVED)];
+  for (const id of ids) if (id && !all.includes(id)) all.push(id);
+  try {
+    localStorage.setItem(KEY_REMOVED, JSON.stringify(all.slice(-REMOVED_LIMIT)));
+    localStorage.removeItem(KEY_REMOVED_OLD);
+  } catch {
+    // Storage unavailable: nothing to be done.
+  }
 }
 
 /** Rewrites the sheet count on every sheet of a project: "2 of 3". */

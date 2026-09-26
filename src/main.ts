@@ -5,8 +5,8 @@ import type { AppState, Host, OletAsk, OletChoice, ReducerAsk, ReducerChoice } f
 import { reducerPreview } from './ui/reducer-preview';
 import { tidyLayout, type LayoutSpecs } from './render/tidy';
 import { analyse, chainStops, dimensionStops, drawnLength, drawnStations, runDrawnFloor, trueAtShare, type DrawnStations, isMark, isReducer, itemAtEnd, itemHalf, runGroupIds, emptyDrawing, oletLegs, oletMarks, uid } from './model/drawing';
-import { loadLibrary, removeDrawing, renumberProject, sheetNumber, upsertDrawing, worthKeeping } from './model/library';
-import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, noteRemovedFromLibrary, setDriveClientId, syncDrive } from './model/drive';
+import { isRemoved, loadLibrary, removeDrawing, renumberProject, sheetNumber, upsertDrawing, worthKeeping } from './model/library';
+import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, setDriveClientId, syncDrive } from './model/drive';
 import { AXES, AXIS_VECTOR, add, length3, scale3, sub } from './model/iso';
 import { initialCommandState, runCommands } from './model/commands';
 import { addMeasure, applyMeasureToOlet, DASHED_NOTE, deleteRunGroup, measureTypeable, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, ensureNode, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, runLength, setLineSize, setRunDashed, setRunDirect, startFromEquipment, straightenBranches, stretchRun, syncEquipment, uncoverPoints } from './model/edit';
@@ -213,8 +213,9 @@ const host: Host = {
     ).then((ok) => {
       if (!ok) return;
       removeDrawing(id);
-      noteRemovedFromLibrary(id);
-      if (id === state.drawing.id) state.drawing.id = uid('d');
+      // The sheet on screen goes too: kept under a new id it came straight
+      // back into the list and Drive (his complaint, 2026-09-26).
+      if (id === state.drawing.id) clearRemovedSheet();
       render();
       // Its Drive copy goes now, not at some later sync (his ask,
       // 2026-09-26: "remove should delete the project's file from Drive").
@@ -2543,10 +2544,13 @@ async function runDriveSync(): Promise<void> {
       result.up ? `${result.up} up` : '',
       result.down ? `${result.down} down` : '',
       result.removed ? `${result.removed} removed` : '',
+      result.gone.length ? `${result.gone.length} removed on the other device` : '',
     ].filter(Boolean);
     host.notify(parts.length ? `Drive: ${parts.join(', ')}.` : 'Drive: everything was already the same.');
+    // The sheet on screen was removed on the other device: it goes here too.
+    if (state.drawing.id && result.gone.includes(state.drawing.id)) clearRemovedSheet();
     // The sheet on screen came back newer from Drive: show that one.
-    if (state.drawing.id && result.downloaded.includes(state.drawing.id)) {
+    else if (state.drawing.id && result.downloaded.includes(state.drawing.id)) {
       const entry = loadLibrary().find((e) => e.id === state.drawing.id);
       if (entry) {
         undoStack.push(snapshot());
@@ -2586,10 +2590,26 @@ function keepNow(): void {
   if (worthKeeping(state.drawing)) upsertDrawing(state.drawing);
 }
 
+/**
+ * The sheet on screen was removed: an empty one takes its place, the logo
+ * and pipe settings kept, so nothing on screen puts the sheet back.
+ */
+function clearRemovedSheet(): void {
+  if (keepTimer) clearTimeout(keepTimer);
+  keepTimer = null;
+  const kept = state.drawing;
+  const fresh = emptyDrawing();
+  fresh.id = uid('d');
+  undoStack.length = 0;
+  redoStack.length = 0;
+  takeUp({ ...fresh, options: { ...kept.options }, meta: { ...fresh.meta, logo: kept.meta.logo, drawnBy: kept.meta.drawnBy } });
+}
+
 /** Puts a drawing on screen in place of the one there. */
 function takeUp(drawing: Drawing): void {
   replaceDrawing({ ...emptyDrawing(), ...drawing });
-  if (!state.drawing.id) state.drawing.id = uid('d');
+  // A file of a removed sheet opened again is a new sheet, kept as such.
+  if (!state.drawing.id || isRemoved(state.drawing.id)) state.drawing.id = uid('d');
   state.selection = null;
   state.preview = null;
   hoverMessage = null;
@@ -2673,6 +2693,11 @@ function loadStored(): Drawing | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Drawing;
     if (!parsed || !Array.isArray(parsed.nodes) || !Array.isArray(parsed.runs)) return null;
+    // Removed (here, or on the other device): an empty sheet instead.
+    if (parsed.id && isRemoved(parsed.id)) {
+      const fresh = emptyDrawing();
+      return { ...fresh, options: { ...fresh.options, ...parsed.options }, meta: { ...fresh.meta, logo: parsed.meta?.logo, drawnBy: parsed.meta?.drawnBy } };
+    }
     return { ...emptyDrawing(), ...parsed };
   } catch {
     return null;

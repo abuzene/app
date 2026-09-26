@@ -1,5 +1,5 @@
 import type { Drawing } from './types';
-import { loadLibrary, upsertDrawing, type LibraryEntry } from './library';
+import { loadLibrary, markRemoved, removeDrawing, removedIds, upsertDrawing, type LibraryEntry } from './library';
 
 /**
  * Keeping the library in Google Drive, so the iPad and the office PC see
@@ -15,9 +15,10 @@ import { loadLibrary, upsertDrawing, type LibraryEntry } from './library';
 const KEY_CLIENT = 'iso-draw.drive.client';
 const KEY_TOKEN = 'iso-draw.drive.token';
 const KEY_STATE = 'iso-draw.drive.state';
-const KEY_REMOVED = 'iso-draw.drive.removed';
 const KEY_LAST = 'iso-draw.drive.last';
 const FOLDER = 'Isometric Piping';
+/** The file in the folder listing every sheet removed, on either device. */
+const REMOVED_FILE = 'Removed sheets (keep this file).json';
 const SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const API = 'https://www.googleapis.com/drive/v3';
 const UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
@@ -35,6 +36,8 @@ export interface SyncResult {
   removed: number;
   /** The ids of drawings this device took from Drive. */
   downloaded: string[];
+  /** Sheets removed on the other device, taken out of this library too. */
+  gone: string[];
 }
 
 function read<T>(key: string): T | null {
@@ -117,17 +120,10 @@ export function driveSignOut(): void {
   write(KEY_TOKEN, null);
 }
 
-/** A sheet forgotten here is taken out of Drive at the next sync, not brought back. */
-export function noteRemovedFromLibrary(id: string): void {
-  const removed = new Set(read<string[]>(KEY_REMOVED) ?? []);
-  removed.add(id);
-  write(KEY_REMOVED, [...removed]);
-}
-
 interface DriveFile {
   id: string;
   name: string;
-  appProperties?: { isoId?: string; savedAt?: string };
+  appProperties?: { isoId?: string; savedAt?: string; isoRemoved?: string };
 }
 
 async function call<T>(token: string, url: string, init: RequestInit = {}): Promise<T> {
@@ -163,16 +159,23 @@ function fileName(drawing: Drawing): string {
 }
 
 async function upload(token: string, folder: string, entry: LibraryEntry, existingId: string | null): Promise<void> {
-  const meta: Record<string, unknown> = {
-    name: fileName(entry.drawing),
-    mimeType: 'application/json',
-    appProperties: { isoId: entry.id, savedAt: String(entry.savedAt) },
-  };
+  await putFile(token, folder, existingId, fileName(entry.drawing), { isoId: entry.id, savedAt: String(entry.savedAt) }, JSON.stringify(entry.drawing));
+}
+
+async function putFile(
+  token: string,
+  folder: string,
+  existingId: string | null,
+  name: string,
+  appProperties: Record<string, string>,
+  content: string,
+): Promise<void> {
+  const meta: Record<string, unknown> = { name, mimeType: 'application/json', appProperties };
   if (!existingId) meta.parents = [folder];
   const boundary = `iso${Date.now().toString(36)}`;
   const body =
     `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n` +
-    `--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(entry.drawing)}\r\n--${boundary}--`;
+    `--${boundary}\r\nContent-Type: application/json\r\n\r\n${content}\r\n--${boundary}--`;
   const url = existingId ? `${UPLOAD}/files/${existingId}?uploadType=multipart&fields=id` : `${UPLOAD}/files?uploadType=multipart&fields=id`;
   await call(token, url, {
     method: existingId ? 'PATCH' : 'POST',
@@ -196,11 +199,28 @@ export async function syncDrive(): Promise<SyncResult> {
     `${API}/files?q=${encodeURIComponent(q)}&fields=files(id,name,appProperties)&pageSize=1000&spaces=drive`,
   );
   const remote = new Map<string, DriveFile>();
-  for (const f of listed.files) if (f.appProperties?.isoId) remote.set(f.appProperties.isoId, f);
+  let ledger: DriveFile | null = null;
+  for (const f of listed.files) {
+    if (f.appProperties?.isoRemoved) ledger = ledger ?? f;
+    else if (f.appProperties?.isoId) remote.set(f.appProperties.isoId, f);
+  }
 
-  const removed = new Set(read<string[]>(KEY_REMOVED) ?? []);
+  const result: SyncResult = { up: 0, down: 0, removed: 0, downloaded: [], gone: [] };
+  // Removed is removed for good, on both devices: the folder keeps the list
+  // of every sheet removed, so the other device neither keeps nor sends
+  // back a sheet removed here (his complaint, 2026-09-26: "I delete this
+  // drawing and it keeps coming back, in the list and in Drive").
+  const theirs = ledger ? ((await call<{ removed?: string[] }>(token, `${API}/files/${ledger.id}?alt=media`))?.removed ?? []) : [];
+  for (const entry of loadLibrary()) {
+    if (theirs.includes(entry.id)) {
+      removeDrawing(entry.id);
+      result.gone.push(entry.id);
+    }
+  }
+  markRemoved(theirs);
+  const removed = removedIds();
+
   const local = new Map(loadLibrary().map((e) => [e.id, e]));
-  const result: SyncResult = { up: 0, down: 0, removed: 0, downloaded: [] };
   // A stamp is set where the sheet was edited and carried across as it
   // is, so the same stamp on both sides means the same copy; any newer
   // stamp means an edit, however soon after the last sync.
@@ -216,13 +236,11 @@ export async function syncDrive(): Promise<SyncResult> {
       result.down += 1;
       result.downloaded.push(id);
     }
-    removed.delete(id);
   }
   for (const [id, file] of remote) {
     if (local.has(id)) continue;
     if (removed.has(id)) {
       await call(token, `${API}/files/${file.id}`, { method: 'DELETE' });
-      removed.delete(id);
       result.removed += 1;
       continue;
     }
@@ -233,7 +251,11 @@ export async function syncDrive(): Promise<SyncResult> {
       result.downloaded.push(id);
     }
   }
-  write(KEY_REMOVED, [...removed]);
-  write(KEY_LAST, { at: Date.now(), up: result.up, down: result.down, removed: result.removed });
+  // The folder's list takes what was removed here and not yet noted there.
+  const missing = [...removed].filter((id) => !theirs.includes(id));
+  if (missing.length > 0) {
+    await putFile(token, folder, ledger?.id ?? null, REMOVED_FILE, { isoRemoved: '1' }, JSON.stringify({ removed: [...theirs, ...missing] }));
+  }
+  write(KEY_LAST, { at: Date.now(), up: result.up, down: result.down, removed: result.removed + result.gone.length });
   return result;
 }

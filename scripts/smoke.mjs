@@ -2109,7 +2109,7 @@ check('and sends it back to the page itself', signIn.searchParams.get('redirect_
 await page.goto(`${APP}#access_token=tok1&token_type=Bearer&expires_in=3600&state=${signIn.searchParams.get('state')}`);
 await page.waitForTimeout(1500);
 const keptCount = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.library.v1')).length);
-check('back with a token, the address is tidied and every kept sheet goes up', `${page.url().includes('access_token')} ${[...drive.files.values()].filter((f) => f.mimeType === 'application/json').length}`, (v) => v === `false ${keptCount}`, `no token in the address, ${keptCount} files in Drive`);
+check('back with a token, the address is tidied and every kept sheet goes up', `${page.url().includes('access_token')} ${[...drive.files.values()].filter((f) => f.appProperties?.isoId).length}`, (v) => v === `false ${keptCount}`, `no token in the address, ${keptCount} files in Drive`);
 check('in a folder of its own, named for the sheet', [...drive.files.values()].map((f) => f.name).join('|'), (v) => /Isometric Piping/.test(v) && /Drive Test - sheet 1 of 1 \[/.test(v), 'Isometric Piping, Drive Test - sheet 1 of 1 […]');
 check('and the tab says so', await page.locator('[data-editor="drive"]').innerText(), (v) => /Signed in/.test(v) && new RegExp(`${keptCount} up, 0 down`).test(v), `Signed in … ${keptCount} up, 0 down`);
 const kept = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.library.v1')));
@@ -2137,6 +2137,29 @@ await page.click('.dialog-backdrop [data-confirm]');
 // once, with no Sync pressed.
 await page.waitForTimeout(1200);
 check('a sheet removed here goes out of Drive at once, and nothing comes back down', `${[...drive.files.values()].some((f) => f.appProperties?.isoId === 'dother')} ${(await page.locator('#hud').innerText()).match(/Drive:[^\n]*/)?.[0]}`, (v) => v === 'false Drive: 1 removed.', 'dother gone, "Drive: 1 removed."');
+// "I delete this drawing and it keeps coming back, in the list and in
+// Drive" (2026-09-26): removed is removed for good, on both devices.
+const ledgerOf = () => [...drive.files.values()].find((f) => f.appProperties?.isoRemoved);
+check('the folder keeps the list of removed sheets', JSON.parse(ledgerOf()?.content ?? '{}').removed?.includes('dother'), (v) => v === true, 'dother on the removed list');
+// The PC, not yet told, sends its copy up again: it goes, and stays gone here.
+drive.seed(fromPc, Date.now() + 20000);
+await page.click('[data-a="drive-sync"]');
+await page.waitForTimeout(1200);
+check('a copy of a removed sheet sent up again is taken out, not brought back', `${[...drive.files.values()].some((f) => f.appProperties?.isoId === 'dother')} ${await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.library.v1')).some((e) => e.id === 'dother'))}`, (v) => v === 'false false', 'not in Drive, not in the list');
+// A sheet removed on the other device goes from this one's list too.
+const onPc = JSON.parse(JSON.stringify(kept[0].drawing));
+onPc.id = 'dpcgone';
+onPc.meta.project = 'Removed On PC';
+drive.seed(onPc, Date.now());
+await page.click('[data-a="drive-sync"]');
+await page.waitForTimeout(1200);
+const hadIt = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.library.v1')).some((e) => e.id === 'dpcgone'));
+for (const [fid, f] of drive.files) if (f.appProperties?.isoId === 'dpcgone') drive.files.delete(fid);
+const ledger = ledgerOf();
+ledger.content = JSON.stringify({ removed: [...JSON.parse(ledger.content).removed, 'dpcgone'] });
+await page.click('[data-a="drive-sync"]');
+await page.waitForTimeout(1200);
+check('a sheet removed on the other device goes from this list too, and is not sent back', `${hadIt} ${await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.library.v1')).some((e) => e.id === 'dpcgone'))} ${[...drive.files.values()].some((f) => f.appProperties?.isoId === 'dpcgone')} ${(await page.locator('#hud').innerText()).match(/Drive:[^\n]*/)?.[0]}`, (v) => v === 'true false false Drive: 1 removed on the other device.', 'had it, then not; not in Drive; "1 removed on the other device"');
 // Save, with Drive set up, saves there rather than to a file on this device.
 const uploadsBefore = drive.state.calls.filter((c) => /upload/.test(c)).length;
 await page.click('#tabs button:has-text("Title")');
@@ -2147,6 +2170,20 @@ await page.click('#save');
 await page.waitForTimeout(1200);
 check('Save puts the sheet in Drive once Drive is set up', `${drive.state.calls.filter((c) => /upload/.test(c)).length > uploadsBefore} ${(await page.locator('#hud').innerText()).includes('Saved to Google Drive')}`, (v) => v === 'true true', 'an upload, and "Saved to Google Drive."');
 check('and Drive has the edit', [...drive.files.values()].some((f) => /SAVED-1/.test(f.content ?? '')), (v) => v === true, 'SAVED-1 in a file');
+// The sheet on screen removed: it leaves the screen as well, so it is not
+// kept again under a new id (it came straight back into the list and Drive).
+await page.click('#tabs button:has-text("Projects")');
+await page.waitForTimeout(200);
+const onScreenId = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).id);
+await page.click(`[data-remove-sheet="${onScreenId}"]`);
+await page.waitForTimeout(200);
+await page.click('.dialog-backdrop [data-confirm]');
+await page.waitForTimeout(2000);
+const driveTestLeft = async () => `${await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.library.v1')).filter((e) => e.drawing.meta.project === 'Drive Test').length)} ${[...drive.files.values()].filter((f) => /Drive Test/.test(f.content ?? '')).length} ${await page.locator('#canvas .pipe').count()}`;
+check('removing the sheet on screen clears the screen, and it is not kept again', await driveTestLeft(), (v) => v === '0 0 0', 'none in the list, none in Drive, no pipe on screen');
+await page.reload();
+await page.waitForTimeout(2000);
+check('nor after the app is opened again and synced', await driveTestLeft(), (v) => v === '0 0 0', 'none in the list, none in Drive, no pipe on screen');
 await page.click('#tabs button:has-text("Projects")');
 await page.waitForTimeout(200);
 drive.state.deny401 = true;

@@ -835,7 +835,21 @@ can land on a weld tag or on a handle a redraw replaced.
   Drive is not set up. **Remove** in the Projects list (confirm says "on
   this device and in the Google Drive folder") runs a sync at once when
   connected, so the tombstone deletes the Drive file then and there (his
-  ask, 2026-09-26); not connected, it goes at the next sync. He set his own Google Cloud project up on
+  ask, 2026-09-26); not connected, it goes at the next sync. **Removed is removed for good** (his complaint, same day: "I delete
+  this drawing and it keeps coming back, in the list and in Drive"): the
+  tombstones live in the library (`iso-draw.library.removed`,
+  `removeDrawing`/`markRemoved`/`isRemoved`; the old
+  `iso-draw.drive.removed` is read and folded in), are never cleared, and
+  `upsertDrawing` refuses a removed id. The folder holds a list of them,
+  `Removed sheets (keep this file).json` (`appProperties.isoRemoved`),
+  merged both ways on every sync: a sheet removed on the other device
+  goes from this list (`SyncResult.gone`, "n removed on the other
+  device"), and a copy sent up again is deleted, never downloaded.
+  Removing the **sheet on screen** clears the screen (`clearRemovedSheet`
+  in main.ts: an empty sheet, logo/drawn-by/options kept, undo emptied);
+  it used to take a new id and go straight back into the list and Drive.
+  A removed id on the autosave opens as an empty sheet; a file of a
+  removed sheet opened again gets a new id (`takeUp`). He set his own Google Cloud project up on
   2026-09-22 and is signed in on the PC.
 
 ## Ideas not yet done
