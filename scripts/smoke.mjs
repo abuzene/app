@@ -3109,7 +3109,8 @@ await page.mouse.down();
 await page.mouse.move(letterBox.x + letterBox.width / 2 + 160, letterBox.y + letterBox.height / 2 + 60, { steps: 10 });
 await page.mouse.up();
 await page.waitForTimeout(300);
-const letterLeader = await page.locator('#canvas .pipe-letter .balloon-leader').first().evaluate((e) => Math.hypot(e.x2.baseVal.value - e.x1.baseVal.value, e.y2.baseVal.value - e.y1.baseVal.value));
+// Close beside the pipe it needs none at all (Tidy slides letters along).
+const letterLeader = (await page.locator('#canvas .pipe-letter .balloon-leader').count()) === 0 ? 0 : await page.locator('#canvas .pipe-letter .balloon-leader').first().evaluate((e) => Math.hypot(e.x2.baseVal.value - e.x1.baseVal.value, e.y2.baseVal.value - e.y1.baseVal.value));
 const letterSize = await page.locator('#canvas .pipe-letter-box').first().evaluate((e) => e.height.baseVal.value);
 check('a pipe letter dragged along the pipe keeps a short leader to the pipe beside it', letterLeader / letterSize, (v) => v < 2.5, 'under two and a half box heights');
 const pipeBalloon = page.locator('#canvas circle.hit-dot[data-balloon^="run:"]').first();
@@ -4365,6 +4366,58 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   const d3 = await drawingNow();
   check('a dimension from the elbow, the branch pipe tapped: it ends on the tee', JSON.stringify((d3.measures ?? []).map((m) => `${m.a === elbow} ${m.b === tee}`)), (v) => v === '["true true"]', '["true true"]');
   await page.keyboard.press('Escape');
+}
+
+/* --------------------------- Tidy: as far as possible, no lines crossing */
+
+// "Improve Tidy: see how lines cross and lie on each other; try as far as
+// possible that the lines do not cut" (HILLEL sheet 4, 2026-09-26): a
+// header with reducing tees and short branches, not to scale. After Tidy
+// no leader crosses a dimension line or a pipe, and no label sits on
+// another.
+{
+  await startNewDrawing();
+  await page.click('#tabs button:has-text("Command")');
+  await page.fill('#command-text', '4"\nSTD\nORIGIN 0 0 0\nW 4500\nMARK a\nW 4500\nMARK b\nW 4500\nMARK c\nW 1000\nEND BLIND\nGOTO a\n3"\nU 420\nEND FLG\nGOTO b\n3"\nU 420\nEND FLG\nGOTO c\n2"\nU 420\nEND FLG');
+  await page.click('[data-a="run-commands"]');
+  await page.waitForTimeout(600);
+  await page.keyboard.press('Escape');
+  await page.click('#tabs button:has-text("Route")');
+  await page.check('#opt-schematic');
+  await page.waitForTimeout(300);
+  await page.click('#fit');
+  await page.click('#tidy');
+  await page.waitForTimeout(500);
+  const tidied = await page.evaluate(() => {
+    const seg = (sel) => [...document.querySelectorAll(`#canvas ${sel}`)].map((l) => [{ x: +l.getAttribute('x1'), y: +l.getAttribute('y1') }, { x: +l.getAttribute('x2'), y: +l.getAttribute('y2') }]);
+    const cross = ([p, p2], [q, q2]) => {
+      const d = (p2.x - p.x) * (q2.y - q.y) - (p2.y - p.y) * (q2.x - q.x);
+      if (Math.abs(d) < 1e-9) return false;
+      const t = ((q.x - p.x) * (q2.y - q.y) - (q.y - p.y) * (q2.x - q.x)) / d;
+      const u = ((q.x - p.x) * (p2.y - p.y) - (q.y - p.y) * (p2.x - p.x)) / d;
+      return t > 0.02 && t < 0.98 && u > 0.02 && u < 0.98;
+    };
+    const leaders = [...seg('.weld-leader'), ...seg('.balloon-leader')];
+    let dim = 0;
+    let pipe = 0;
+    for (const l of leaders) {
+      for (const x of seg('.dim-line')) if (cross(l, x)) dim += 1;
+      for (const x of seg('line.pipe')) if (cross(l, x)) pipe += 1;
+    }
+    const boxes = [...document.querySelectorAll('#canvas .weld-box, #canvas .balloon-ring, #canvas .pipe-letter rect')].map((e) => e.getBoundingClientRect());
+    let over = 0;
+    for (let i = 0; i < boxes.length; i += 1) {
+      for (let j = i + 1; j < boxes.length; j += 1) {
+        const a = boxes[i];
+        const b = boxes[j];
+        if (a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1) over += 1;
+      }
+    }
+    return `${dim} ${pipe} ${over}`;
+  });
+  check('after Tidy no leader crosses a dimension line or a pipe, no label on another', tidied, (v) => v === '0 0 0', '0 0 0');
+  await page.uncheck('#opt-schematic');
+  await page.waitForTimeout(200);
 }
 
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');

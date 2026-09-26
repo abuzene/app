@@ -3,7 +3,7 @@ import type { Axis, DimOverride, Drawing, FlangeKind, Run, Vec3 } from '../model
 import { COMPONENT_LABEL, SYMBOL_MM, TERMINAL_LABEL, chainStops, dimensionStops, drawnShare, trueAtShare, fittingLabel, runGroupIds, isMark, isReducer, isSupport, isValve, itemAtEnd, oletEntries, oletLegs, resolveEnds, valveOpenSide } from '../model/drawing';
 import { componentTakeout, sizeLabel, valveFlangeKind } from '../model/pipe-data';
 import { AXIS_VECTOR, axisBetween, axisScreenDir, equals3, northArrowDir, project, scale3, add, sub } from '../model/iso';
-import type { LayoutSpecs } from './tidy';
+import { LETTER_BESIDE, type LayoutSpecs } from './tidy';
 import { componentSymbol, counterFlange, flangeHub, flangeSymbol, frameFor, gasketLine, groundSymbol, isFlange, jointMark, oletSymbol, supportCallout, supportSymbol, terminalSymbol, transitionSymbol, type Facing, type Frame } from './symbols';
 
 export interface ViewBox {
@@ -784,7 +784,12 @@ export function renderDrawing(state: RenderState): string {
         const f = frameFor(q.x, q.y, p.x, p.y, 1, size, endPlane?.across, endPlane?.up);
         nodes += terminalSymbol(node.terminal.kind, f, analysis.nodeJoint.get(node.id) ?? node.joint ?? drawing.options.joint ?? 'BW');
         if (node.terminal.note) {
-          nodes += `<text class="note" x="${(p.x + f.dx * size * 2.4).toFixed(2)}" y="${(p.y + f.dy * size * 2.4).toFixed(2)}">${escapeText(node.terminal.note)}</text>`;
+          const tx = p.x + f.dx * size * 2.4;
+          const ty = p.y + f.dy * size * 2.4;
+          nodes += `<text class="note" x="${tx.toFixed(2)}" y="${ty.toFixed(2)}">${escapeText(node.terminal.note)}</text>`;
+          // For Tidy, a box to keep off (a pipe letter once sat on "CONT. FROM SH.1").
+          const noteW = node.terminal.note.length * size * 0.5;
+          collect?.texts.push({ p: { x: tx + noteW / 2, y: ty - size * 0.35 }, w: noteW + size * 0.4, h: size * 1.1 });
         }
       }
     }
@@ -844,9 +849,12 @@ export function renderDrawing(state: RenderState): string {
       ny = -ny;
     }
     const clear = hw * Math.abs(nx) + hh * Math.abs(ny) + size * 0.7;
+    // Along the header, off the tee: the dimensions' extension lines leave
+    // the tee on this side, and the note sat on them.
+    const slide = hw * Math.abs(h.x) + hh * Math.abs(h.y) + size * 0.5;
     const placed = drawing.itemOverrides?.[`tn:${nodeId}`];
-    const cx = placed ? at.x + placed.dx : at.x + nx * clear;
-    const cy = placed ? at.y + placed.dy : at.y + ny * clear;
+    const cx = placed ? at.x + placed.dx : at.x + nx * clear + h.x * slide;
+    const cy = placed ? at.y + placed.dy : at.y + ny * clear + h.y * slide;
     let leader = '';
     if (placed) {
       const dx = at.x - cx;
@@ -966,6 +974,8 @@ export function renderDrawing(state: RenderState): string {
    * letter dragged along the line keeps its leader short, to the pipe right
    * beside it, rather than stretched back to where it started.
    */
+  // The drawn pipe of these runs: where a pipe's balloon or letter leads to.
+  const runSegments = (runIds: string[]): [Pt, Pt][] => straights.filter((st) => runIds.includes(st.run.id)).map((st) => [st.pa, st.pb]);
   const nearestOnRuns = (runIds: string[], x: number, y: number): Pt | null => {
     let best: { p: Pt; d: number } | null = null;
     for (const s of straights) {
@@ -1034,7 +1044,8 @@ export function renderDrawing(state: RenderState): string {
       }
       if (!pick) continue;
       marks.push(pick);
-      collect?.balloons.push({ key: pick.key, line, at: { x: pick.fromX, y: pick.fromY }, n: { x: pick.nx, y: pick.ny } });
+      const pickRun = pick.key.startsWith('run:') ? pick.key.slice(4) : null;
+      collect?.balloons.push({ key: pick.key, line, at: { x: pick.fromX, y: pick.fromY }, n: { x: pick.nx, y: pick.ny }, feet: pickRun ? runSegments([pickRun]) : undefined });
       crowd.push({ x: pick.x, y: pick.y });
     }
 
@@ -1075,14 +1086,15 @@ export function renderDrawing(state: RenderState): string {
     const reach = size * 1.6;
     const x = placed ? f.cx + placed.dx : f.cx - f.nx * reach * inward;
     const y = placed ? f.cy + placed.dy : f.cy - f.ny * reach * inward;
-    collect?.letters.push({ key: `pc:${piece.key}`, at: { x: f.cx, y: f.cy }, n: { x: f.nx, y: f.ny }, text: piece.letter, dflt: { x: f.cx - f.nx * reach * inward, y: f.cy - f.ny * reach * inward } });
+    collect?.letters.push({ key: `pc:${piece.key}`, at: { x: f.cx, y: f.cy }, n: { x: f.nx, y: f.ny }, text: piece.letter, dflt: { x: f.cx - f.nx * reach * inward, y: f.cy - f.ny * reach * inward }, feet: runSegments(piece.runIds) });
     const boxW = Math.max(size * 1.7, piece.letter.length * size * 0.8 + size * 0.7);
     const boxH = size * 1.5;
     // Dragged, the letter leads to the pipe right beside it.
     const foot = nearestOnRuns(piece.runIds, x, y) ?? { x: f.cx, y: f.cy };
     letters +=
       `<g class="pipe-letter">` +
-      (placed ? `<line class="balloon-leader" x1="${foot.x.toFixed(2)}" y1="${foot.y.toFixed(2)}" x2="${x.toFixed(2)}" y2="${y.toFixed(2)}"/>` : '') +
+      // Right beside its pipe (Tidy slides letters along it) it needs none.
+      (placed && Math.hypot(x - foot.x, y - foot.y) >= LETTER_BESIDE * size ? `<line class="balloon-leader" x1="${foot.x.toFixed(2)}" y1="${foot.y.toFixed(2)}" x2="${x.toFixed(2)}" y2="${y.toFixed(2)}"/>` : '') +
       `<rect class="pipe-letter-box" x="${(x - boxW / 2).toFixed(2)}" y="${(y - boxH / 2).toFixed(2)}" width="${boxW.toFixed(2)}" height="${boxH.toFixed(2)}"/>` +
       `<text class="pipe-letter-text" x="${x.toFixed(2)}" y="${(y + size * 0.36).toFixed(2)}" text-anchor="middle">${escapeText(piece.letter)}</text></g>`;
     weldHits += `<circle class="hit-dot" data-balloon="pc:${piece.key}" data-ax="${f.cx.toFixed(2)}" data-ay="${f.cy.toFixed(2)}" cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="${Math.max(boxH * 0.8, hitR * 0.55).toFixed(2)}"/>`;

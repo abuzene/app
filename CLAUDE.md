@@ -132,6 +132,25 @@ ships, and the decisions already taken, so they are not re-litigated.
   on-screen and printed symbol size (`sheetSymbolSize` in sheet.ts), so it
   holds on the PDF too. A to-scale sheet with a 19 m pipe still crowds
   its fittings into a corner: nothing tidy can do but spread them.
+  **Lines kept from crossing** (his ask, 2026-09-26, HILLEL sheet 4: "see
+  how lines cross and lie on each other"): each leader is judged as it is
+  drawn — a pipe's balloon or letter from the nearest point of its pipe
+  (`feet`, the run's drawn segments, from the renderer), a tag from its
+  weld; dimensions carry their whole line past the end ticks and their
+  extension lines (`labelsOnly`, obstacles for labels, not for other
+  dimensions); against a pipe only a real crossing counts, and symbols
+  right by a leader's own point are ignored (at a tee every spot was
+  "hit" and real crossings slipped through). Clashes are **weighted** by
+  what they fall on (`UNDER_BOX`, `ACROSS`): lettering, labels and pipes
+  worst, a dimension line next, another leader, a dashed extension line
+  least. 24 directions, reaches out to 12 symbols, then three passes
+  placing each label again against all the rest. Dimension rows start 3
+  symbols off the pipe so the **pipe letter** fits between, and a letter
+  may sit anywhere along its pipe, close beside it with no leader
+  (`besideAlong`; the renderer draws no leader within `LETTER_BESIDE`).
+  Line-end notes ("CONT. FROM SH.1") and a reducing tee's note are fixed
+  texts for it; the tee's note is set along the header off the tee, clear
+  of the extension lines that leave the tee.
   A tag or balloon dragged over a figure sits above its target and once
   made the figure untappable ("the 468 won't let me edit it",
   2026-09-23): `buriedFigure` in canvas.ts looks through the element

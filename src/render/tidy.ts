@@ -25,8 +25,9 @@ export interface LayoutSpecs {
   texts: { p: Pt; w: number; h: number }[];
   dims: { key: string; a: Pt; b: Pt; text: string }[];
   tags: { key: string; at: Pt; n: Pt; text: string }[];
-  balloons: { key: string; line: string; at: Pt; n: Pt }[];
-  letters: { key: string; at: Pt; n: Pt; text: string; dflt: Pt }[];
+  /** `feet`: the pipe a pipe's balloon leads to, from its nearest point. */
+  balloons: { key: string; line: string; at: Pt; n: Pt; feet?: [Pt, Pt][] }[];
+  letters: { key: string; at: Pt; n: Pt; text: string; dflt: Pt; feet?: [Pt, Pt][] }[];
 }
 
 export interface TidyResult {
@@ -40,6 +41,10 @@ interface Capsule {
   a: Pt;
   b: Pt;
   r: number;
+  /** Kept off by labels and leaders only, not by other dimensions. */
+  labelsOnly?: boolean;
+  /** What it is, for how badly a label or leader on it reads. */
+  kind?: 'pipe' | 'point' | 'text' | 'dimline' | 'dimfull' | 'figure' | 'ext' | 'box' | 'leader';
 }
 
 function segDistance(p1: Pt, q1: Pt, p2: Pt, q2: Pt): number {
@@ -101,7 +106,7 @@ function dimCapsules(a: Pt, b: Pt, n: Pt, off: number, along: number, text: stri
   const by = b.y + n.y * off;
   // The line, short of its ends, so the pieces of one run may meet.
   const trim = Math.min(s * 0.4, len * 0.2);
-  const line: Capsule = { a: { x: ax + ux * trim, y: ay + uy * trim }, b: { x: bx - ux * trim, y: by - uy * trim }, r: s * 0.15 };
+  const line: Capsule = { a: { x: ax + ux * trim, y: ay + uy * trim }, b: { x: bx - ux * trim, y: by - uy * trim }, r: s * 0.15, kind: 'dimline' };
   let angle = Math.atan2(by - ay, bx - ax);
   if (angle > Math.PI / 2 || angle < -Math.PI / 2) angle += Math.PI;
   const tx = ax + (bx - ax) * along;
@@ -114,21 +119,54 @@ function dimCapsules(a: Pt, b: Pt, n: Pt, off: number, along: number, text: stri
   const half = Math.max(0, (w - h) / 2);
   const fx = Math.cos(angle);
   const fy = Math.sin(angle);
-  const figure: Capsule = { a: { x: cx - fx * half, y: cy - fy * half }, b: { x: cx + fx * half, y: cy + fy * half }, r: h / 2 };
-  return [line, figure];
+  const figure: Capsule = { a: { x: cx - fx * half, y: cy - fy * half }, b: { x: cx + fx * half, y: cy + fy * half }, r: h / 2, kind: 'figure' };
+  // The extension lines, from just off the pipe out to the line: a leader
+  // or a label across one reads as badly as across the line itself.
+  const sign = off < 0 ? -1 : 1;
+  const extFrom = (p: Pt): Capsule => ({ a: { x: p.x + n.x * s * 0.5 * sign, y: p.y + n.y * s * 0.5 * sign }, b: { x: p.x + n.x * off, y: p.y + n.y * off }, r: s * 0.05, labelsOnly: true, kind: 'ext' });
+  // The whole line, end to end, for labels and leaders: trimmed, a leader
+  // from a tee's weld crossed a branch's dimension right by its end.
+  // Its end ticks reach half a symbol past the ends.
+  const tick = s * 0.5;
+  const full: Capsule = { a: { x: ax - ux * tick, y: ay - uy * tick }, b: { x: bx + ux * tick, y: by + uy * tick }, r: s * 0.1, labelsOnly: true, kind: 'dimfull' };
+  return Math.abs(off) > s * 0.6 ? [line, figure, full, extFrom(a), extFrom(b)] : [line, figure, full];
+}
+
+/** How near its pipe a letter is drawn with no leader, in symbols. */
+export const LETTER_BESIDE = 2.2;
+
+/**
+ * Spots beside a pipe, `off` from it on either side, along its length:
+ * the nearest to `first` first. A letter may sit anywhere along its pipe.
+ */
+function besideAlong(feet: [Pt, Pt][], first: Pt, w: number, h: number, clear: number): Pt[] {
+  const out: Pt[] = [];
+  for (const [a, b] of feet) {
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    if (len < 1e-6) continue;
+    const nx = -(b.y - a.y) / len;
+    const ny = (b.x - a.x) / len;
+    // The box's own reach across the pipe, then the clearance.
+    const off = (w / 2) * Math.abs(nx) + (h / 2) * Math.abs(ny) + clear;
+    for (const t of [0.15, 0.25, 0.35, 0.45, 0.55, 0.65, 0.75, 0.85]) {
+      for (const side of [1, -1]) out.push({ x: a.x + (b.x - a.x) * t + nx * off * side, y: a.y + (b.y - a.y) * t + ny * off * side });
+    }
+  }
+  return out.sort((p, q) => Math.hypot(p.x - first.x, p.y - first.y) - Math.hypot(q.x - first.x, q.y - first.y));
 }
 
 export function tidyLayout(specs: LayoutSpecs): TidyResult {
   const s = specs.size;
   const gap = s * 0.2;
   const fixed: Capsule[] = [
-    ...specs.pipes.map(([a, b]) => ({ a, b, r: s * 0.3 })),
-    ...specs.points.map(({ p, r }) => ({ a: p, b: p, r })),
-    ...specs.texts.map(({ p, w, h }) => boxCapsule(p, w, h)),
+    ...specs.pipes.map(([a, b]) => ({ a, b, r: s * 0.3, kind: 'pipe' as const })),
+    ...specs.points.map(({ p, r }) => ({ a: p, b: p, r, kind: 'point' as const })),
+    ...specs.texts.map(({ p, w, h }) => ({ ...boxCapsule(p, w, h), kind: 'text' as const })),
   ];
   const placed: Capsule[] = [];
   const result: TidyResult = { dims: {}, tags: {}, balloons: {}, letters: {} };
-  const clash = (cs: Capsule[]) => cs.reduce((n, c) => n + hits(c, fixed, gap) + hits(c, placed, gap), 0);
+  const forDims = (cs: Capsule[]) => cs.filter((c) => !c.labelsOnly);
+  const clash = (cs: Capsule[]) => forDims(cs).reduce((n, c) => n + hits(c, fixed, gap) + hits(c, forDims(placed), gap), 0);
 
   // Dimensions first: they stand off their pipe in rows. Pieces along one
   // line (a run broken at its valves) keep to one row, as on his sheets;
@@ -174,7 +212,8 @@ export function tidyLayout(specs: LayoutSpecs): TidyResult {
     const mid = { x: (ra.x + rb.x) / 2, y: (ra.y + rb.y) / 2 };
     if ((mid.x - specs.centroid.x) * n.x + (mid.y - specs.centroid.y) * n.y < 0) n = { x: -n.x, y: -n.y };
     const options: { off: number; cost: number }[] = [];
-    for (const k of [2.2, 3.0, 3.8, 4.6, 5.4, 6.4, 7.6, 9.0]) {
+    // Not closer than three symbols: the pipe's letter goes between.
+    for (const k of [3.0, 3.8, 4.6, 5.4, 6.4, 7.6, 9.0]) {
       for (const side of [1, -1]) options.push({ off: k * s * side, cost: k * s + (side < 0 ? s * 1.6 : 0) });
     }
     options.sort((x, y) => x.cost - y.cost);
@@ -196,7 +235,7 @@ export function tidyLayout(specs: LayoutSpecs): TidyResult {
         let pick = { along: 0.5, c: Infinity, caps: [] as Capsule[] };
         for (const along of alongs) {
           const cs = dimCapsules(dim.a, dim.b, dn, o.off * sign, along, dim.text, s);
-          const c = clash(cs) + cs.reduce((m, cap) => m + hits(cap, caps, gap), 0);
+          const c = clash(cs) + forDims(cs).reduce((m, cap) => m + hits(cap, forDims(caps), gap), 0);
           if (c < pick.c) pick = { along, c, caps: cs };
           if (c === 0) break;
         }
@@ -218,69 +257,182 @@ export function tidyLayout(specs: LayoutSpecs): TidyResult {
 
   // Then the labels on leaders: the nearest free spot round what each
   // belongs to, square off its pipe rather than along it, the leader kept
-  // clear of the pipe and of what is already down.
-  const placeLabel = (at: Pt, n: Pt, w: number, h: number, reaches: number[]): Pt => {
-    const nl = Math.hypot(n.x, n.y) || 1;
-    const nx = n.x / nl;
-    const ny = n.y / nl;
+  // clear of the pipe, the dimension lines and their extension lines, and
+  // of every other label and leader. The leader is judged as it is drawn:
+  // from the nearest point of its pipe for a pipe's balloon or letter,
+  // else from its weld or item (his ask, 2026-09-26: "see how lines cross
+  // and lie on each other; as far as possible, no lines cutting").
+  type Label = { id: string; at: Pt; n: Pt; w: number; h: number; reaches: number[]; feet?: [Pt, Pt][]; home?: Pt; along?: Pt[] };
+  const footOf = (label: Label, p: Pt): Pt => {
+    if (!label.feet?.length) return label.at;
+    let best = label.at;
+    let bestD = Infinity;
+    for (const [a, b] of label.feet) {
+      const vx = b.x - a.x;
+      const vy = b.y - a.y;
+      const l2 = vx * vx + vy * vy || 1;
+      const t = Math.max(0, Math.min(1, ((p.x - a.x) * vx + (p.y - a.y) * vy) / l2));
+      const q = { x: a.x + vx * t, y: a.y + vy * t };
+      const d = Math.hypot(q.x - p.x, q.y - p.y);
+      if (d < bestD) {
+        bestD = d;
+        best = q;
+      }
+    }
+    return best;
+  };
+  const shapesAt = (label: Label, p: Pt): { box: Capsule; leader: Capsule | null; whole: Capsule | null } => {
+    const box = boxCapsule(p, label.w, label.h);
+    const foot = footOf(label, p);
+    const dist = Math.hypot(p.x - foot.x, p.y - foot.y);
+    // A letter where it sits anyway, or right beside its pipe anywhere
+    // along it, is drawn with no leader.
+    const atHome = (label.home && Math.hypot(p.x - label.home.x, p.y - label.home.y) < 1e-6) || (label.along && dist < LETTER_BESIDE * s);
+    if (atHome || dist < 1e-6) return { box, leader: null, whole: null };
+    const ux = (p.x - foot.x) / dist;
+    const uy = (p.y - foot.y) / dist;
+    // From just off the pipe or weld mark to the label's edge.
+    const start = Math.min(label.feet ? s * 0.45 : s * 0.6, dist * 0.4);
+    const edge = Math.min(Math.abs(ux) > 1e-6 ? label.w / 2 / Math.abs(ux) : Infinity, Math.abs(uy) > 1e-6 ? label.h / 2 / Math.abs(uy) : Infinity);
+    const end = Math.max(start, dist - edge);
+    return {
+      box,
+      // Off its own weld mark or pipe: what is tested against the drawing.
+      leader: { a: { x: foot.x + ux * start, y: foot.y + uy * start }, b: { x: foot.x + ux * end, y: foot.y + uy * end }, r: s * 0.05 },
+      // From the weld itself: what other leaders must not cross, the three
+      // welds of a tee being close together.
+      whole: { a: foot, b: { x: foot.x + ux * end, y: foot.y + uy * end }, r: s * 0.05, labelsOnly: true, kind: 'leader' },
+    };
+  };
+  const own = new Map<string, Capsule[]>();
+  const others = (id: string): Capsule[] => {
+    const out: Capsule[] = [...placed];
+    for (const [k, cs] of own) if (k !== id) out.push(...cs);
+    return out;
+  };
+  // How badly each thing reads under a label, or across a leader: over
+  // lettering or a pipe worst, a dimension line next, another leader, and
+  // a thin dashed extension line least (his ask, 2026-09-26: "try as far
+  // as possible that the lines do not cut").
+  const UNDER_BOX: Record<string, number> = { pipe: 4, point: 4, text: 6, figure: 6, box: 6, dimline: 3, dimfull: 0, ext: 1, leader: 2 };
+  const ACROSS: Record<string, number> = { dimfull: 2.5, ext: 0.8, leader: 1.5 };
+  const costOf = (label: Label, p: Pt, rest: Capsule[]): number => {
+    const { box, leader, whole } = shapesAt(label, p);
+    let c = 0;
+    for (const o of [...fixed, ...rest]) {
+      if (segDistance(box.a, box.b, o.a, o.b) < box.r + o.r + gap) c += UNDER_BOX[o.kind ?? 'box'] ?? 4;
+    }
+    if (leader && whole) {
+      // Against the drawing: a pipe only when crossed or run along (a weld
+      // on a tee sits between pipes; leaving it, the leader is near them
+      // whichever way it goes), and no symbol right by its own point.
+      for (const o of fixed) {
+        if (o.kind === 'point' && Math.hypot(o.a.x - whole.a.x, o.a.y - whole.a.y) < o.r + s * 1.6) continue;
+        const reach = o.kind === 'pipe' ? s * 0.08 : o.r + leader.r;
+        if (segDistance(leader.a, leader.b, o.a, o.b) < reach) c += o.kind === 'text' ? 3 : 3;
+      }
+      for (const o of rest) {
+        const k = o.kind ?? 'box';
+        if (k in ACROSS) {
+          if (segDistance(whole.a, whole.b, o.a, o.b) < 1e-6 + (k === 'dimfull' ? o.r * 0.5 : 0)) c += ACROSS[k];
+        } else if (k === 'box' || k === 'figure') {
+          // Through another label, or a dimension's figure.
+          if (segDistance(leader.a, leader.b, o.a, o.b) < o.r) c += 3;
+        }
+      }
+    }
+    return c;
+  };
+  const placeLabel = (label: Label): Pt => {
+    const rest = others(label.id);
+    const nl = Math.hypot(label.n.x, label.n.y) || 1;
+    const nx = label.n.x / nl;
+    const ny = label.n.y / nl;
     const options: { p: Pt; cost: number }[] = [];
-    for (const reach of reaches) {
-      for (let i = 0; i < 16; i += 1) {
-        const ang = (i / 16) * Math.PI * 2;
+    if (label.home) options.push({ p: label.home, cost: 0 });
+    // Anywhere along its pipe, close beside it, before any leader.
+    (label.along ?? []).forEach((p, i) => options.push({ p, cost: s * 0.05 * (i + 1) }));
+    for (const reach of label.reaches) {
+      for (let i = 0; i < 24; i += 1) {
+        const ang = (i / 24) * Math.PI * 2;
         const dx = Math.cos(ang);
         const dy = Math.sin(ang);
         const square = Math.abs(dx * nx + dy * ny);
-        options.push({ p: { x: at.x + dx * reach, y: at.y + dy * reach }, cost: reach + (1 - square) * s * 1.4 });
+        options.push({ p: { x: label.at.x + dx * reach, y: label.at.y + dy * reach }, cost: reach + (1 - square) * s * 1.4 });
       }
     }
     options.sort((x, y) => x.cost - y.cost);
     let best = options[0].p;
-    let bestClash = Infinity;
+    let bestScore = Infinity;
     for (const o of options) {
-      const box = boxCapsule(o.p, w, h);
-      const dist = Math.hypot(o.p.x - at.x, o.p.y - at.y) || 1;
-      const ux = (o.p.x - at.x) / dist;
-      const uy = (o.p.y - at.y) / dist;
-      // The leader, from just off the anchor to the label's edge.
-      const start = Math.min(s * 1.1, dist * 0.4);
-      const end = Math.max(start, dist - Math.min(w, h) / 2);
-      const leader: Capsule = { a: { x: at.x + ux * start, y: at.y + uy * start }, b: { x: at.x + ux * end, y: at.y + uy * end }, r: s * 0.05 };
-      const c = clash([box]) * 3 + hits(leader, fixed, 0) + hits(leader, placed, 0);
-      if (c < bestClash) {
+      const c = costOf(label, o.p, rest);
+      // Clashes first; among equals, the nearer (options come nearest first).
+      const score = c * 1000 + o.cost;
+      if (score < bestScore) {
         best = o.p;
-        bestClash = c;
+        bestScore = score;
       }
       if (c === 0) break;
     }
-    placed.push(boxCapsule(best, w, h));
-    // Its leader too, so the next label's leader does not cross it.
-    const dist = Math.hypot(best.x - at.x, best.y - at.y) || 1;
-    const start = Math.min(s * 1.1, dist * 0.4);
-    placed.push({ a: { x: at.x + ((best.x - at.x) / dist) * start, y: at.y + ((best.y - at.y) / dist) * start }, b: best, r: s * 0.05 });
+    const { box, whole } = shapesAt(label, best);
+    own.set(label.id, whole ? [{ ...box, kind: 'box' }, whole] : [{ ...box, kind: 'box' }]);
     return best;
   };
 
+  const labels: Label[] = [];
   for (const tag of specs.tags) {
-    const w = Math.max(s * 2.2, tag.text.length * s * 0.64 + s * 0.9);
-    const h = s * 1.55;
-    const p = placeLabel(tag.at, tag.n, w, h, [2.4, 3.1, 3.8, 4.6, 5.6, 6.8, 8.2].map((k) => k * s));
-    result.tags[tag.key] = { dx: p.x - tag.at.x, dy: p.y - tag.at.y };
+    labels.push({
+      id: `t:${tag.key}`,
+      at: tag.at,
+      n: tag.n,
+      w: Math.max(s * 2.2, tag.text.length * s * 0.64 + s * 0.9),
+      h: s * 1.55,
+      reaches: [2.4, 3.1, 3.8, 4.6, 5.6, 6.8, 8.2, 10, 12].map((k) => k * s),
+    });
   }
   for (const balloon of specs.balloons) {
     const r = s * 1.05;
-    const p = placeLabel(balloon.at, balloon.n, r * 2, r * 2, [2.8, 3.6, 4.4, 5.4, 6.6, 8.0, 9.6].map((k) => k * s));
+    labels.push({ id: `b:${balloon.key}`, at: balloon.at, n: balloon.n, w: r * 2, h: r * 2, reaches: [2.8, 3.6, 4.4, 5.4, 6.6, 8.0, 9.6, 11.5].map((k) => k * s), feet: balloon.feet });
+  }
+  for (const letter of specs.letters) {
+    labels.push({
+      id: `l:${letter.key}`,
+      at: letter.at,
+      n: letter.n,
+      w: Math.max(s * 1.7, letter.text.length * s * 0.8 + s * 0.7),
+      h: s * 1.5,
+      reaches: [1.8, 2.4, 3.0, 3.8, 4.8, 6.0].map((k) => k * s),
+      feet: letter.feet,
+      home: letter.dflt,
+      along: besideAlong(letter.feet ?? [], letter.dflt, Math.max(s * 1.7, letter.text.length * s * 0.8 + s * 0.7), s * 1.5, s * 0.6),
+    });
+  }
+  const where = new Map<string, Pt>();
+  // Weld tags first, round their welds; then balloons; letters last, as
+  // they slide along their pipe into whatever room is left.
+  const order = labels;
+  for (const label of order) where.set(label.id, placeLabel(label));
+  // Laid down one after another, the first ones never saw the later ones:
+  // each is placed again against all the rest, twice over.
+  for (let pass = 0; pass < 3; pass += 1) {
+    for (const label of order) {
+      const p = where.get(label.id)!;
+      if (costOf(label, p, others(label.id)) === 0) continue;
+      where.set(label.id, placeLabel(label));
+    }
+  }
+  for (const tag of specs.tags) {
+    const p = where.get(`t:${tag.key}`)!;
+    result.tags[tag.key] = { dx: p.x - tag.at.x, dy: p.y - tag.at.y };
+  }
+  for (const balloon of specs.balloons) {
+    const p = where.get(`b:${balloon.key}`)!;
     result.balloons[balloon.key] = { dx: p.x - balloon.at.x, dy: p.y - balloon.at.y, line: balloon.line };
   }
   for (const letter of specs.letters) {
-    const w = Math.max(s * 1.7, letter.text.length * s * 0.8 + s * 0.7);
-    const h = s * 1.5;
-    // A letter where it would sit anyway, if that is free, needs no leader.
-    const home = boxCapsule(letter.dflt, w, h);
-    if (clash([home]) === 0) {
-      placed.push(home);
-      continue;
-    }
-    const p = placeLabel(letter.at, letter.n, w, h, [1.8, 2.4, 3.0, 3.8, 4.8].map((k) => k * s));
+    const p = where.get(`l:${letter.key}`)!;
+    // A letter where it would sit anyway needs no drag, and no leader.
+    if (Math.hypot(p.x - letter.dflt.x, p.y - letter.dflt.y) < 1e-6) continue;
     result.letters[letter.key] = { dx: p.x - letter.at.x, dy: p.y - letter.at.y };
   }
   return result;
