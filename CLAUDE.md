@@ -259,6 +259,13 @@ ships, and the decisions already taken, so they are not re-litigated.
   hand) through `setValveFaceToFace` in edit.ts: the face on the run's
   start side (the chain's start side on a header) stays, the far face and
   flange move, refused if it would leave its run or reach an item beside.
+- **A dimension up to a valve face moves what is bolted to it** (his
+  complaint, 2026-09-27: "why can I not change this 250" — the pipe up to
+  two valves bolted face to face): `applyDimension`'s "up to a valve
+  face" case moves the valve and every item after it with no pipe
+  between (faces or flanges touching, `bare`), and refuses, saying the
+  most it can be, when that would run into the next item or off the end.
+  It used to move the first valve alone, into the second.
 - **Moving an item keeps the line's length** (his complaint, 2026-09-24:
   "moving the olet stretched the header; any item in a line or on its end
   must move without the pipe's length changing"). `onSlideNode` in

@@ -4230,6 +4230,55 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   await page.waitForTimeout(150);
 }
 
+/* ------------------ a dimension up to a pair of valves bolted face to face */
+
+// "Why can I not change this 250?" (2026-09-27): the pipe up to the first
+// of two valves bolted face to face. Typed, the first valve moved alone,
+// into the second; now the pair goes as one, and a valve is never pushed
+// into the next item (it says how far it can go).
+{
+  await routeLine('3"\nSCH40\nORIGIN 0 0 0\nE 500\nU 250\nN 970\n+BALL 350\n+BALL 550\nEND FLG');
+  await page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem('iso-draw.drawing.v1'));
+    const run = d.runs[2];
+    run.inline = [
+      { id: 'pair1', kind: 'BALL', offset: 350, ff: 200, bare: 1 },
+      { id: 'pair2', kind: 'BALL', offset: 550, ff: 200, bare: 0 },
+    ];
+    localStorage.setItem('iso-draw.drawing.v1', JSON.stringify(d));
+  });
+  await page.reload();
+  await page.waitForTimeout(600);
+  await page.click('#fit');
+  await page.waitForTimeout(300);
+  const typeInto = async (key, digits) => {
+    const box = await page.locator(`#canvas [data-dim="${key}"]`).first().boundingBox();
+    await penTap(box.x + box.width / 2, box.y + box.height / 2);
+    for (let i = 0; i < 6; i += 1) await page.locator('.dim-keypad [data-key="⌫"]').dispatchEvent('pointerdown', { bubbles: true });
+    for (const k of digits) await page.locator(`.dim-keypad [data-key="${k}"]`).dispatchEvent('pointerdown', { bubbles: true });
+    await page.locator('.dim-keypad [data-key="OK"]').dispatchEvent('pointerdown', { bubbles: true });
+    await page.waitForTimeout(400);
+  };
+  const north = (await drawingNow()).runs[2].id;
+  await typeInto(`${north}:0`, '300');
+  const pair = (await drawingNow()).runs[2].inline.map((c) => `${c.id}@${c.offset}`).join();
+  check('the pipe up to a bolted pair typed: both valves move as one', pair, (v) => v === 'pair1@400,pair2@600', 'pair1@400, pair2@600');
+  await page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem('iso-draw.drawing.v1'));
+    d.runs[2].inline = [
+      { id: 'pair1', kind: 'BALL', offset: 350, ff: 200 },
+      { id: 'pair2', kind: 'BALL', offset: 700, ff: 200 },
+    ];
+    localStorage.setItem('iso-draw.drawing.v1', JSON.stringify(d));
+  });
+  await page.reload();
+  await page.waitForTimeout(600);
+  await page.click('#fit');
+  await page.waitForTimeout(300);
+  await typeInto(`${north}:0`, '450');
+  check('a valve is not pushed into the next one: refused, with how far it can go', `${(await drawingNow()).runs[2].inline.map((c) => c.offset).join()} ${/at most \d+ here/.test(await page.locator('#hud').innerText())}`, (v) => v === '350,700 true', '350,700 true');
+}
+
 /* ------------------------------------ couplings, socket weld and threaded */
 
 // "Two more fittings: COUPLING SW, the socket one, and COUPLING NPT"

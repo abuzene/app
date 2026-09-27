@@ -1112,11 +1112,38 @@ export function applyDimension(drawing: Drawing, runId: string, index: number, v
   }
   const lower = valveAt(to, -1);
   if (lower) {
-    // Up to a valve face: the valve slides so this piece is the value.
+    // Up to a valve face: the valve slides so this piece is the value, and
+    // with it whatever is bolted to it or stands against it with no pipe
+    // between — two valves bolted face to face go as one (his complaint,
+    // 2026-09-27: "why can I not change this 250", a pair of bolted valves:
+    // the first moved alone, into the second). Nothing is pushed into the
+    // next item or off the end.
+    const joint = drawing.options.joint ?? 'BW';
+    const reach = (c: InlineComponent, side: 0 | 1): number => {
+      const dn = c.dn ?? run.dn;
+      const face = componentTakeout(c.kind, dn, false, c.ff);
+      const flanged = resolveEnds(c.kind, dn, c.ends, joint) === 'FLG' && isValve(c.kind);
+      if (!flanged || c.bare === side || (c.lastFlange && valveOpenSide(drawing, run, c) === side)) return face;
+      return componentTakeout(c.kind, dn, valveFlangeKind(joint), c.ff);
+    };
     const half = componentTakeout(lower.kind, lower.dn ?? run.dn, false, lower.ff);
-    const offset = from + value + half;
-    if (offset + half > total - 0.5) return 'That would push the valve off the end of the run.';
-    lower.offset = offset;
+    const delta = from + value + half - lower.offset;
+    const items = run.inline.filter((c) => !isMark(c.kind)).sort((x, y) => x.offset - y.offset);
+    const at = items.indexOf(lower);
+    const group = [lower];
+    for (let i = at + 1; i < items.length; i += 1) {
+      const prev = group[group.length - 1];
+      if (items[i].offset - reach(items[i], 0) > prev.offset + reach(prev, 1) + 0.5) break;
+      group.push(items[i]);
+    }
+    const last = group[group.length - 1];
+    const next = items[at + group.length];
+    const hi = last.offset + reach(last, 1) + delta;
+    if (next && hi > next.offset - reach(next, 0) + 0.5) {
+      return `That would push the valve${group.length > 1 ? 's' : ''} into the item after ${group.length > 1 ? 'them' : 'it'}: at most ${Math.floor(value - (hi - (next.offset - reach(next, 0))))} here.`;
+    }
+    if (hi > total - 0.5) return 'That would push the valve off the end of the run.';
+    for (const c of group) c.offset += delta;
     run.inline.sort((x, y) => x.offset - y.offset);
     return null;
   }
