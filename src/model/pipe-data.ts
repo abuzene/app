@@ -157,6 +157,10 @@ const VALVE_FF: Record<string, Record<string, number>> = {
 // An actuated ball valve is the same body with an actuator on top, so it is
 // the same length between faces — and so drawn and dimensioned the same.
 VALVE_FF.BALL_ACT = VALVE_FF.BALL;
+// A regulator's body is a globe pattern: its face-to-face, unless typed over.
+VALVE_FF.REGULATOR = VALVE_FF.GLOBE;
+// An in-line filter: as long as a globe valve until its own length is typed.
+VALVE_FF.FILTER = VALVE_FF.GLOBE;
 
 /** Socket weld coupling, 3000#: socket bottom to socket bottom (ASME B16.11 "E"), mm. */
 const COUPLING_SW_E: Record<string, number> = { DN15: 9.5, DN20: 9.5, DN25: 12.5, DN32: 12.5, DN40: 12.5, DN50: 19, DN65: 19, DN80: 19, DN100: 19 };

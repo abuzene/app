@@ -242,6 +242,9 @@ function componentProperties(host: Host, compId: string): string {
   ${
     comp.kind === 'TRANSITION'
       ? `<div class="row"><label>Steel side</label><select data-f="flip">${options(['end', 'start'], comp.flip ? 'start' : 'end', { end: 'Towards the end of the run', start: 'Towards the start of the run' })}</select></div>`
+      : comp.kind === 'REGULATOR'
+        ? `<div class="row"><label>Flow</label><select data-f="flip">${options(['end', 'start'], comp.flip ? 'start' : 'end', { end: 'Towards the end of the run', start: 'Towards the start of the run' })}</select></div>
+           <p class="empty-note">The sensing line goes to the pipe downstream, the way the line flows.</p>`
       : comp.kind === 'GROUND'
         ? `<div class="row"><label>AG side</label><select data-f="flip">${options(['end', 'start'], comp.flip ? 'start' : 'end', { end: 'As drawn (up a riser, else towards the end)', start: 'The other way' })}</select></div>`
         : ''

@@ -319,6 +319,19 @@ ships, and the decisions already taken, so they are not re-litigated.
   never bolted on an end; the list names a valve with SW/THD ends like a
   fitting, `BALL VALVE SW 3000#` / `BALL VALVE SCR'D 3000#` via
   `jointSuffix` — small bores that default to threaded read so too),
+  **Regulator, Filter, Relief** (his ask, 2026-09-27, symbols looked up
+  on the web and shown him first): in-line items that behave as valves
+  (`categoryOf` → VALVE: flanged, two flange welds, bolted on an end,
+  face-to-face typed over, `VALVE_FF.REGULATOR/FILTER` = the globe's).
+  `REGULATOR` (PRESSURE REGULATOR, commands REG/PCV): bowtie, diaphragm
+  dome and spring on the stem, the **sensing line** dashed to a dot on
+  the pipe downstream (`.sensing-line`), `comp.flip` = flow toward the
+  run's start (panel "Flow"). `FILTER` (FILTER, FLT): a paper-filled
+  diamond with a dashed line across (ISO 10628). `RELIEF` (RELIEF VALVE,
+  PSV) is an angle valve: inlet along the line, outlet to the side with
+  its flange and an arrow, spring over the inlet's line — meant for the
+  end of a branch. All three in 3D (regulator dome + sensing tube,
+  filter housing in green, relief outlet and bonnet).
   **Couplings** in Fittings (his ask, 2026-09-26: "COUPLING SW, the
   socket one, and COUPLING NPT"). **A coupling is a fitting on a point**
   (same day: "every fitting splits the pipe it goes into in two, except

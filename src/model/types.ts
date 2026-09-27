@@ -32,6 +32,10 @@ export type ComponentKind =
   | 'NEEDLE'
   | 'CONTROL'
   | 'RELIEF'
+  /** A pressure regulator: a valve body, a diaphragm dome with its spring, a sensing line to the pipe downstream. His ask, 2026-09-27. */
+  | 'REGULATOR'
+  /** An in-line filter: a diamond with a dashed line across (ISO 10628). His ask, 2026-09-27. */
+  | 'FILTER'
   | 'FLG_WN'
   | 'FLG_SO'
   | 'FLG_SW'

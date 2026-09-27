@@ -40,6 +40,7 @@ const PE: RGB = [0.14, 0.14, 0.15];
 const COUPLING: RGB = [0.46, 0.54, 0.64];
 const DASHED: RGB = [0.62, 0.67, 0.73];
 const EQUIPMENT: RGB = [0.7, 0.74, 0.8];
+const FILTER_BODY: RGB = [0.34, 0.52, 0.4];
 
 /** Class 150 flange outside diameters (ASME B16.5), mm. */
 const FLANGE_OD: Record<string, number> = {
@@ -292,7 +293,7 @@ function valveAt(g: Builder, drawing: Drawing, run: Run, comp: InlineComponent, 
     g.disc(vadd(faceA, vmul(d, t / 2)), d, F / 2, t, VALVE);
     g.disc(vadd(faceB, vmul(d, -t / 2)), d, F / 2, t, VALVE);
     g.tube(vadd(faceA, vmul(d, t)), vadd(faceB, vmul(d, -t)), pipe * 1.15, pipe * 1.15, VALVE);
-    if (comp.kind !== 'BUTTERFLY') g.sphere(c, Math.min(half - t, F * 0.42), VALVE);
+    if (comp.kind !== 'BUTTERFLY' && comp.kind !== 'FILTER') g.sphere(c, Math.min(half - t, F * 0.42), VALVE);
     // The flanges it is bolted between, unless left off or bolted to a valve.
     const open = valveOpenSide(drawing, run, comp);
     const kind = valveFlangeKind(joint);
@@ -314,17 +315,51 @@ function valveAt(g: Builder, drawing: Drawing, run: Run, comp: InlineComponent, 
   }
 
   if (comp.kind === 'CHECK') return;
+  if (comp.kind === 'FILTER') {
+    // The filter's housing standing on the line, its cover on top.
+    const r = Math.max(pipe * 1.6, F * 0.42);
+    g.tube(vadd(c, vmul(up, -r * 0.9)), vadd(c, vmul(up, r * 1.6)), r, r, FILTER_BODY, [true, false]);
+    g.tube(vadd(c, vmul(up, r * 1.6)), vadd(c, vmul(up, r * 1.75)), r * 1.12, r * 1.12, FLANGE, [true, true]);
+    return;
+  }
+  if (comp.kind === 'RELIEF') {
+    // An angle valve: in along the line, out to the side, its spring
+    // bonnet standing on over the inlet's line.
+    const out = vcross(d, up);
+    const reach = Math.max(half, F * 0.6);
+    g.tube(c, vadd(c, vmul(out, reach)), pipe * 1.1, pipe * 1.1, VALVE);
+    g.disc(vadd(c, vmul(out, reach)), out, F / 2, flangeThick(dn), VALVE);
+    g.tube(vadd(c, vmul(d, half * 0.5)), vadd(c, vmul(d, half + F * 0.9)), pipe * 0.9 + 6, pipe * 0.7 + 4, VALVE, [false, true]);
+    return;
+  }
   // The stem, then what works it: an actuator, a lever, a wheel.
   const body = flanged ? Math.min(half, F * 0.42) : pipe * 1.9 + 4;
   const stemTop = vadd(c, vmul(up, body + Math.max(30, F * 0.35)));
   g.tube(vadd(c, vmul(up, body * 0.8)), stemTop, Math.max(5, pipe * 0.18), Math.max(5, pipe * 0.18), HANDLE, [false, true]);
+  if (comp.kind === 'REGULATOR') {
+    // The diaphragm case on the stem, the spring case over it, and the
+    // sensing line out to the pipe downstream (the way it flows).
+    const R = Math.max(70, F * 0.62);
+    g.tube(stemTop, vadd(stemTop, vmul(up, R * 0.35)), R, R, ACTUATOR, [true, true]);
+    g.tube(vadd(stemTop, vmul(up, R * 0.35)), vadd(stemTop, vmul(up, R * 0.9)), R * 0.35, R * 0.28, ACTUATOR, [false, true]);
+    const flow = vmul(d, comp.flip ? -1 : 1);
+    const lineR = Math.max(4, pipe * 0.1);
+    const start = vadd(vadd(stemTop, vmul(up, R * 0.17)), vmul(flow, R));
+    const far = half + flangeLength(dn) + Math.max(150, F * 0.8);
+    const over = vadd(vadd(c, vmul(flow, far)), vmul(up, vdot(vsub(start, c), up)));
+    const tap = vadd(vadd(c, vmul(flow, far)), vmul(up, pipe));
+    g.tube(start, over, lineR, lineR, HANDLE);
+    g.sphere(over, lineR, HANDLE);
+    g.tube(over, tap, lineR, lineR, HANDLE);
+    return;
+  }
   if (comp.kind === 'BALL_ACT' || comp.kind === 'CONTROL') {
     const s = Math.max(70, F * 0.62);
     g.box(vadd(stemTop, vmul(up, s / 2)), [d, side, up], [s * 0.7, s / 2, s / 2], ACTUATOR);
   } else if (comp.kind === 'BALL' || comp.kind === 'BUTTERFLY' || comp.kind === 'PLUG') {
     const lever = Math.max(120, F * 1.2);
     g.box(vadd(stemTop, vmul(d, lever / 2 - 10)), [d, side, up], [lever / 2, Math.max(6, F * 0.03), Math.max(4, F * 0.02)], HANDLE);
-  } else if (comp.kind !== 'RELIEF' && comp.kind !== 'STRAINER') {
+  } else if (comp.kind !== 'STRAINER') {
     g.disc(stemTop, up, Math.max(50, F * 0.42), Math.max(8, F * 0.04), HANDLE);
   }
 }

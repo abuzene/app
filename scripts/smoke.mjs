@@ -149,7 +149,7 @@ check('a length can be typed', await page.locator('#tab-body .run-list input[dat
 // Palette.
 await page.locator('#tab-body .run-list tbody tr').first().click();
 await page.waitForTimeout(200);
-check('the palette carries the fittings, couplings (SW, NPT), ball valves (flanged, air, SW, threaded), tee, olets, marks, equipment and a weld', await page.locator('.tool').count(), (v) => v === 24, '24');
+check('the palette carries the fittings, couplings (SW, NPT), ball valves (flanged, air, SW, threaded), regulator, filter, relief, tee, olets, marks, equipment and a weld', await page.locator('.tool').count(), (v) => v === 27, '27');
 check('and no slip-on or lap joint flange, which are not used here', await page.locator('.tool[data-kind="FLG_SO"], .tool[data-kind="FLG_LAP"]').count(), (v) => v === 0, '0');
 check('a tee can be placed on a header', await page.locator('.tool[data-branch="TEE"]').count(), (v) => v === 1, '1');
 check('the actuated ball valve is there', await page.locator('.tool[data-kind="BALL_ACT"]').count(), (v) => v === 1, '1');
@@ -1673,7 +1673,9 @@ check('at the chosen sheet size', await page.evaluate(() => document.getElementB
 await page.emulateMedia({ media: 'print' });
 check('on paper the app is hidden', await page.evaluate(() => getComputedStyle(document.getElementById('app')).display), (v) => v === 'none', 'none');
 check('and the sheet is shown', await page.evaluate(() => getComputedStyle(document.getElementById('print-root')).display), (v) => v === 'block', 'block');
-await page.emulateMedia({ media: 'screen' });
+// Back to no emulation, so page.pdf() prints with the print stylesheet
+// again (left on 'screen', every PDF check after this printed the app).
+await page.emulateMedia({ media: null });
 check('on screen the sheet stays out of the way', await page.evaluate(() => getComputedStyle(document.getElementById('print-root')).display), (v) => v === 'none', 'none');
 
 /* ---------------- numbered supports, the L50 angle, a set-size valve, SW flanges */
@@ -4057,6 +4059,67 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   await page.waitForTimeout(200);
   check('Take off sheet takes the picture off', (await drawingNow()).view3d, (v) => v === undefined, 'undefined');
   await page.click('[data-a="v3d-close"]');
+  await page.waitForTimeout(150);
+}
+
+/* --------------------------- a regulator, a filter and a relief valve */
+
+// "Is there a mark for a regulator? … add it with the sensing line", then
+// "find me a mark for a filter too and add it to the palette", "and a
+// relief valve" (2026-09-27).
+{
+  check('the palette has Regulator, Filter and Relief with the valves', await page.locator('.tool[data-kind="REGULATOR"], .tool[data-kind="FILTER"], .tool[data-kind="RELIEF"]').allInnerTexts(), (v) => v.map((t) => t.trim()).join('|') === 'Regulator|Filter|Relief', 'Regulator | Filter | Relief');
+  await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 4000\n+FILTER 900\n+REG 2600\nMARK t\nE 1000\nEND FLG\nGOTO t\nU 700');
+  const d = await drawingNow();
+  const top = d.nodes.find((n) => n.pos.u > 600);
+  const pick = async (sel) => {
+    const el = page.locator(sel).first();
+    await el.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+    await el.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+    await page.waitForTimeout(250);
+  };
+  await pick(`#canvas circle.hit-dot[data-node="${top.id}"]`);
+  await page.click('.tool[data-kind="RELIEF"]');
+  await page.waitForTimeout(300);
+  await page.keyboard.press('Escape');
+  await page.click('#tabs button:has-text("Items")');
+  await page.waitForTimeout(200);
+  const list = await page.locator('#tab-body table').first().innerText();
+  check('each is on the material list by its name', ['FILTER', 'PRESSURE REGULATOR', 'RELIEF VALVE'].map((n) => list.includes(n)).join(' '), (v) => v === 'true true true', 'true true true');
+  await page.click('#tabs button:has-text("Welds")');
+  await page.waitForTimeout(200);
+  const joins = await page.locator('#tab-body table tbody tr').allInnerTexts();
+  check('flanged like the valves: two flange welds each, one for the relief valve on the end', `${joins.length} ${joins.filter((r) => /PIPE \/ WELD NECK FLANGE/.test(r)).length}`, (v) => v === '9 6', '9 welds, 6 of them to a weld neck flange');
+  const reg = (await drawingNow()).runs.flatMap((r) => r.inline).find((c) => c.kind === 'REGULATOR');
+  const tapSide = () =>
+    page.evaluate((id) => {
+      const g = document.querySelector(`#canvas .component[data-component="${id}"]`);
+      const dot = g?.querySelector('.sensing-line circle');
+      if (!g || !dot) return 'none';
+      const body = g.querySelector('polygon').getBoundingClientRect();
+      const tap = dot.getBoundingClientRect();
+      return tap.x > body.x + body.width ? 'downstream' : tap.x + tap.width < body.x ? 'upstream' : 'on';
+    }, reg.id);
+  check('the regulator is drawn with its sensing line to the pipe downstream', await tapSide(), (v) => v === 'downstream', 'downstream');
+  await pick(`#canvas .component[data-component="${reg.id}"]`);
+  await page.selectOption('#tab-body [data-f="flip"]', 'start');
+  await page.waitForTimeout(250);
+  check('Flow the other way takes the sensing line to the other side', await tapSide(), (v) => v === 'upstream', 'upstream');
+  const filterSym = await page.evaluate(() => {
+    const id = JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).runs.flatMap((r) => r.inline).find((c) => c.kind === 'FILTER').id;
+    const g = document.querySelector(`#canvas .component[data-component="${id}"]`);
+    // The diamond: four corners, two of them on the pipe's line either side.
+    const diamond = [...(g?.querySelectorAll('polygon.sym-fill') ?? [])].filter((p) => p.getAttribute('points').trim().split(/\s+/).length === 4).length;
+    return `${diamond > 0} ${g?.querySelectorAll('.sym-dashed').length}`;
+  });
+  check('the filter is a diamond with a dashed line across', filterSym, (v) => v === 'true 1', 'true 1');
+  await page.keyboard.press('Escape');
+  await page.click('#view3d');
+  await page.waitForTimeout(500);
+  check('and all three are in the 3D view, their welds numbered', await page.locator('.v3d-tag').count(), (v) => v === 9, '9');
+  await page.click('[data-a="v3d-close"]');
+  await page.waitForTimeout(150);
+  await page.click('#tabs button:has-text("Route")');
   await page.waitForTimeout(150);
 }
 

@@ -512,20 +512,71 @@ export function componentSymbol(kind: ComponentKind, f: Frame, reach?: number, f
         `<ellipse class="sym-hollow" cx="${ax.toFixed(2)}" cy="${ay.toFixed(2)}" rx="${(s * 0.9).toFixed(2)}" ry="${(s * 0.5).toFixed(2)}"/>`
       );
     }
-    case 'RELIEF':
+    case 'REGULATOR': {
+      // The valve body, its diaphragm dome on the stem with the spring over
+      // it, and the sensing line (dashed) out to the pipe downstream: the
+      // way the line flows, which `flip` turns round (ISA 5.1; his ask,
+      // 2026-09-27, "with the sensing line").
+      const R = Math.max(s, reach ?? s);
+      const dir = flip ? -1 : 1;
+      const top = s * 1.6;
+      const r = s * 0.85;
+      const dome: [number, number][] = [];
+      for (let i = 0; i <= 14; i += 1) {
+        const t = (Math.PI * i) / 14;
+        dome.push(pt(f, r * Math.cos(t), 0, top + r * Math.sin(t)));
+      }
+      let spring = '';
+      const zig = [0, 0.25, 0.4, 0.55, 0.7, 0.85, 1].map((k, i) => pt(f, i === 0 || i === 6 ? 0 : (i % 2 ? -1 : 1) * s * 0.3, 0, top + r + s * 0.15 + k * s * 0.9));
+      for (let i = 1; i < zig.length; i += 1) {
+        spring += `<line class="sym-line" x1="${zig[i - 1][0].toFixed(2)}" y1="${zig[i - 1][1].toFixed(2)}" x2="${zig[i][0].toFixed(2)}" y2="${zig[i][1].toFixed(2)}"/>`;
+      }
+      const tap = dir * (R + s * 2.4);
+      const from = top + r * 0.3;
       return (
         body() +
-        stem(f, 2) +
-        poly(
-          [
-            pt(f, 0, -s * 0.6, s * 2),
-            pt(f, 0, s * 0.6, s * 2),
-            pt(f, 0, s * 0.6, s * 2.9),
-            pt(f, 0, -s * 0.6, s * 2.9),
-          ],
-          'sym-hollow',
-        )
+        stem(f, 1.6) +
+        poly(dome, 'sym-fill') +
+        spring +
+        `<g class="sensing-line">` +
+        line(f, [dir * r * 0.95, 0, from], [tap, 0, from], 'sym-dashed') +
+        line(f, [tap, 0, from], [tap, 0, 0], 'sym-dashed') +
+        circle(f, tap, 0, s * 0.2, 'sym-solid') +
+        `</g>`
       );
+    }
+    case 'FILTER': {
+      // A diamond reaching its faces, filled with the paper so the pipe is
+      // not seen through it, a dashed line across it: the filter element
+      // (ISO 10628; his ask, 2026-09-27).
+      const R = Math.max(s, reach ?? s);
+      const h = Math.min(R * 0.95, s * 1.7);
+      return (
+        poly([pt(f, -R, 0, 0), pt(f, 0, 0, h), pt(f, R, 0, 0), pt(f, 0, 0, -h)], 'sym-fill') +
+        line(f, [0, 0, -h * 0.92], [0, 0, h * 0.92], 'sym-dashed')
+      );
+    }
+    case 'RELIEF': {
+      // A relief valve is an angle valve (ISA 5.1): in along the line,
+      // out to the side with its flange and an arrow, the spring over the
+      // inlet's line (his ask, 2026-09-27, "and a relief valve").
+      const R = Math.max(s, reach ?? s);
+      const w = s * 0.85;
+      const outR = Math.max(s * 1.2, R * 0.8);
+      let spring = '';
+      const zig = [0, 1, 2, 3, 4, 5, 6].map((i) => pt(f, s * 0.3 + i * s * 0.22, 0, i === 0 || i === 6 ? 0 : (i % 2 ? 1 : -1) * s * 0.32));
+      for (let i = 1; i < zig.length; i += 1) {
+        spring += `<line class="sym-line" x1="${zig[i - 1][0].toFixed(2)}" y1="${zig[i - 1][1].toFixed(2)}" x2="${zig[i][0].toFixed(2)}" y2="${zig[i][1].toFixed(2)}"/>`;
+      }
+      return (
+        poly([pt(f, -R, 0, -w), pt(f, -R, 0, w), pt(f, 0, 0, 0)], 'sym-fill') +
+        poly([pt(f, -w, 0, outR), pt(f, w, 0, outR), pt(f, 0, 0, 0)], 'sym-fill') +
+        line(f, [-w * 1.15, 0, outR + s * 0.22], [w * 1.15, 0, outR + s * 0.22], 'sym-face') +
+        line(f, [0, 0, outR + s * 0.22], [0, 0, outR + s * 1.3], 'sym-line') +
+        poly([pt(f, 0, 0, outR + s * 1.75), pt(f, -s * 0.3, 0, outR + s * 1.2), pt(f, s * 0.3, 0, outR + s * 1.2)], 'sym-solid') +
+        spring
+      );
+    }
     case 'SPECTACLE':
       // Drawn along the pipe: the closed disc and the open ring on one web.
       return (
