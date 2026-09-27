@@ -578,7 +578,12 @@ ships, and the decisions already taken, so they are not re-litigated.
   them off (`takenOff` in the renderer) until it gets `hdr:` overrides or
   the run panel's Dimension: show (which clears both). Typing a piece
   that ends on an olet's centre moves that olet (the next piece gives);
-  `all` moves the far end. `applyChainDimension`
+  `all` moves the far end. **An olet moved by a dimension takes its
+  branch with it** (everything hanging off it, equipment too; refused if
+  the branch rejoins the header): left behind askew, `straightenBranches`
+  squared it back on the next load and the olet with it — "I cannot
+  change the 173" between two olets on his Strauss sheet, 2026-09-27.
+  `applyChainDimension`
   in edit.ts: the olet's dimension moves the olet alone (inline items on
   the runs either side keep their place on the header); the last piece
   stretches the last run with `stretchRun(..., moveEnd = true)` — without

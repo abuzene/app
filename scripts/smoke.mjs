@@ -4297,6 +4297,41 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   check('a valve is not pushed into the next one: refused, with how far it can go', `${(await drawingNow()).runs[2].inline.map((c) => c.offset).join()} ${/at most \d+ here/.test(await page.locator('#hud').innerText())}`, (v) => v === '350,700 true', '350,700 true');
 }
 
+/* ------------------------- the dimension between two olets on a header */
+
+// "I cannot change the 173" (Strauss sheet, 2026-09-27): the piece between
+// two olets on the existing 6". Typed, the olet moved but its branch stayed
+// behind askew, and the next load squared it back, olet and all. The branch
+// now goes with the olet.
+{
+  await routeLine('6"\nSCH40\nORIGIN 0 0 0\nU 100');
+  await page.evaluate((part) => {
+    const d = JSON.parse(localStorage.getItem('iso-draw.drawing.v1'));
+    Object.assign(d, part);
+    localStorage.setItem('iso-draw.drawing.v1', JSON.stringify(d));
+  }, {"nodes":[{"id":"n8oirg","pos":{"e":0,"n":0,"u":0}},{"id":"n94r5k","pos":{"e":0,"n":0,"u":690}},{"id":"nbfm3n","pos":{"e":0,"n":0,"u":345},"fittingOverride":"OLET","joint":"BW","olets":[{"dir":"N","dn":"DN65"}]},{"id":"njht33","pos":{"e":0,"n":629,"u":345},"fittingOverride":"OLET","joint":"THD","olets":[{"dir":"U","dn":"DN15"}]},{"id":"no8atp","pos":{"e":0,"n":0,"u":517.5},"fittingOverride":"OLET","joint":"BW","olets":[{"dir":"S","dn":"DN80"}]},{"id":"nvppkn","pos":{"e":0,"n":-759.5,"u":517.5},"terminal":{"kind":"FLG_BLIND"}},{"id":"nxpxgy","pos":{"e":0,"n":-619.5,"u":517.5},"fittingOverride":"OLET","joint":"THD","olets":[{"dir":"U","dn":"DN15"}]}],"runs":[{"id":"raoz1a","from":"n8oirg","to":"nbfm3n","dn":"DN150","schedule":"SCH40","inline":[],"visual":380,"dashed":true,"note":"EXISTING 6\""},{"id":"rcaapk","from":"nbfm3n","to":"no8atp","dn":"DN150","schedule":"SCH40","inline":[],"visual":270,"dashed":true},{"id":"rpndwx","from":"no8atp","to":"n94r5k","dn":"DN150","schedule":"SCH40","inline":[],"visual":270,"dashed":true},{"id":"re9wy4","from":"nbfm3n","to":"njht33","dn":"DN50","schedule":"SCH40","inline":[{"id":"c1awnf","kind":"BALL","offset":230},{"id":"cbik0y","kind":"BALL_ACT","offset":540,"lastFlange":"blind"}],"visual":1010},{"id":"rrvq6h","from":"no8atp","to":"nxpxgy","dn":"DN80","schedule":"SCH40","inline":[{"id":"cuphcc","kind":"BALL","offset":310}],"visual":803.5},{"id":"ryp27c","from":"nxpxgy","to":"nvppkn","dn":"DN80","schedule":"SCH40","inline":[],"visual":388.8}]});
+  await page.reload();
+  await page.waitForTimeout(700);
+  await page.click('#fit');
+  await page.waitForTimeout(300);
+  const between = await page.evaluate(() => [...document.querySelectorAll('#canvas .dim-text')].find((e) => e.textContent === '173')?.closest('[data-dim]')?.getAttribute('data-dim') ?? [...document.querySelectorAll('#canvas [data-dim]')].map((e) => e.getAttribute('data-dim')).find((k) => /^hdr:.*:1$/.test(k)));
+  const box = await page.locator(`#canvas [data-dim="${between}"]`).first().boundingBox();
+  await penTap(box.x + box.width / 2, box.y + box.height / 2);
+  for (let i = 0; i < 6; i += 1) await page.locator('.dim-keypad [data-key="⌫"]').dispatchEvent('pointerdown', { bubbles: true });
+  for (const k of ['2', '0', '0']) await page.locator(`.dim-keypad [data-key="${k}"]`).dispatchEvent('pointerdown', { bubbles: true });
+  await page.locator('.dim-keypad [data-key="OK"]').dispatchEvent('pointerdown', { bubbles: true });
+  await page.waitForTimeout(400);
+  const heights = async () => {
+    const d = await drawingNow();
+    const at = (id) => d.nodes.find((n) => n.id === id)?.pos.u;
+    return `${at('no8atp')} ${at('nxpxgy')} ${at('nvppkn')}`;
+  };
+  check('the 173 between the olets typed as 200: the olet moves up, its 3" branch with it', await heights(), (v) => v === '545 545 545', '545 545 545');
+  await page.reload();
+  await page.waitForTimeout(700);
+  check('and it holds when the sheet is opened again', await heights(), (v) => v === '545 545 545', '545 545 545');
+}
+
 /* ------------------------------------ couplings, socket weld and threaded */
 
 // "Two more fittings: COUPLING SW, the socket one, and COUPLING NPT"

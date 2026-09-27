@@ -1613,6 +1613,33 @@ export function applyChainDimension(drawing: Drawing, analysis: Analysis, key: s
     if (!dir) return 'No such dimension.';
     const was = chain.olets.find((o) => o.nodeId === nodeId)!.along;
     const delta = value - was;
+    // The olet's branch goes with it, all that hangs off it: left behind, it
+    // was drawn askew, and squared up again on the next load the olet went
+    // back — the dimension "could not be changed" (his Strauss sheet,
+    // 2026-09-27: the 173 between two olets on the existing 6").
+    const header = new Set(chain.runs.flatMap((leg) => [leg.run.from, leg.run.to]));
+    const headerRuns = new Set(chain.runs.map((leg) => leg.run.id));
+    const branch = new Set<string>();
+    const queue = drawing.runs
+      .filter((r) => !headerRuns.has(r.id) && (r.from === nodeId || r.to === nodeId))
+      .map((r) => (r.from === nodeId ? r.to : r.from));
+    while (queue.length > 0) {
+      const id = queue.shift()!;
+      if (id === nodeId || branch.has(id)) continue;
+      if (header.has(id)) return 'The olet\'s branch joins the header again further on, so it cannot move along it.';
+      branch.add(id);
+      for (const r of drawing.runs) {
+        if (r.from === id && !branch.has(r.to)) queue.push(r.to);
+        else if (r.to === id && !branch.has(r.from)) queue.push(r.from);
+      }
+    }
+    const shift = scale3(dir, delta);
+    for (const other of drawing.nodes) if (branch.has(other.id)) other.pos = add(other.pos, shift);
+    for (const box of drawing.equipment ?? []) {
+      if (!box.stand || !branch.has(box.stand)) continue;
+      box.at = add(box.at, shift);
+      if (box.standPos) box.standPos = add(box.standPos, shift);
+    }
     node.pos = add(start.pos, scale3(dir, value));
     // What sits along the runs either side keeps its place on the header.
     const before = chain.runs.find((leg) => (leg.forward ? leg.run.to : leg.run.from) === nodeId);
