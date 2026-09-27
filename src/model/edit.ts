@@ -1,6 +1,6 @@
 import type { Axis, ComponentKind, Drawing, EndType, Equipment, FlangeKind, InlineComponent, IsoNode, Measure, Run, TerminalKind, Vec3 } from './types';
 import { AXIS_VECTOR, add, axisBetween, direction, equals3, length3, scale3, step, sub } from './iso';
-import { analyse, chainStops, dimensionStops, isCoupling, nodeFittingTakeout, pipeSpans, drawnLength, fittingsTouchLength, reducerSides, isReducer, minDrawnLength, isMark, isValve, itemAtEnd, oletMarks, resolveEnds, runGroupIds, terminalTakeoutOf, uid, valveOpenSide, type Analysis } from './drawing';
+import { analyse, chainStops, dimensionStops, isCoupling, nodeFittingTakeout, pipeSpans, drawnLength, runDrawnFloor, itemHalf, fittingsTouchLength, reducerSides, isReducer, minDrawnLength, isMark, isValve, itemAtEnd, oletMarks, resolveEnds, runGroupIds, terminalTakeoutOf, uid, valveOpenSide, type Analysis } from './drawing';
 import { componentTakeout, schedulesFor, sizeOf, valveFlangeKind } from './pipe-data';
 
 /** Finds an existing node at a position, so that routes join rather than overlap. */
@@ -1168,6 +1168,70 @@ export function setValveFaceToFace(drawing: Drawing, run: Run, comp: InlineCompo
 }
 
 /**
+ * Puts another item in the place of one on a line (his ask, 2026-09-27:
+ * "replace a fitting with another"): a valve by any valve (the regulator,
+ * filter and relief valve count as valves), a reducer by the other kind of
+ * reducer. The size, its flanges left off or bolted, and the side it faces
+ * stay. A valve of another length keeps its face against the pipe: on the
+ * open end of a line the end goes out or in with the far face; along a
+ * line it has to fit between what stands either side.
+ */
+export function replaceComponent(drawing: Drawing, compId: string, kind: ComponentKind, ends?: 'SW' | 'THD'): string | null {
+  const run = drawing.runs.find((r) => r.inline.some((c) => c.id === compId));
+  const comp = run?.inline.find((c) => c.id === compId);
+  if (!run || !comp) return 'Nothing to replace.';
+  const valves = isValve(comp.kind) && isValve(kind);
+  const reducers = isReducer(comp.kind) && isReducer(kind);
+  if (!valves && !reducers) {
+    return isReducer(comp.kind) ? 'A reducer is replaced by a reducer (concentric or eccentric).' : 'A valve is replaced by another valve, a regulator, a filter or a relief valve.';
+  }
+  if (comp.kind === kind && comp.ends === ends) return null;
+  if (reducers) {
+    comp.kind = kind;
+    return null;
+  }
+  const dn = comp.dn ?? run.dn;
+  const oldHalf = componentTakeout(comp.kind, dn, false, comp.ff);
+  const newHalf = componentTakeout(kind, dn, false);
+  const delta = newHalf - oldHalf;
+  const open = valveOpenSide(drawing, run, comp);
+  const a = drawing.nodes.find((n) => n.id === run.from);
+  const b = drawing.nodes.find((n) => n.id === run.to);
+  const dir = a && b ? direction(a.pos, b.pos) : null;
+  const next: InlineComponent = { ...comp, kind, ends, ff: undefined };
+  if (!ends) delete next.ends;
+  delete next.ff;
+  if (Math.abs(delta) > 0.01 && dir && a && b) {
+    if (open === 1) {
+      // On the open end: its face on the pipe stays, the end goes with the far face.
+      next.offset = comp.offset + delta;
+      b.pos = add(b.pos, scale3(dir, 2 * delta));
+    } else if (open === 0) {
+      a.pos = add(a.pos, scale3(dir, -2 * delta));
+      for (const other of run.inline) if (other.id !== comp.id) other.offset += 2 * delta;
+      next.offset = comp.offset + delta;
+    } else {
+      next.offset = comp.offset + delta;
+      const total = runLength(drawing, run);
+      const joint = drawing.options.joint ?? 'BW';
+      const reach = (c: InlineComponent): number =>
+        componentTakeout(c.kind, c.dn ?? run.dn, isValve(c.kind) && resolveEnds(c.kind, c.dn ?? run.dn, c.ends, joint) === 'FLG' ? valveFlangeKind(joint) : false, c.ff);
+      const lo = next.offset - reach(next);
+      const hi = next.offset + reach(next);
+      if (lo < -0.5 || hi > total + 0.5) return 'It is longer than the room on its pipe: shorten what is beside it, or lengthen the pipe, first.';
+      for (const other of run.inline) {
+        if (other.id === comp.id || isMark(other.kind)) continue;
+        if (other.offset - reach(other) < hi - 0.5 && other.offset + reach(other) > lo + 0.5) return 'It is longer and would run into the item beside it.';
+      }
+    }
+  }
+  Object.assign(comp, next);
+  if (!next.ends) delete comp.ends;
+  delete comp.ff;
+  return null;
+}
+
+/**
  * Takes a pair of bolted flanges out of a line and joins the pipe straight
  * through where they were: the two runs either side become one, with what
  * sat along them kept in place. On a point that is not a flanged joint, or
@@ -1666,6 +1730,67 @@ function pieceOf(drawing: Drawing, nodeId: string): Set<string> {
  * 2026-09-24: the line after the equipment stayed where the first, longer
  * box had put it, and could not be brought in). Run after every edit.
  */
+/**
+ * Moves the points picked with a box, and all between them, by `v` (one
+ * axis). The pipes leaving the box must lie along `v`: they are made
+ * longer or shorter, what stands on them keeping its place from its own
+ * end; anything else would go askew, and the move is refused with why.
+ * Not to scale, those pipes are drawn longer or shorter by as much, so
+ * what was picked moves on the drawing by the same (his ask, 2026-09-27:
+ * "a dashed box round a piece, and move what is inside it").
+ */
+export function moveNodes(drawing: Drawing, ids: Set<string>, v: Vec3): string | null {
+  const dist = length3(v);
+  if (dist < 0.01 || ids.size === 0) return null;
+  const unit = scale3(v, 1 / dist);
+  const analysis = analyse(drawing);
+  const nodeById = new Map(drawing.nodes.map((n) => [n.id, n]));
+  const changes: { run: Run; length: number; before: number }[] = [];
+  for (const run of drawing.runs) {
+    const aIn = ids.has(run.from);
+    const bIn = ids.has(run.to);
+    if (aIn === bIn) continue;
+    const a = nodeById.get(run.from);
+    const b = nodeById.get(run.to);
+    if (!a || !b) continue;
+    const dir = direction(a.pos, b.pos);
+    if (!dir) continue;
+    const along = dir.e * unit.e + dir.n * unit.n + dir.u * unit.u;
+    if (Math.abs(along) < 0.999) {
+      const way = axisBetween(a.pos, b.pos);
+      const axes = way === 'N' || way === 'S' ? 'north or south' : way === 'E' || way === 'W' ? 'east or west' : 'up or down';
+      return `It cannot move that way: a pipe leaving the box runs ${axes}, so it moves ${axes} only.`;
+    }
+    const before = length3(sub(b.pos, a.pos));
+    const length = before + (bIn ? 1 : -1) * along * dist;
+    // No shorter than its fittings take and what stands on it reaches.
+    const cut = analysis.runLengths.get(run.id)?.cut ?? before;
+    let need = Math.max(1, before - cut);
+    for (const comp of run.inline) {
+      if (isMark(comp.kind)) continue;
+      const fromEnd = bIn ? comp.offset : before - comp.offset;
+      need = Math.max(need, fromEnd + itemHalf(drawing, run, comp));
+    }
+    if (length < need - 0.01) return `It cannot move that far: the pipe leaving the box would be shorter than what is on it (${Math.round(need)} mm).`;
+    changes.push({ run, length, before });
+  }
+  for (const { run, length, before } of changes) {
+    // Items stay put along the pipe from the end that stays.
+    if (ids.has(run.from)) for (const comp of run.inline) comp.offset = Math.max(0, comp.offset + (length - before));
+    if (drawing.options.schematic) {
+      const drawn = drawnLength(drawing, run, before);
+      run.visual = Math.max(runDrawnFloor(drawing, run, length), drawn + (length - before));
+    }
+  }
+  for (const node of drawing.nodes) if (ids.has(node.id)) node.pos = add(node.pos, v);
+  for (const box of drawing.equipment ?? []) {
+    if (!box.stand || !ids.has(box.stand)) continue;
+    box.at = add(box.at, v);
+    if (box.standPos) box.standPos = add(box.standPos, v);
+  }
+  return null;
+}
+
 export function syncEquipment(drawing: Drawing): void {
   for (const box of drawing.equipment ?? []) {
     // Boxes put down before this was kept: the point under them, and a line

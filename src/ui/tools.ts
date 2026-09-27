@@ -9,7 +9,7 @@ import { runOffsetAtPaper } from '../render/renderer';
 import { componentSymbol, jointMark, oletSymbol, type Frame } from '../render/symbols';
 
 /** Branch fittings act on the header, they do not sit in the line. */
-type BranchTool = { branch: 'TEE' } | { olet: JointType } | { weld: 'BW' } | { equipment: true } | { measure: true } | { valve: ComponentKind; ends: 'SW' | 'THD' };
+type BranchTool = { branch: 'TEE' } | { olet: JointType } | { weld: 'BW' } | { equipment: true } | { measure: true } | { area: true } | { valve: ComponentKind; ends: 'SW' | 'THD' };
 type Tool = ComponentKind | BranchTool;
 
 function isBranch(tool: Tool): tool is BranchTool {
@@ -26,7 +26,7 @@ const GROUPS: ToolGroup[] = [
   { label: 'Fittings', kinds: ['RED_CONC', 'RED_ECC', 'CAP', 'TRANSITION', 'COUPLING_SW', 'COUPLING_THD'] },
   { label: 'Valves', kinds: ['BALL', 'BALL_ACT', { valve: 'BALL', ends: 'SW' }, { valve: 'BALL', ends: 'THD' }, 'REGULATOR', 'FILTER', 'RELIEF'] },
   { label: 'Branch', kinds: [{ branch: 'TEE' }, { olet: 'BW' }, { olet: 'SW' }, { olet: 'THD' }] },
-  { label: 'Marks', kinds: ['SUPPORT', 'SUPPORT_L', 'GROUND', { equipment: true }, { measure: true }] },
+  { label: 'Marks', kinds: ['SUPPORT', 'SUPPORT_L', 'GROUND', { equipment: true }, { measure: true }, { area: true }] },
   { label: 'Joints', kinds: [{ weld: 'BW' }] },
 ];
 
@@ -114,6 +114,18 @@ function valveEndsIcon(kind: ComponentKind, ends: 'SW' | 'THD'): string {
   const f: Frame = { cx: ICON_CX, cy: ICON_CY, dx: EAST.x, dy: EAST.y, nx: NORTH.x, ny: NORTH.y, ux: UP.x, uy: UP.y, s: 5.2 };
   const at = (by: number, dx: number, dy: number): Frame => ({ ...f, cx: f.cx + EAST.x * by, cy: f.cy + EAST.y * by, dx, dy, s: 4.2 });
   return iconSvg(stub(EAST) + componentSymbol(kind, f) + jointMark(at(-7.5, EAST.x, EAST.y), ends) + jointMark(at(7.5, -EAST.x, -EAST.y), ends));
+}
+
+/** A dashed box round a piece of pipe, with the arrow it moves by. */
+function areaIcon(): string {
+  return (
+    `<svg class="tool-icon" viewBox="0 0 48 48" aria-hidden="true">` +
+    `<rect x="7" y="9" width="28" height="22" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3.5 2.5"/>` +
+    `<line x1="12" y1="24" x2="30" y2="15" stroke="currentColor" stroke-width="2.2"/>` +
+    `<line x1="30" y1="34" x2="42" y2="40" stroke="currentColor" stroke-width="1.6"/>` +
+    `<path d="M42 40 L36 40 M42 40 L39.5 35" fill="none" stroke="currentColor" stroke-width="1.6"/>` +
+    `</svg>`
+  );
 }
 
 /** A dimension between two points. */
@@ -771,6 +783,14 @@ export function renderTools(container: HTMLElement, host: Host): void {
                 `</button>`
               );
             }
+            if ('area' in tool) {
+              return (
+                `<button class="tool" data-area="1" title="Draw a box round part of the drawing, then drag inside it to move it">` +
+                areaIcon() +
+                `<span class="tool-name">Move area</span>` +
+                `</button>`
+              );
+            }
             if ('measure' in tool) {
               return (
                 `<button class="tool" data-measure="1" title="A dimension between two points: pick one, then tap the other"${enabled ? '' : ' disabled'}>` +
@@ -817,9 +837,18 @@ export function renderTools(container: HTMLElement, host: Host): void {
 
   container.querySelectorAll<HTMLButtonElement>('.tool').forEach((button) => {
     button.addEventListener('click', () => {
+      // An item waiting to be replaced: the one picked goes in its place.
+      const replacing = host.state.replacing;
+      if (replacing && (button.dataset.kind || button.dataset.valve)) {
+        host.state.replacing = null;
+        host.replaceItem(replacing, (button.dataset.valve ?? button.dataset.kind) as ComponentKind, button.dataset.ends as 'SW' | 'THD' | undefined);
+        return;
+      }
+      host.state.replacing = null;
       const olet = button.dataset.olet as JointType | undefined;
       if (button.dataset.weld) placeWeld(host);
       else if (button.dataset.equipment) placeEquipment(host);
+      else if (button.dataset.area) host.startArea();
       else if (button.dataset.measure) {
         const sel = host.state.selection;
         if (sel?.kind === 'node') host.measureFrom(sel.id);

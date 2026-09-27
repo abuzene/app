@@ -4,13 +4,13 @@ import type { Preview, Selection } from './render/renderer';
 import type { AppState, Host, OletAsk, OletChoice, ReducerAsk, ReducerChoice } from './ui/types';
 import { reducerPreview } from './ui/reducer-preview';
 import { tidyLayout, type LayoutSpecs } from './render/tidy';
-import { analyse, chainStops, dimensionStops, drawnLength, drawnStations, runDrawnFloor, trueAtShare, type DrawnStations, isMark, isReducer, itemAtEnd, itemHalf, runGroupIds, emptyDrawing, oletLegs, oletMarks, uid } from './model/drawing';
+import { COMPONENT_LABEL, isValve, analyse, chainStops, dimensionStops, drawnLength, drawnStations, runDrawnFloor, trueAtShare, type DrawnStations, isMark, isReducer, itemAtEnd, itemHalf, runGroupIds, emptyDrawing, oletLegs, oletMarks, uid } from './model/drawing';
 import { isRemoved, loadLibrary, projectsOf, removeDrawing, renumberProject, sheetNumber, upsertDrawing, worthKeeping } from './model/library';
 import { allowFolder, chooseFolder, folderStatus, forgetFolder, restoreFolder, syncFolder } from './model/folder';
 import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, setDriveClientId, syncDrive } from './model/drive';
-import { AXES, AXIS_VECTOR, add, length3, scale3, sub } from './model/iso';
+import { AXES, AXIS_VECTOR, add, axisFromScreenDelta, length3, lengthAlongAxis, scale3, sub } from './model/iso';
 import { initialCommandState, runCommands } from './model/commands';
-import { addMeasure, applyMeasureToOlet, autoCouplings, DASHED_NOTE, deleteRunGroup, measureTypeable, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, ensureNode, isCouplingPoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, runLength, setLineSize, setRunDashed, setRunDirect, startFromEquipment, straightenBranches, stretchRun, syncEquipment, uncoverPoints } from './model/edit';
+import { moveNodes, replaceComponent, addMeasure, applyMeasureToOlet, autoCouplings, DASHED_NOTE, deleteRunGroup, measureTypeable, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, ensureNode, isCouplingPoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, runLength, setLineSize, setRunDashed, setRunDirect, startFromEquipment, straightenBranches, stretchRun, syncEquipment, uncoverPoints } from './model/edit';
 import { DN_LIST, schedulesFor, sizeLabel, sizeOf } from './model/pipe-data';
 import { northArrow, paperOf, renderDrawing, symbolSizeFor } from './render/renderer';
 import { SHEET_STAMPS, renderSheet, sheetStamp, sheetSymbolSize, type SheetSize } from './render/sheet';
@@ -344,6 +344,31 @@ const host: Host = {
   },
   oletDialog(ask) {
     return oletDialog(ask);
+  },
+  replaceItem(compId, kind, ends) {
+    state.replacing = null;
+    let refused: string | null = null;
+    host.edit('Replace item', (d) => {
+      refused = replaceComponent(d, compId, kind, ends);
+    });
+    if (refused) {
+      undoStack.pop();
+      render();
+      host.notify(refused);
+      return;
+    }
+    state.selection = { kind: 'component', id: compId };
+    render();
+    host.notify(`Replaced: ${COMPONENT_LABEL[kind] ?? kind}${ends ? (ends === 'SW' ? ', socket weld ends' : ', threaded ends') : ''} in its place.`);
+  },
+  startArea() {
+    canvas.areaMode = true;
+    canvas.area = null;
+    canvas.setAnchor(null);
+    state.preview = null;
+    state.selection = null;
+    render();
+    host.notify('Draw a box with the pen round what to move.');
   },
   measureFrom(nodeId) {
     state.measureFrom = nodeId;
@@ -688,7 +713,66 @@ function finishMeasure(selection: Selection): void {
 /* ----------------------------------------------------------------- canvas */
 
 const canvas = new Canvas(svg, {
+  onAreaSelect(box) {
+    canvas.areaMode = false;
+    const ids = box
+      ? state.drawing.nodes
+          .filter((n) => {
+            const p = paperOf(state.analysis, state.drawing, n.id);
+            return !!p && p.x >= box.minX && p.x <= box.maxX && p.y >= box.minY && p.y <= box.maxY;
+          })
+          .map((n) => n.id)
+      : [];
+    canvas.area = ids.length > 0 ? ids : null;
+    state.selection = null;
+    render();
+    host.notify(ids.length > 0 ? `${ids.length} point${ids.length === 1 ? '' : 's'} in the box: drag inside it to move them.` : 'Nothing in the box.');
+  },
+  onAreaMove(delta, commit) {
+    const ids = canvas.area;
+    if (!ids) return;
+    if (!areaFrom) areaFrom = snapshot();
+    replaceDrawing(JSON.parse(areaFrom) as Drawing);
+    recompute();
+    const rotation = state.drawing.options.northRotation;
+    const axis = axisFromScreenDelta(delta.dx, delta.dy, rotation, 0.5);
+    const snap = dragSnap();
+    const length = axis ? Math.round(lengthAlongAxis(delta.dx, delta.dy, axis, state.drawing.options.scale, rotation) / snap) * snap : 0;
+    const v = axis && length > 0 ? scale3(AXIS_VECTOR[axis], length) : null;
+    const held = new Set(ids);
+    if (commit) {
+      areaFrom = null;
+      hoverMessage = null;
+      if (!v) {
+        render();
+        return;
+      }
+      let refused: string | null = null;
+      host.edit('Move area', (d) => {
+        refused = moveNodes(d, held, v);
+      });
+      if (refused) {
+        undoStack.pop();
+        render();
+        host.notify(refused);
+      } else host.notify(`Moved ${axis} ${length} mm.`);
+      return;
+    }
+    let refused: string | null = null;
+    if (v) {
+      refused = moveNodes(state.drawing, held, v);
+      if (refused) {
+        replaceDrawing(JSON.parse(areaFrom) as Drawing);
+      }
+      recompute();
+    }
+    renderCanvasOnly();
+    hoverMessage = refused ?? (v ? `moving ${axis} ${length} mm` : 'drag along a line of the drawing');
+    renderHud();
+  },
   onSelect(selection: Selection) {
+    // Picking anything, or tapping the open sheet, lets go of a box.
+    canvas.area = null;
     // A dimension by hand under way: the point tapped ends it.
     if (state.measureFrom) {
       finishMeasure(selection);
@@ -906,29 +990,64 @@ const canvas = new Canvas(svg, {
   onStretchRun(runId, end, paper, commit) {
     const run = state.drawing.runs.find((r) => r.id === runId);
     if (!run) return;
-    const length = stretchLengthTo(run, end, paper);
-    if (length === null) return;
     const schematic = !!state.drawing.options.schematic;
+    const fixedId = end === 'to' ? run.from : run.to;
 
     if (!stretchFrom || stretchFrom.id !== runId) {
-      stretchFrom = { id: runId, visual: run.visual, snapshot: snapshot() };
+      const fixed = state.analysis.display.get(fixedId);
+      stretchFrom = {
+        id: runId,
+        visual: run.visual,
+        snapshot: snapshot(),
+        fixed: fixed ? { ...fixed } : null,
+        fixedPaper: paperOf(state.analysis, state.drawing, fixedId),
+        shift: { ...(state.drawing.pieceShift ?? {}) },
+      };
     }
+    const from = stretchFrom;
+    const length = stretchLengthTo(run, end, paper, from.fixedPaper);
+    if (length === null) return;
+
+    /**
+     * Not to scale a piece is drawn on from its first point, so a run made
+     * longer pushed whatever lay on from its start: dragged by its start,
+     * the far end moved (his complaint, 2026-09-27: "only one side drags;
+     * the other side must stay where it is until I finish"). The piece is
+     * shifted back by as much as the end held still has moved.
+     */
+    const stretchDrawn = (d: Drawing, analysisNow: () => typeof state.analysis) => {
+      const target = d.runs.find((r) => r.id === runId);
+      if (!target) return;
+      target.visual = Math.max(length, runDrawnFloor(d, target));
+      d.pieceShift = { ...from.shift };
+      if (Object.keys(d.pieceShift).length === 0) delete d.pieceShift;
+      const moved = analysisNow();
+      const now = moved.display.get(fixedId);
+      const start = moved.pieceStart.get(fixedId);
+      if (!now || !from.fixed || !start) return;
+      const drift = sub(now, from.fixed);
+      if (length3(drift) < 0.01) return;
+      const had = from.shift[start] ?? { e: 0, n: 0, u: 0 };
+      d.pieceShift = { ...from.shift, [start]: sub(had, drift) };
+    };
+
     if (commit) {
-      const before = stretchFrom;
       stretchFrom = null;
       // Put the drawing back as it was before the drag, then record the move
       // as one edit so undo returns there rather than to half way through.
-      replaceDrawing(JSON.parse(before.snapshot) as Drawing);
+      replaceDrawing(JSON.parse(from.snapshot) as Drawing);
       host.edit('Stretch run', (d) => {
-        const target = d.runs.find((r) => r.id === runId);
-        if (!target) return;
-        if (schematic) target.visual = Math.max(length, runDrawnFloor(d, target));
+        if (schematic) stretchDrawn(d, () => analyse(d));
         else stretchRun(d, runId, length, end);
       });
       return;
     }
-    if (schematic) run.visual = Math.max(length, runDrawnFloor(state.drawing, run));
-    else stretchRun(state.drawing, runId, length, end);
+    if (schematic) {
+      stretchDrawn(state.drawing, () => {
+        recompute();
+        return state.analysis;
+      });
+    } else stretchRun(state.drawing, runId, length, end);
     recompute();
     renderCanvasOnly();
     hoverMessage = schematic ? 'drawn length — type the dimension for the real one' : `${Math.round(length)} mm`;
@@ -1089,7 +1208,17 @@ function endInSamePlace(nodeId: string): string | null {
 /** What a slide started from, so undo returns there and not to mid-drag. */
 let slideFrom: { id: string; offset: number; stations?: DrawnStations; ends?: [{ x: number; y: number }, { x: number; y: number }]; grab?: number } | null = null;
 let slideNodeFrom: { id: string; snapshot: string } | null = null;
-let stretchFrom: { id: string; visual: number | undefined; snapshot: string } | null = null;
+/** The drawing as it was when what a box holds began to be dragged. */
+let areaFrom: string | null = null;
+let stretchFrom: {
+  id: string;
+  visual: number | undefined;
+  snapshot: string;
+  /** Where the end held still is drawn, on the drawing and on the paper, as the drag began. */
+  fixed: Vec3 | null;
+  fixedPaper: { x: number; y: number } | null;
+  shift: Record<string, Vec3>;
+} | null = null;
 let tagFrom: string | null = null;
 
 /**
@@ -1097,13 +1226,14 @@ let tagFrom: string | null = null;
  * measured along the run's own line from the end that stays, so the run only
  * ever gets longer or shorter, never turns.
  */
-function stretchLengthTo(run: Run, end: 'from' | 'to', paper: { x: number; y: number }): number | null {
+function stretchLengthTo(run: Run, end: 'from' | 'to', paper: { x: number; y: number }, fixedAt?: { x: number; y: number } | null): number | null {
   const fixedId = end === 'to' ? run.from : run.to;
   const movingId = end === 'to' ? run.to : run.from;
   const fixed = state.analysis.nodeById.get(fixedId);
   const moving = state.analysis.nodeById.get(movingId);
   if (!fixed || !moving) return null;
-  const pf = paperOf(state.analysis, state.drawing, fixedId);
+  // Measured from where the end held still was when the drag began.
+  const pf = fixedAt ?? paperOf(state.analysis, state.drawing, fixedId);
   const pm = paperOf(state.analysis, state.drawing, movingId);
   if (!pf || !pm) return null;
   const vx = pm.x - pf.x;
@@ -1494,9 +1624,16 @@ function renderHud(): void {
   }
   if (state.joinFrom) parts.push('<span>join — tap the other open end</span>');
   else if (sel?.kind === 'node' && state.analysis.nodeInfo.get(sel.id)?.degree === 1) parts.push('<button class="hud-stop" id="hud-join" type="button">Join to another end</button>');
+  if (canvas.areaMode) parts.push('<span>box — draw it round what to move</span><button class="hud-stop" id="hud-area-done" type="button">Cancel</button>');
+  else if (canvas.area) parts.push(`<span>${canvas.area.length} point${canvas.area.length === 1 ? '' : 's'} held — drag inside the box to move</span><button class="hud-stop" id="hud-area-done" type="button">Done</button>`);
   if (state.measureFrom) parts.push('<span>dimension — tap the other point</span>');
   else if (sel?.kind === 'node') parts.push('<button class="hud-stop" id="hud-measure" type="button">Dimension from here</button>');
   if (sel?.kind === 'equipment') parts.push('<button class="hud-stop" id="hud-equip-draw" type="button">Draw on from the far side</button>');
+  if (state.replacing) parts.push('<span>replace — pick the new item in the palette</span>');
+  else if (sel?.kind === 'component') {
+    const kind = state.drawing.runs.flatMap((r) => r.inline).find((c) => c.id === sel.id)?.kind;
+    if (kind && (isValve(kind) || isReducer(kind))) parts.push('<button class="hud-stop" id="hud-replace" type="button">Replace…</button>');
+  }
   if (sel?.kind === 'run') {
     // Fitting welded straight to fitting, no pipe between: the run stays as
     // their centre-to-centre, but there is nothing to cut and one weld.
@@ -1550,6 +1687,17 @@ function renderHud(): void {
     host.notify(on ? 'Drawn dashed, carried on to the next sheet: not on this sheet\'s list. Tap the note beside it to type it over, or drag it.' : 'A solid line again.');
   });
   hudEl.querySelector('#hud-update')?.addEventListener('click', () => location.reload());
+  hudEl.querySelector('#hud-replace')?.addEventListener('click', () => {
+    if (state.selection?.kind !== 'component') return;
+    state.replacing = state.selection.id;
+    renderHud();
+    host.notify('Pick the new item in the palette: a valve, regulator, filter or relief valve (or the other reducer).');
+  });
+  hudEl.querySelector('#hud-area-done')?.addEventListener('click', () => {
+    canvas.areaMode = false;
+    canvas.area = null;
+    render();
+  });
   hudEl.querySelector('#hud-join')?.addEventListener('click', () => {
     if (state.selection?.kind === 'node') host.joinFrom(state.selection.id);
   });
@@ -2952,6 +3100,9 @@ window.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') {
     state.measureFrom = null;
     state.joinFrom = null;
+    canvas.areaMode = false;
+    canvas.area = null;
+    state.replacing = null;
     viewMenuEl.classList.remove('open');
     canvas.setAnchor(null);
     state.preview = null;

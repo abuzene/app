@@ -527,3 +527,9 @@ tr.selected { background: var(--accent-soft); }
 }
 .v3d-none { padding: 30px; color: var(--muted); }
 .v3d-bar .check span { color: var(--ink); font-size: 13px; }
+
+/* The box drawn round part of the drawing, and what it holds. */
+#canvas .area-layer { pointer-events: none; }
+#canvas .area-band { fill: rgba(11, 98, 214, 0.05); stroke: var(--accent); stroke-width: 1.5px; stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; }
+#canvas .area-box { fill: rgba(11, 98, 214, 0.07); stroke: var(--accent); stroke-width: 1.5px; stroke-dasharray: 7 4; vector-effect: non-scaling-stroke; }
+#canvas .area-point { fill: var(--accent); }

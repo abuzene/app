@@ -175,6 +175,8 @@ export interface Analysis {
   nodeJoint: Map<string, JointType>;
   /** Points whose joint comes from the olet their line is drawn from. */
   inheritedJoint: Map<string, { joint: JointType; from: string }>;
+  /** Not to scale: the first point of the piece each point is laid out in (none to scale). */
+  pieceStart: Map<string, string>;
   /** Not to scale: where things are drawn along each run (none to scale). */
   stations: Map<string, DrawnStations>;
   warnings: string[];
@@ -800,7 +802,7 @@ export function trueAtShare(stations: DrawnStations | undefined, share: number, 
   return trueLength;
 }
 
-function layout(drawing: Drawing, nodeById: Map<string, IsoNode>, adjacency: Map<string, Run[]>): Map<string, Vec3> {
+function layout(drawing: Drawing, nodeById: Map<string, IsoNode>, adjacency: Map<string, Run[]>, starts?: Map<string, string>): Map<string, Vec3> {
   const display = new Map<string, Vec3>();
 
   // True layout is simply the plant coordinates.
@@ -839,13 +841,19 @@ function layout(drawing: Drawing, nodeById: Map<string, IsoNode>, adjacency: Map
     // point where that point is drawn.
     const beyond = (drawing.equipment ?? []).find((box) => box.next && remaining.has(box.next) && box.stand && display.has(box.stand));
     const startId = beyond?.next ?? [...remaining].find((id) => !beyondBoxes.has(id)) ?? [...remaining][0];
+    // A piece shifted by a stretch from its start side is drawn that far
+    // from where its first point really is.
+    const shift = beyond ? undefined : drawing.pieceShift?.[startId];
     display.set(
       startId,
       beyond
         ? add(add(display.get(beyond.stand!)!, sub(beyond.at, nodeById.get(beyond.stand!)!.pos)), scale3(AXIS_VECTOR[beyond.axis], beyond.length))
-        : { ...nodeById.get(startId)!.pos },
+        : shift
+          ? add(nodeById.get(startId)!.pos, shift)
+          : { ...nodeById.get(startId)!.pos },
     );
     remaining.delete(startId);
+    starts?.set(startId, startId);
 
     const queue = [startId];
     while (queue.length > 0) {
@@ -861,6 +869,7 @@ function layout(drawing: Drawing, nodeById: Map<string, IsoNode>, adjacency: Map
         if (trueLen < 0.01) continue;
         const visual = drawnLength(drawing, run, trueLen);
         display.set(otherId, add(here, scale3(delta, visual / trueLen)));
+        starts?.set(otherId, starts.get(id) ?? id);
         remaining.delete(otherId);
         queue.push(otherId);
       }
@@ -1803,6 +1812,7 @@ export function analyse(drawing: Drawing): Analysis {
   const chainOfRun = new Map<string, HeaderChain>();
   for (const chain of chains) for (const leg of chain.runs) chainOfRun.set(leg.run.id, chain);
 
+  const pieceStart = new Map<string, string>();
   return {
     nodeJoint,
     inheritedJoint,
@@ -1815,7 +1825,8 @@ export function analyse(drawing: Drawing): Analysis {
     pieces,
     bom,
     items,
-    display: layout(drawing, nodeById, adjacency),
+    display: layout(drawing, nodeById, adjacency, pieceStart),
+    pieceStart,
     stations: runStations(drawing, nodeById),
     chains,
     chainOfRun,

@@ -807,6 +807,38 @@ ships, and the decisions already taken, so they are not re-litigated.
   no forced second row any more. The smoke reaches the switches through
   `inViewMenu`.
 
+- **Both ends of a run drag** (his complaint, 2026-09-27: "only one side
+  drags; the other must stay put until I finish"): to scale this always
+  held; not to scale a piece is laid out from its first point, so a run
+  stretched by its start pushed the far side (and ran away, measured from
+  a point that moved). `onStretchRun` (handles and end points alike) now
+  measures from where the held end was when the drag began
+  (`stretchFrom.fixed`/`fixedPaper`) and keeps it there by shifting the
+  piece: `drawing.pieceShift[startId]` (a Vec3 in drawn mm, added in
+  `layout` to the piece's first point; `analysis.pieceStart` maps each
+  point to it).
+- **Move area** (Marks palette `[data-area]`, `host.startArea`; his ask,
+  same day: "a dashed rectangle, then move what is inside"): the next pen
+  drag draws a dashed box (`canvas.areaMode`, `.area-band`); the points
+  in it are held (`canvas.area`, `.area-box` round them, `.area-point`);
+  a pen drag inside the box moves them along one axis (`onAreaMove` →
+  `moveNodes` in edit.ts, snapshot per step, one undo on the lift). The
+  pipes leaving the box must lie along the move (they get longer or
+  shorter, items keep their place from the end that stays, never shorter
+  than their take-outs/items); across them it refuses and says which way
+  it can go. Not to scale those pipes' drawn length changes by as much.
+  Equipment standing on a held point goes with it. HUD Done/Cancel,
+  Escape, or picking anything lets go.
+- **Replace an item** (same day: "replace a fitting with another"):
+  `replaceComponent` in edit.ts — a valve by any valve (ball, air, SW/THD
+  ends, gate, globe, check, butterfly, plug, regulator, filter, relief), a
+  reducer by the other kind; same id (weld numbers stay), size, bare/last
+  flange. A longer/shorter valve keeps its face on the pipe side: on an
+  open end the end point goes out/in with the far face; along a line it
+  must fit (refused, with why). The component panel's **Replace with**
+  (`[data-f="replace"]`, `KIND|SW`) and the HUD **Replace…**
+  (`#hud-replace` → `state.replacing`, the next palette valve/fitting
+  picked goes in) → `host.replaceItem`.
 - **3D view** (his ask, 2026-09-27: "can the pipe line be shown in 3D —
   and a picture of it put into the drawing, clearer for the shop"):
   toolbar `#view3d` → `open3dView` in `src/ui/view3d-window.ts`, a full

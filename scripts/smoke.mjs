@@ -149,7 +149,7 @@ check('a length can be typed', await page.locator('#tab-body .run-list input[dat
 // Palette.
 await page.locator('#tab-body .run-list tbody tr').first().click();
 await page.waitForTimeout(200);
-check('the palette carries the fittings, couplings (SW, NPT), ball valves (flanged, air, SW, threaded), regulator, filter, relief, tee, olets, marks, equipment and a weld', await page.locator('.tool').count(), (v) => v === 27, '27');
+check('the palette carries the fittings, couplings (SW, NPT), ball valves (flanged, air, SW, threaded), regulator, filter, relief, tee, olets, marks, equipment, move area and a weld', await page.locator('.tool').count(), (v) => v === 28, '28');
 check('and no slip-on or lap joint flange, which are not used here', await page.locator('.tool[data-kind="FLG_SO"], .tool[data-kind="FLG_LAP"]').count(), (v) => v === 0, '0');
 check('a tee can be placed on a header', await page.locator('.tool[data-branch="TEE"]').count(), (v) => v === 1, '1');
 check('the actuated ball valve is there', await page.locator('.tool[data-kind="BALL_ACT"]').count(), (v) => v === 1, '1');
@@ -4119,6 +4119,113 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   check('and all three are in the 3D view, their welds numbered', await page.locator('.v3d-tag').count(), (v) => v === 9, '9');
   await page.click('[data-a="v3d-close"]');
   await page.waitForTimeout(150);
+  await page.click('#tabs button:has-text("Route")');
+  await page.waitForTimeout(150);
+}
+
+/* ------------- both ends drag; a box moves what it holds; an item replaced */
+
+// "Dragging works from one side only: I want to drag either side, the
+// other staying where it is until I finish; a dashed box to move a whole
+// piece; and a way to replace one item by another" (2026-09-27).
+{
+  const centreOf = (sel) => page.evaluate((sel) => {
+    const e = document.querySelector(sel);
+    if (!e) return null;
+    const r = e.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  }, sel);
+  const penLine = async (from, to) => {
+    await pen('mousePressed', from.x, from.y);
+    for (let i = 1; i <= 12; i += 1) {
+      await pen('mouseMoved', from.x + ((to.x - from.x) * i) / 12, from.y + ((to.y - from.y) * i) / 12);
+      await page.waitForTimeout(30);
+    }
+    await pen('mouseReleased', to.x, to.y);
+    await page.waitForTimeout(400);
+  };
+  // Not to scale, a run dragged by either end: that end moves, the other stays.
+  await routeLine('3"\nSCH40\nORIGIN 0 0 0\nS 380\nEND FLG');
+  if (!(await drawingNow()).options.schematic) await inViewMenu(() => page.click('#opt-schematic'));
+  await page.click('#fit');
+  await page.waitForTimeout(300);
+  const run0 = (await drawingNow()).runs[0];
+  const endsNow = async () => [await centreOf(`#canvas circle.hit-dot[data-node="${run0.from}"]`), await centreOf(`#canvas circle.hit-dot[data-node="${run0.to}"]`)];
+  let [a0, z0] = await endsNow();
+  await pen('mousePressed', (a0.x + z0.x) / 2, (a0.y + z0.y) / 2);
+  await pen('mouseReleased', (a0.x + z0.x) / 2, (a0.y + z0.y) / 2);
+  await page.waitForTimeout(300);
+  // Picking the run changes the bars round the drawing: measured again.
+  [a0, z0] = await endsNow();
+  const out = (from, other) => {
+    const l = Math.hypot(from.x - other.x, from.y - other.y);
+    return { x: from.x + ((from.x - other.x) / l) * 70, y: from.y + ((from.y - other.y) / l) * 70 };
+  };
+  const moved = (p, q) => Math.round(Math.hypot(p.x - q.x, p.y - q.y));
+  const hFrom = await centreOf(`#canvas [data-run-end="${run0.id}:from"]`);
+  await penLine(hFrom, out(hFrom, z0));
+  const [a1, z1] = await endsNow();
+  check('not to scale, the start of a run dragged: the start moves, the far end stays', `${moved(a1, a0) > 40} ${moved(z1, z0)}`, (v) => v === 'true 0', 'true 0');
+  const hTo = await centreOf(`#canvas [data-run-end="${run0.id}:to"]`);
+  await penLine(hTo, out(hTo, a1));
+  const [a2, z2] = await endsNow();
+  check('and its far end dragged: the far end moves, the start stays', `${moved(z2, z1) > 40} ${moved(a2, a1)}`, (v) => v === 'true 0', 'true 0');
+  await penLine(a2, out(a2, z2));
+  const [a3, z3] = await endsNow();
+  check('the end point itself dragged does the same', `${moved(a3, a2) > 30} ${moved(z3, z2)}`, (v) => v === 'true 0', 'true 0');
+  check('and the dimension is the true length still', (await drawingNow()).nodes.map((n) => n.pos.n).sort((x, y) => x - y).join(), (v) => v === '-380,0', '-380,0');
+  await inViewMenu(() => page.click('#opt-schematic'));
+
+  // A box round part of a line, moved along the pipe leaving it.
+  await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 2000\nN 1500\nE 1500\nEND FLG');
+  await page.click('#fit');
+  await page.waitForTimeout(300);
+  const nodes = (await drawingNow()).nodes;
+  const pts = [];
+  for (const n of nodes) pts.push(await centreOf(`#canvas circle.hit-dot[data-node="${n.id}"]`));
+  await page.click('.tool[data-area]');
+  await page.waitForTimeout(150);
+  await penLine({ x: Math.min(pts[2].x, pts[3].x) - 30, y: Math.min(pts[2].y, pts[3].y) - 30 }, { x: Math.max(pts[2].x, pts[3].x) + 30, y: Math.max(pts[2].y, pts[3].y) + 30 });
+  check('Move area: a dashed box drawn with the pen holds the points in it', `${await page.locator('#canvas .area-box').count()} ${await page.locator('#canvas .area-point').count()}`, (v) => v === '1 2', '1 2');
+  const inBox = { x: (pts[2].x + pts[3].x) / 2, y: (pts[2].y + pts[3].y) / 2 };
+  const north = { x: pts[2].x - pts[1].x, y: pts[2].y - pts[1].y };
+  const nl = Math.hypot(north.x, north.y);
+  await penLine(inBox, { x: inBox.x + (north.x / nl) * 60, y: inBox.y + (north.y / nl) * 60 });
+  const afterN = (await drawingNow()).nodes.map((n) => `${n.pos.e}/${n.pos.n}`);
+  check('dragged inside the box, what it holds moves along the pipe leaving it, that pipe longer', afterN, (v) => v[0] === '0/0' && v[1] === '2000/0' && v[2].startsWith('2000/') && Number(v[2].split('/')[1]) > 1500 && v[3] === `3500/${v[2].split('/')[1]}`, 'the two points further north, the rest in place');
+  const boxNow = await centreOf('#canvas .area-box');
+  const east = { x: pts[1].x - pts[0].x, y: pts[1].y - pts[0].y };
+  const el = Math.hypot(east.x, east.y);
+  await penLine(boxNow, { x: boxNow.x + (east.x / el) * 60, y: boxNow.y + (east.y / el) * 60 });
+  check('across that pipe it will not go (it would go askew), and says why', `${JSON.stringify((await drawingNow()).nodes.map((n) => `${n.pos.e}/${n.pos.n}`)) === JSON.stringify(afterN)} ${/north or south only/.test(await page.locator('#hud').innerText())}`, (v) => v === 'true true', 'true true');
+  await page.click('#hud-area-done');
+  await page.waitForTimeout(150);
+  check('Done lets go of the box', await page.locator('#canvas .area-box').count(), (v) => v === 0, '0');
+
+  // An item replaced: from its panel, and from the palette.
+  await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 3000\n+BALL 1500');
+  const ball = (await drawingNow()).runs[0].inline[0];
+  const pickComp = async (id) => {
+    const el = page.locator(`#canvas .component[data-component="${id}"]`).first();
+    await el.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+    await el.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+    await page.waitForTimeout(250);
+  };
+  await pickComp(ball.id);
+  await page.selectOption('#tab-body [data-f="replace"]', 'REGULATOR');
+  await page.waitForTimeout(250);
+  const reg = (await drawingNow()).runs[0].inline[0];
+  // A regulator is longer than the ball valve (241 to 203): its face on the
+  // run's start side stays, so its centre moves on by half the difference.
+  check('Replace with in the panel: the regulator in the ball valve\'s place, its start face where it was', `${reg.id === ball.id} ${reg.kind} ${reg.offset}`, (v) => v === 'true REGULATOR 1519', 'true REGULATOR 1519');
+  await page.click('#hud-replace');
+  await page.click('.tool[data-kind="FILTER"]');
+  await page.waitForTimeout(250);
+  check('Replace… on the drawing, then the palette: the filter goes in', (await drawingNow()).runs[0].inline[0].kind, (v) => v === 'FILTER', 'FILTER');
+  await page.click('#tabs button:has-text("Items")');
+  await page.waitForTimeout(200);
+  const listed = await page.locator('#tab-body table').first().innerText();
+  check('and the list follows', `${listed.includes('FILTER')} ${listed.includes('BALL VALVE')} ${listed.includes('REGULATOR')}`, (v) => v === 'true false false', 'true false false');
   await page.click('#tabs button:has-text("Route")');
   await page.waitForTimeout(150);
 }

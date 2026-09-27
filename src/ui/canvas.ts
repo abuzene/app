@@ -34,6 +34,10 @@ export interface CanvasCallbacks {
   onSlideTag(key: string, offset: { dx: number; dy: number }, commit: boolean): void;
   /** Moves a dimension: the drag so far, in paper units, and the dimension's frame. */
   onSlideDim(key: string, delta: { dx: number; dy: number }, frame: DimFrame, commit: boolean): void;
+  /** A box was drawn round part of the drawing (paper units); null when it came to nothing. */
+  onAreaSelect(box: { minX: number; minY: number; maxX: number; maxY: number } | null): void;
+  /** What the box holds is being dragged: the drag so far, in paper units. */
+  onAreaMove(delta: { dx: number; dy: number }, commit: boolean): void;
 }
 
 /** How a dimension lies, as its figure's target carries it. */
@@ -48,7 +52,7 @@ export interface DimFrame {
 }
 
 interface DragState {
-  kind: 'pan' | 'route' | 'slide-component' | 'slide-node' | 'stretch' | 'slide-tag' | 'slide-dim';
+  kind: 'pan' | 'route' | 'slide-component' | 'slide-node' | 'stretch' | 'slide-tag' | 'slide-dim' | 'area' | 'move-area';
   /** The dimension being moved. */
   dim?: DimFrame;
   /** Which end of the run a stretch moves. */
@@ -96,6 +100,16 @@ export class Canvas {
   private pointers = new Map<number, { x: number; y: number }>();
 
   view: ViewBox = { x: -400, y: -300, w: 800, h: 600 };
+
+  /**
+   * A box drawn round part of the drawing and what it holds (his ask,
+   * 2026-09-27: "a dashed rectangle, and move what is inside it"): the
+   * next pen drag draws the box while `areaMode` is on; once points are
+   * held (`area`), a drag inside their box moves them.
+   */
+  areaMode = false;
+  area: string[] | null = null;
+  private band: { x0: number; y0: number; x1: number; y1: number } | null = null;
 
   constructor(svg: SVGSVGElement, callbacks: CanvasCallbacks) {
     this.svg = svg;
@@ -172,7 +186,43 @@ export class Canvas {
       preview: this.preview,
       hitSize: 14 / this.k,
     });
-    this.svg.innerHTML = `<style>${contentCss({ k: this.k, u: 1, symbol: symbolSizeFor(this.drawing, this.analysis) })}</style>${body}`;
+    this.svg.innerHTML = `<style>${contentCss({ k: this.k, u: 1, symbol: symbolSizeFor(this.drawing, this.analysis) })}</style>${body}${this.areaOverlay()}`;
+  }
+
+  /** The box of the points held, in paper units, with room round them. */
+  areaBox(): { minX: number; minY: number; maxX: number; maxY: number } | null {
+    if (!this.area || !this.drawing || !this.analysis) return null;
+    let box: { minX: number; minY: number; maxX: number; maxY: number } | null = null;
+    for (const id of this.area) {
+      const p = paperOf(this.analysis, this.drawing, id);
+      if (!p) continue;
+      box = box
+        ? { minX: Math.min(box.minX, p.x), minY: Math.min(box.minY, p.y), maxX: Math.max(box.maxX, p.x), maxY: Math.max(box.maxY, p.y) }
+        : { minX: p.x, minY: p.y, maxX: p.x, maxY: p.y };
+    }
+    if (!box) return null;
+    const pad = 22 / this.k;
+    return { minX: box.minX - pad, minY: box.minY - pad, maxX: box.maxX + pad, maxY: box.maxY + pad };
+  }
+
+  /** The dashed box being drawn, or round what it holds, and a mark on each point held. */
+  private areaOverlay(): string {
+    const rect = (b: { minX: number; minY: number; maxX: number; maxY: number }, cls: string) =>
+      `<rect class="${cls}" x="${b.minX.toFixed(2)}" y="${b.minY.toFixed(2)}" width="${(b.maxX - b.minX).toFixed(2)}" height="${(b.maxY - b.minY).toFixed(2)}"/>`;
+    let out = '';
+    if (this.band) {
+      const { x0, y0, x1, y1 } = this.band;
+      out += rect({ minX: Math.min(x0, x1), minY: Math.min(y0, y1), maxX: Math.max(x0, x1), maxY: Math.max(y0, y1) }, 'area-band');
+    }
+    const box = this.areaBox();
+    if (box && this.drawing && this.analysis) {
+      out += rect(box, 'area-box');
+      for (const id of this.area ?? []) {
+        const p = paperOf(this.analysis, this.drawing, id);
+        if (p) out += `<circle class="area-point" cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="${(4 / this.k).toFixed(2)}"/>`;
+      }
+    }
+    return out ? `<g class="area-layer">${out}</g>` : '';
   }
 
   fit(): void {
@@ -296,6 +346,25 @@ export class Canvas {
               ? { kind: 'run', id: runEl.getAttribute('data-run')!, at: this.toPaper(event.clientX, event.clientY) }
               : null,
       };
+      return;
+    }
+
+    // What a box holds is moved by a drag inside the box; with the box
+    // tool on, a drag draws the box.
+    const here = this.toPaper(event.clientX, event.clientY);
+    const held = this.areaBox();
+    if (!panRequested && held && here.x >= held.minX && here.x <= held.maxX && here.y >= held.minY && here.y <= held.maxY) {
+      event.preventDefault();
+      this.capture(event.pointerId);
+      this.drag = { kind: 'move-area', pointerId: event.pointerId, startClientX: event.clientX, startClientY: event.clientY, startView, moved: false };
+      return;
+    }
+    if (!panRequested && this.areaMode) {
+      event.preventDefault();
+      this.capture(event.pointerId);
+      this.band = { x0: here.x, y0: here.y, x1: here.x, y1: here.y };
+      this.drag = { kind: 'area', pointerId: event.pointerId, startClientX: event.clientX, startClientY: event.clientY, startView, moved: false };
+      this.render();
       return;
     }
 
@@ -596,6 +665,22 @@ export class Canvas {
     const dyScreen = event.clientY - drag.startClientY;
     if (Math.abs(dxScreen) > 2 || Math.abs(dyScreen) > 2) drag.moved = true;
 
+    if (drag.kind === 'area') {
+      const here = this.toPaper(event.clientX, event.clientY);
+      if (this.band) {
+        this.band.x1 = here.x;
+        this.band.y1 = here.y;
+      }
+      this.render();
+      return;
+    }
+    if (drag.kind === 'move-area') {
+      if (!drag.moved) return;
+      const here = this.toPaper(event.clientX, event.clientY);
+      const from = this.toPaper(drag.startClientX, drag.startClientY);
+      this.cb.onAreaMove({ dx: here.x - from.x, dy: here.y - from.y }, false);
+      return;
+    }
     if (drag.kind === 'slide-dim') {
       if (!drag.moved) return;
       const here = this.toPaper(event.clientX, event.clientY);
@@ -752,6 +837,22 @@ export class Canvas {
     this.svg.classList.remove('panning');
     if (this.svg.hasPointerCapture(event.pointerId)) this.svg.releasePointerCapture(event.pointerId);
 
+    if (drag.kind === 'area') {
+      const band = this.band;
+      this.band = null;
+      this.cb.onAreaSelect(
+        band && drag.moved ? { minX: Math.min(band.x0, band.x1), minY: Math.min(band.y0, band.y1), maxX: Math.max(band.x0, band.x1), maxY: Math.max(band.y0, band.y1) } : null,
+      );
+      return;
+    }
+    if (drag.kind === 'move-area') {
+      if (drag.moved) {
+        const here = this.toPaper(event.clientX, event.clientY);
+        const from = this.toPaper(drag.startClientX, drag.startClientY);
+        this.cb.onAreaMove({ dx: here.x - from.x, dy: here.y - from.y }, true);
+      }
+      return;
+    }
     if (drag.kind === 'slide-dim' && drag.moved) {
       const here = this.toPaper(event.clientX, event.clientY);
       const from = this.toPaper(drag.startClientX, drag.startClientY);

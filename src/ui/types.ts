@@ -1,6 +1,6 @@
 import type { Analysis } from '../model/drawing';
 import type { CommandState } from '../model/commands';
-import type { Axis, Drawing, JointType } from '../model/types';
+import type { Axis, ComponentKind, Drawing, JointType } from '../model/types';
 import type { Preview, Selection, ViewBox } from '../render/renderer';
 import type { LibraryEntry } from '../model/library';
 import type { DriveStatus } from '../model/drive';
@@ -17,6 +17,8 @@ export interface AppState {
   measureFrom: string | null;
   /** An open end being joined to another: the end it starts from. */
   joinFrom: string | null;
+  /** An item on a line to be replaced by the next one picked in the palette. */
+  replacing?: string | null;
   commandState: CommandState;
   commandText: string;
   commandErrors: { line: number; text: string; message: string }[];
@@ -97,6 +99,10 @@ export interface Host {
   oletDialog(ask: OletAsk): Promise<OletChoice | null>;
   /** Makes this the size the next runs are drawn with. */
   setCurrentSize(dn: string): void;
+  /** Puts another item in the place of one on a line; says why not when it cannot. */
+  replaceItem(compId: string, kind: ComponentKind, ends?: 'SW' | 'THD'): void;
+  /** The next pen drag draws a box round part of the drawing, to move what it holds. */
+  startArea(): void;
   /** Starts a dimension by hand from a point; the next point tapped ends it. */
   measureFrom(nodeId: string): void;
   /** Starts joining an open end to another; the next end tapped is joined to it. */

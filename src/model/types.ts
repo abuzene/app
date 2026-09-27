@@ -407,6 +407,13 @@ export interface Drawing {
    * vertical, `el` above the horizontal, in degrees; `size` of the box.
    */
   view3d?: { az: number; el: number; welds?: boolean; size?: 'S' | 'M' | 'L' };
+  /**
+   * Not to scale: how far a piece is drawn from where its first point
+   * really is, by that point's id. Stretching a run from either end keeps
+   * the other end where it is drawn (his complaint, 2026-09-27: "only one
+   * side drags"), which shifts the piece it belongs to.
+   */
+  pieceShift?: Record<string, Vec3>;
 }
 
 export interface DimOverride {

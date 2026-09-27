@@ -31,6 +31,15 @@ const JOINT_LABEL: Record<string, string> = {
 const END_TYPES: EndType[] = ['BW', 'SW', 'THD', 'FLG', 'PLAIN'];
 const COMPONENT_KINDS = (Object.keys(COMPONENT_LABEL) as ComponentKind[]).filter((k) => k !== 'TRANSITION');
 
+/** What a valve can be replaced by (his ask, 2026-09-27): kind, and ends when not its own. */
+const VALVE_CHOICES = ['BALL', 'BALL_ACT', 'BALL|SW', 'BALL|THD', 'GATE', 'GLOBE', 'CHECK', 'BUTTERFLY', 'PLUG', 'REGULATOR', 'FILTER', 'RELIEF'];
+const REDUCER_CHOICES = ['RED_CONC', 'RED_ECC'];
+const choiceLabel = (value: string): string => {
+  const [kind, ends] = value.split('|');
+  const name = COMPONENT_LABEL[kind] ?? kind;
+  return ends === 'SW' ? `${name}, socket weld ends` : ends === 'THD' ? `${name}, threaded ends` : name;
+};
+
 export function esc(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
@@ -228,7 +237,16 @@ function componentProperties(host: Host, compId: string): string {
   return `
 <div class="section" data-editor="component" data-id="${comp.id}">
   <h3>${esc(reducer ? reducerName(comp, run.dn) : COMPONENT_LABEL[comp.kind] ?? comp.kind)}</h3>
-  <div class="row"><label>Type</label><select data-f="kind">${options(COMPONENT_KINDS, comp.kind, COMPONENT_LABEL)}</select></div>
+  ${
+    isValve(comp.kind) || reducer
+      ? `<div class="row"><label>Replace with</label><select data-f="replace">${(() => {
+          const choices = reducer ? REDUCER_CHOICES : VALVE_CHOICES;
+          const now = comp.ends === 'SW' || comp.ends === 'THD' ? `${comp.kind}|${comp.ends}` : comp.kind;
+          const list = choices.includes(now) ? choices : [now, ...choices];
+          return options(list, now, Object.fromEntries(list.map((v) => [v, choiceLabel(v)])));
+        })()}</select></div>`
+      : `<div class="row"><label>Type</label><select data-f="kind">${options(COMPONENT_KINDS, comp.kind, COMPONENT_LABEL)}</select></div>`
+  }
   <div class="row"><label>From start</label><input type="number" data-f="offset" step="1" min="0" max="${Math.round(total)}" value="${Math.round(comp.offset)}" /></div>
   <div class="row"><label>To end</label><input type="number" data-f="toend" step="1" min="0" max="${Math.round(total)}" value="${Math.round(total - comp.offset)}" /></div>
   ${mark || reducer ? '' : `<div class="row"><label>Size</label><select data-f="dn">${options(DN_LIST, comp.dn ?? run.dn, SIZE_LABELS)}</select></div>`}
@@ -1097,6 +1115,10 @@ function wire(body: HTMLElement, host: Host): void {
       }, options);
     };
     const field = (name: string) => compEditor.querySelector<HTMLInputElement & HTMLSelectElement>(`[data-f="${name}"]`);
+    field('replace')?.addEventListener('change', (e) => {
+      const [kind, ends] = (e.target as HTMLSelectElement).value.split('|');
+      host.replaceItem(id, kind as ComponentKind, ends === 'SW' || ends === 'THD' ? ends : undefined);
+    });
     field('kind')?.addEventListener('change', (e) =>
       withComponent('Change component', (c) => {
         c.kind = (e.target as HTMLSelectElement).value as ComponentKind;
