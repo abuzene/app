@@ -1,6 +1,6 @@
 import type { Axis, ComponentKind, EndType, Equipment, FittingKind, FlangeKind, JointType, TerminalKind } from '../model/types';
 import type { Host, TabId } from './types';
-import { COMPONENT_LABEL, DEFAULT_LOGO, ROOT_GAP, TERMINAL_LABEL, fittingLabel, fmtMm, isCoupling, isMark, isReducer, isSupport, isValve, oletLabel, oletLegs, oletMarks, pipeNetAt, reducerName, resolveEnds, runGroupIds, valveOpenSide } from '../model/drawing';
+import { COMPONENT_LABEL, DEFAULT_LOGO, ROOT_GAP, TERMINAL_LABEL, fittingLabel, fmtMm, isCoupling, isMark, isReducer, isSupport, isValve, oletLabel, oletLegs, oletMarks, pipeNetAt, reducerName, resolveEnds, suggestWeldCode, runGroupIds, valveOpenSide } from '../model/drawing';
 import { COMMAND_HELP } from '../model/commands';
 import { DN_LIST, SIZE_LABELS, defaultValveEnds, schedulesFor, sizeLabel } from '../model/pipe-data';
 import { AXES, AXIS_VECTOR, axisBetween } from '../model/iso';
@@ -519,7 +519,7 @@ function weldsTab(host: Host): string {
     .map((w) => `<tr><td>${esc(sizeLabel(w.dn))}</td><td>${esc(w.joins)}</td><td><button class="btn-line" data-restore-weld="${esc(w.key)}">Weld after all</button></td></tr>`)
     .join('')}</tbody></table>
 </div>`;
-  return `${notWelded}
+  return `${weldNumbering(host)}${notWelded}
 <div class="section">
   <h3>Weld list</h3>
   <p class="empty-note">Numbered along the route; type over any number to set it by hand. Threaded joints are marked on the drawing but are not welds.</p>
@@ -537,6 +537,33 @@ function weldsTab(host: Host): string {
   <div class="btn-row">
     <button class="btn-line" data-a="copy-welds">Copy list</button>
   </div>
+</div>`;
+}
+
+/**
+ * How the welds are numbered: W1, W2… on each sheet, or across the whole
+ * project by its code and size, "HYF 1/2.1", the count per size running on
+ * from sheet to sheet (his ask, 2026-09-27).
+ */
+function weldNumbering(host: Host): string {
+  const { meta } = host.state.drawing;
+  const code = meta.weldCode ?? '';
+  const project = meta.project || '';
+  const example = code || suggestWeldCode(project);
+  return `<div class="section" data-editor="weld-numbering">
+  <h3>Numbering</h3>
+  <div class="row"><label>Welds</label><select data-f="weld-scheme">${options(['sheet', 'project'], code ? 'project' : 'sheet', {
+    sheet: 'W1, W2 … on this sheet',
+    project: `Across the project: ${example} 3.1, ${example} 1/2.1 …`,
+  })}</select></div>
+  ${code ? `<div class="row"><label>Project code</label><input type="text" data-f="weld-code" maxlength="3" value="${esc(code)}" /></div>` : ''}
+  <p class="empty-note">${
+    code
+      ? `Every sheet of ${esc(project)}: the code, the size, then a number per size running on from sheet 1 onwards, along the route. A number typed over by hand stays as typed.`
+      : project
+        ? 'Across the project, each size is counted on from the sheets before this one.'
+        : 'Name the project in the Title tab to number its welds across all its sheets.'
+  }</p>
 </div>`;
 }
 
@@ -1264,6 +1291,14 @@ function wire(body: HTMLElement, host: Host): void {
       renumber(weldEditor.dataset.key!, (e.target as HTMLInputElement).value);
     });
   }
+  body.querySelector<HTMLSelectElement>('[data-f="weld-scheme"]')?.addEventListener('change', (e) => {
+    const project = (e.target as HTMLSelectElement).value === 'project';
+    host.setProjectWeldCode(project ? host.state.drawing.meta.weldCode || suggestWeldCode(host.state.drawing.meta.project || '') : null);
+  });
+  body.querySelector<HTMLInputElement>('[data-f="weld-code"]')?.addEventListener('change', (e) => {
+    const value = (e.target as HTMLInputElement).value.trim();
+    if (value) host.setProjectWeldCode(value);
+  });
   body.querySelector('[data-a="copy-welds"]')?.addEventListener('click', () => {
     host.copy('Weld schedule', weldCsv());
   });

@@ -90,7 +90,60 @@ function snapshot(): string {
 }
 
 function recompute(): void {
+  state.drawing.weldStarts = projectWeldStarts(state.drawing);
+  if (!state.drawing.weldStarts) delete state.drawing.weldStarts;
   state.analysis = analyse(state.drawing);
+}
+
+/** How many welds of each size a kept sheet numbered itself, by its id and stamp. */
+const weldCountCache = new Map<string, Record<string, number>>();
+
+/**
+ * Numbered across the project: the welds of each size on the project's
+ * sheets before this one (by sheet number), so its count runs on from
+ * theirs. Undefined when the project is not numbered so.
+ */
+function projectWeldStarts(drawing: Drawing): Record<string, number> | undefined {
+  const code = drawing.meta.weldCode?.trim();
+  const project = drawing.meta.project || '';
+  if (!code || !project) return undefined;
+  const here = sheetNumber(drawing.meta.sheet);
+  const starts: Record<string, number> = {};
+  for (const entry of loadLibrary()) {
+    if (entry.id === drawing.id || (entry.drawing.meta.project || '') !== project) continue;
+    if (sheetNumber(entry.drawing.meta.sheet) >= here) continue;
+    const key = `${entry.id}:${entry.savedAt}:${code}`;
+    let counts = weldCountCache.get(key);
+    if (!counts) {
+      const sheet = { ...emptyDrawing(), ...entry.drawing, meta: { ...entry.drawing.meta, weldCode: code } } as Drawing;
+      counts = analyse(sheet).weldCounts;
+      weldCountCache.set(key, counts);
+    }
+    for (const [dn, n] of Object.entries(counts)) starts[dn] = (starts[dn] ?? 0) + n;
+  }
+  return starts;
+}
+
+/**
+ * Welds numbered across the whole project ("HYF 1/2.1") or per sheet (W1…):
+ * set on every kept sheet of the project and the one on screen.
+ */
+function setProjectWeldCode(code: string | null): void {
+  const project = state.drawing.meta.project || '';
+  if (!project) {
+    host.notify('Name the project in the Title tab first: the numbers run across its sheets.');
+    return;
+  }
+  const clean = code ? code.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 3) : '';
+  keepNow();
+  for (const entry of loadLibrary()) {
+    if (entry.id === state.drawing.id || (entry.drawing.meta.project || '') !== project) continue;
+    upsertDrawing({ ...entry.drawing, meta: { ...entry.drawing.meta, weldCode: clean || undefined } });
+  }
+  host.edit(clean ? 'Number welds across the project' : 'Number welds per sheet', (d) => {
+    d.meta.weldCode = clean || undefined;
+  });
+  host.notify(clean ? `Welds numbered across ${project}: ${clean} 3.1, ${clean} 1/2.1 …` : 'Welds numbered W1, W2 … on each sheet.');
 }
 
 const host: Host = {
@@ -230,6 +283,9 @@ const host: Host = {
   },
   newSheetInProject() {
     newSheetInProject();
+  },
+  setProjectWeldCode(code) {
+    setProjectWeldCode(code);
   },
   printProject(name) {
     openPrintDialog({ project: name, all: true });
@@ -2148,7 +2204,12 @@ function openPrintDialog(ask: { project?: string; all?: boolean } = {}): void {
       const pick = backdrop.querySelector<HTMLSelectElement>('#sheet-pages')?.value ?? picked;
       const chosen = pick === 'here' ? [state.drawing] : pick === 'all' ? sheets : sheets.filter((d) => d.id === pick);
       if (chosen.length === 0) return close();
-      const rendered = chosen.map((d) => renderSheet(d, d === state.drawing ? state.analysis : analyse(d), sheetSize()));
+      const rendered = chosen.map((d) => {
+        if (d === state.drawing) return renderSheet(d, state.analysis, sheetSize());
+        // Its numbers run on from the sheets before it, as they are now.
+        const sheet = { ...d, weldStarts: projectWeldStarts(d) };
+        return renderSheet(sheet, analyse(sheet), sheetSize());
+      });
       const stem = (d: Drawing) =>
         (d.meta.lineNumber || d.meta.drawingNo || d.meta.project || 'isometric').replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'isometric';
       const fileName =
@@ -2829,6 +2890,7 @@ function newSheetInProject(): void {
     drawingNo: prev.meta.drawingNo,
     drawnBy: prev.meta.drawnBy,
     revision: prev.meta.revision,
+    weldCode: prev.meta.weldCode,
     sheet: `${nextNo} of ${total}`,
   };
   // The point the line comes in at, marked as continuing from the sheet before.

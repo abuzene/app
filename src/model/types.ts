@@ -301,6 +301,12 @@ export interface Meta {
   stamp?: string;
   /** His own notes, one per line, printed with the sheet's notes above the stamp. */
   notes?: string;
+  /**
+   * The project's three-letter code, set when the welds are numbered across
+   * the whole project: "HYF 1/2.1", the size, then a count per size running
+   * on from sheet to sheet (his ask, 2026-09-27). Unset: W1, W2… per sheet.
+   */
+  weldCode?: string;
 }
 
 export interface DrawingOptions {
@@ -359,6 +365,12 @@ export interface Drawing {
   dimOverrides?: Record<string, DimOverride>;
   /** Names typed over the material list's own, by list line key. */
   bomNames?: Record<string, string>;
+  /**
+   * Numbered across the project: how many welds of each size the sheets
+   * before this one have, so its count runs on. Worked out by the app from
+   * the project's other sheets whenever the sheet is shown or printed.
+   */
+  weldStarts?: Record<string, number>;
   /** Equipment boxes drawn on the sheet. */
   equipment?: Equipment[];
   /** Dimensions put in by hand between two points. */

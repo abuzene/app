@@ -822,6 +822,20 @@ ships, and the decisions already taken, so they are not re-litigated.
   W10, -, W12): a typed number ending in digits sets the prefix and the
   count for the welds after it; one with no digits ("-", "FW") is a name
   of its own and takes nothing from the count.
+  **Numbered across the project** (his ask, 2026-09-27: "three capital
+  letters of the project, a space, the size, a point and a running number
+  — HYF 1/2.1, HYF 3.1"): the Welds tab's **Numbering** select
+  (`[data-f="weld-scheme"]`: per sheet / across the project, code field
+  `[data-f="weld-code"]`, suggested by `suggestWeldCode`: initials, then
+  consonants of the last word, HILLEL YAFEH → HYF) sets `meta.weldCode`
+  on every kept sheet of the project and the one on screen
+  (`setProjectWeldCode` in main.ts; `newSheetInProject` carries it). Then
+  `analyse` numbers `${code} ${weldSizeTag(dn)}.${n}` (size as 1/2,
+  1-1/2, 3), n counted per size from `drawing.weldStarts[dn]`, which
+  `recompute` fills from the project's earlier sheets by sheet number
+  (`projectWeldStarts`, their `analysis.weldCounts` cached by id + stamp;
+  the print dialog does the same for other sheets). Typed numbers stay as
+  typed and take nothing from the count; the run-on-from-typed rule is off.
 - **Flange, reducer, flange with no pipe** (same day, HILLEL YAFEH sheet
   after the FILTER): "No pipe — fittings touch" on a run holding a reducer
   goes to `closeUpOnItem` in edit.ts (from `setRunDirect`): the end

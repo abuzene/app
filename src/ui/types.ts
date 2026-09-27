@@ -71,6 +71,8 @@ export interface Host {
   newSheetInProject(): void;
   /** The print dialog for a project, all its sheets picked. */
   printProject(name: string): void;
+  /** Welds numbered across the project with this code ("HYF 1/2.1"), or per sheet (null). */
+  setProjectWeldCode(code: string | null): void;
   /** Google Drive: whether the app is signed in, and what the last sync moved. */
   driveStatus(): DriveStatus;
   /** Keeps the OAuth client id and goes to Google's sign-in page. */

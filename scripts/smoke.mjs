@@ -3848,6 +3848,47 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   await page.waitForTimeout(150);
 }
 
+/* --------------------------------- welds numbered across the whole project */
+
+// "Number every weld on every sheet of the project: three capital letters
+// of the project, a space, the size, a point and a running number — HYF
+// 1/2.1 is the first 1/2" weld, HYF 3.1 the first 3"" (2026-09-27).
+{
+  await startNewDrawing();
+  await page.click('#tabs button:has-text("Title")');
+  await page.fill('[data-meta="project"]', 'HILLEL YAFEH');
+  await page.dispatchEvent('[data-meta="project"]', 'change');
+  await page.waitForTimeout(200);
+  await page.click('#tabs button:has-text("Command")');
+  await page.fill('#command-text', '3"\nSTD\nORIGIN 0 0 0\nE 2000\nN 1000\nE 1000');
+  await page.click('[data-a="run-commands"]');
+  await page.waitForTimeout(600);
+  await page.keyboard.press('Escape');
+  await page.click('#tabs button:has-text("Welds")');
+  await page.waitForTimeout(200);
+  check('the Welds tab offers numbering across the project, with a code from its name', await page.locator('[data-f="weld-scheme"] option[value="project"]').innerText(), (v) => /HYF 3\.1, HYF 1\/2\.1/.test(v), 'HYF 3.1, HYF 1/2.1');
+  await page.selectOption('[data-f="weld-scheme"]', 'project');
+  await page.waitForTimeout(400);
+  const numbersNow = async () => (await page.locator('#tab-body [data-weld-no]').evaluateAll((els) => els.map((e) => e.value)));
+  check('sheet 1: the code, the size, a count per size', (await numbersNow()).join(' | '), (v) => v === 'HYF 3.1 | HYF 3.2 | HYF 3.3 | HYF 3.4', 'HYF 3.1 … HYF 3.4');
+  await page.waitForTimeout(1000);
+  await page.click('#tabs button:has-text("Projects")');
+  await page.waitForTimeout(200);
+  await page.click('[data-a="new-sheet"]');
+  await page.waitForTimeout(1000);
+  await page.click('#tabs button:has-text("Command")');
+  await page.fill('#command-text', '3"\nSTD\nORIGIN 0 3000 0\nE 1000\nN 1000\n1/2"\nSCH80\nORIGIN 5000 3000 0\nE 1000\nN 1000');
+  await page.click('[data-a="run-commands"]');
+  await page.waitForTimeout(600);
+  await page.keyboard.press('Escape');
+  await page.click('#tabs button:has-text("Welds")');
+  await page.waitForTimeout(300);
+  check('the next sheet carries the numbering on', (await drawingNow()).meta.weldCode, (v) => v === 'HYF', 'HYF');
+  check('sheet 2: 3" runs on from sheet 1, 1/2" starts at 1', (await numbersNow()).join(' | '), (v) => v === 'HYF 3.5 | HYF 3.6 | HYF 1/2.1 | HYF 1/2.2', 'HYF 3.5, HYF 3.6, HYF 1/2.1, HYF 1/2.2');
+  await page.click('#tabs button:has-text("Route")');
+  await page.waitForTimeout(150);
+}
+
 /* ------------------------------------ couplings, socket weld and threaded */
 
 // "Two more fittings: COUPLING SW, the socket one, and COUPLING NPT"

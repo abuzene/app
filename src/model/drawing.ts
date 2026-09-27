@@ -154,6 +154,8 @@ export interface Analysis {
   joints: Weld[];
   /** The joints that are actually welds, numbered along the route. */
   welds: Weld[];
+  /** Numbered across the project: how many welds of each size this sheet numbered itself. */
+  weldCounts: Record<string, number>;
   runLengths: Map<string, RunLengths>;
   /** Every length of pipe as cut, with the welds at its ends. */
   pieces: PipePiece[];
@@ -223,6 +225,31 @@ export function couplingName(joint: JointType | undefined): string {
 /** What a point's fitting takes off the pipe running into it. */
 export function nodeFittingTakeout(info: NodeInfo, dn: string): number {
   return info.fitting === 'COUPLING' ? componentTakeout(couplingKindAt(info.node), dn) : fittingTakeout(info.fitting, dn);
+}
+
+/** A size as it goes in a project weld number: 1/2, 1-1/2, 3. */
+export function weldSizeTag(dn: string): string {
+  return sizeLabel(dn).replace(/"/g, '').trim().replace(/\s+/g, '-');
+}
+
+/**
+ * A project's three-letter code, from its name: the words' first letters,
+ * then consonants of the last word to make three (HILLEL YAFEH → HYF).
+ */
+export function suggestWeldCode(project: string): string {
+  const words = project.toUpperCase().replace(/[^A-Z ]/g, ' ').split(/\s+/).filter(Boolean);
+  if (words.length === 0) return 'PRJ';
+  let code = words.map((w) => w[0]).join('').slice(0, 3);
+  const last = words[words.length - 1];
+  for (const ch of last.slice(1)) {
+    if (code.length >= 3) break;
+    if (!'AEIOU'.includes(ch)) code += ch;
+  }
+  for (const ch of last.slice(1)) {
+    if (code.length >= 3) break;
+    code += ch;
+  }
+  return code.padEnd(3, 'X');
 }
 
 export function isReducer(kind: string): boolean {
@@ -1368,6 +1395,10 @@ export function analyse(drawing: Drawing): Analysis {
   // the ones around it stay consecutive.
   let prefix = 'W';
   let next = 1;
+  // Across the project (his ask, 2026-09-27): "HYF 1/2.1" — the project's
+  // code, the size, and a count per size running on from the sheets before.
+  const code = drawing.meta.weldCode?.trim();
+  const weldCounts: Record<string, number> = {};
   const joints: Weld[] = ordered.map((j) => {
     const override = drawing.weldOverrides[j.key];
     // A joint marked as not welded after all keeps its mark, and the numbers
@@ -1379,10 +1410,13 @@ export function analyse(drawing: Drawing): Analysis {
     if (welded && typed) {
       number = typed;
       const tail = typed.match(/^(.*?)(\d+)$/);
-      if (tail) {
+      if (tail && !code) {
         prefix = tail[1];
         next = Number(tail[2]) + 1;
       }
+    } else if (welded && code) {
+      weldCounts[j.dn] = (weldCounts[j.dn] ?? 0) + 1;
+      number = `${code} ${weldSizeTag(j.dn)}.${(drawing.weldStarts?.[j.dn] ?? 0) + weldCounts[j.dn]}`;
     } else if (welded) {
       number = `${prefix}${next}`;
       next += 1;
@@ -1753,6 +1787,7 @@ export function analyse(drawing: Drawing): Analysis {
     nodeById,
     joints,
     welds,
+    weldCounts,
     runLengths,
     pieces,
     bom,
