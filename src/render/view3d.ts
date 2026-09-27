@@ -61,6 +61,8 @@ export interface Label3D {
   pos: Vec3;
   text: string;
   kind: 'weld' | 'equipment';
+  /** The weld's key, for a weld. */
+  key?: string;
 }
 
 export interface Model3D {
@@ -526,11 +528,20 @@ export function buildModel(drawing: Drawing, analysis: Analysis): Model3D {
   // A dark bead round the pipe at every weld, and its number beside it.
   for (const weld of analysis.welds) {
     if (weld.skipped) continue;
+    // An olet's header weld is round its foot on the header's outside,
+    // not round the header (his marked-up 3D view, 2026-09-27: "the olet's
+    // weld is the one I marked, 3.1, not the one you drew").
+    const foot = oletFoot(analysis, weld.key);
+    if (foot) {
+      g.tube(vadd(foot.at, vmul(foot.out, -3)), vadd(foot.at, vmul(foot.out, 3)), foot.r + 1.5, foot.r + 1.5, WELD, [false, false]);
+      if (weld.number) labels.push({ pos: { e: foot.at[0], n: foot.at[1], u: foot.at[2] }, text: weld.number, kind: 'weld', key: weld.key });
+      continue;
+    }
     const pos = v3(weld.pos);
     const axis = weldAxis(drawing, analysis, weld.pos);
     const r = od(weld.dn) / 2 + 1.5;
     if (axis) g.tube(vadd(pos, vmul(axis, -3)), vadd(pos, vmul(axis, 3)), r, r, WELD, [false, false]);
-    if (weld.number) labels.push({ pos: weld.pos, text: weld.number, kind: 'weld' });
+    if (weld.number) labels.push({ pos: weld.pos, text: weld.number, kind: 'weld', key: weld.key });
   }
 
   for (const box of drawing.equipment ?? []) {
@@ -556,6 +567,31 @@ export function buildModel(drawing: Drawing, analysis: Analysis): Model3D {
     radius,
     labels,
   };
+}
+
+/**
+ * Where an olet's header weld is: round the olet's foot where it sits on
+ * the header's outside (`n:<node>:header`, or `…:header:<dir>` for a
+ * second olet on the point), as the olet is drawn in `buildModel`.
+ */
+function oletFoot(analysis: Analysis, key: string): { at: V; out: V; r: number } | null {
+  const m = key.match(/^n:(.+):header(?::([NSEWUD]))?$/);
+  if (!m) return null;
+  const info = analysis.nodeInfo.get(m[1]);
+  const legs = info ? oletLegs(info) : null;
+  if (!info || !legs) return null;
+  const entries = oletEntries(legs);
+  const entry = (m[2] ? entries.find((e) => e.dir === m[2]) : undefined) ?? entries[0];
+  if (!entry) return null;
+  const out = v3(AXIS_VECTOR[entry.dir as Axis]);
+  const hr = od(legs.header[0]?.dn ?? entry.dn) / 2;
+  const br = od(entry.dn) / 2;
+  // The olet's body: from 0.6 of the header's radius out, wide at its foot.
+  const top = hr + Math.max(22, Math.round(od(entry.dn) * 0.55));
+  const r0 = br * 1.55 + 4;
+  const r1 = br * 1.05 + 2;
+  const t = (hr - hr * 0.6) / Math.max(top - hr * 0.6, 1);
+  return { at: vadd(v3(info.node.pos), vmul(out, hr)), out, r: r0 + (r1 - r0) * t };
 }
 
 /** The line a weld lies across: the run whose centre line it is on. */

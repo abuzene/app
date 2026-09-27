@@ -870,7 +870,10 @@ ships, and the decisions already taken, so they are not re-litigated.
   WN/SW flanges from B16.5 Class 150 ODs (`FLANGE_OD`), valves red with
   their flanges (bare / last flange none / blind honoured), a lever,
   wheel or actuator box, caps, PE after a transition, a dark bead at
-  every weld, dashed runs and equipment boxes see-through. WebGL only,
+  every weld, dashed runs and equipment boxes see-through. An olet's
+  header weld (`n:<node>:header[:dir]`) is a bead round the olet's foot
+  on the header's outside (`oletFoot`), not a ring round the header (his
+  marked-up 3D view, 2026-09-27). Weld tags carry `data-key`. WebGL only,
   no library (`Scene3D`, orthographic, lit from the side it is seen
   from — the winding is not consistent, so never light by
   `gl_FrontFacing`). Pen / one finger / left button turns, pinch or

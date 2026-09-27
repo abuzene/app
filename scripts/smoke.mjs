@@ -4345,6 +4345,22 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   await page.waitForTimeout(400);
   const top = (await drawingNow()).nodes.find((n) => n.id === 'n94r5k')?.pos.u;
   check('typed past the header\'s end (400): the olet goes there, the header is carried on 100 beyond it', `${await heights()} ${top}`, (v) => v === '745 745 745 845', '745 745 745 845');
+
+  // "The olet's weld is the one I marked, 3.1, not the one you drew" (3D
+  // view, same day): its header weld is round its foot on the header's
+  // outside, not a ring round the header. Seen from above, the upright
+  // header's two olets (one north, one south) have their header welds
+  // apart, either side of the header, where they used to share its centre.
+  await page.click('#view3d');
+  await page.waitForTimeout(500);
+  await page.click('[data-view="plan"]');
+  await page.waitForTimeout(300);
+  const feet = await page.evaluate(() =>
+    [...document.querySelectorAll('.v3d-tag')].filter((t) => /^n:(nbfm3n|no8atp):header$/.test(t.dataset.key ?? '')).map((t) => ({ x: parseFloat(t.style.left), y: parseFloat(t.style.top) })),
+  );
+  check('3D: each olet\'s header weld sits on its foot, on the header\'s outside', feet.length === 2 ? Math.round(Math.hypot(feet[0].x - feet[1].x, feet[0].y - feet[1].y)) : -1, (v) => v > 20, 'the two apart, more than 20 px');
+  await page.click('[data-a="v3d-close"]');
+  await page.waitForTimeout(150);
 }
 
 /* ------------------------------------ couplings, socket weld and threaded */

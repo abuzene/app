@@ -97,7 +97,7 @@ export function open3dView(host: Host): void {
         const text = label.text.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
         html +=
           label.kind === 'weld'
-            ? `<div class="v3d-tag" style="left:${s.x.toFixed(1)}px;top:${s.y.toFixed(1)}px"><span>${text}</span></div>`
+            ? `<div class="v3d-tag" data-key="${(label.key ?? '').replace(/"/g, '')}" style="left:${s.x.toFixed(1)}px;top:${s.y.toFixed(1)}px"><span>${text}</span></div>`
             : `<div class="v3d-name" style="left:${s.x.toFixed(1)}px;top:${s.y.toFixed(1)}px">${text}</div>`;
       }
     }
