@@ -121,6 +121,12 @@ export interface Terminal {
   /** A line coming in from the sheet before: the size and schedule it left that sheet at. */
   dn?: string;
   schedule?: string;
+  /**
+   * A blind (`FLG_BLIND`) is bolted to a flange welded on the pipe: which
+   * one — weld neck unless said. The flange keeps its weld (his complaint,
+   * 2026-09-27: "adding a blind took away the flange's weld").
+   */
+  under?: 'FLG_WN' | 'FLG_SW' | 'FLG_THD';
 }
 
 export interface IsoNode {

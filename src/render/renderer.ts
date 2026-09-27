@@ -577,7 +577,7 @@ export function renderDrawing(state: RenderState): string {
           if (!kind || kind === 'OPEN' || itemAtEnd(drawing, run, atStart)?.comp.id !== comp.id) return null;
           // A flanged joint's pair stands a gap apart: its hub starts past it.
           const gap = !endNode?.terminal && endNode?.flange ? size * FLANGE_GAP : 0;
-          return isFlange(kind) ? flangeHub(kind === 'FLG_BLIND' ? 'FLG_WN' : (kind as FlangeKind), size) + gap : 0;
+          return isFlange(kind) ? flangeHub(kind === 'FLG_BLIND' ? (endNode?.terminal?.under ?? 'FLG_WN') : (kind as FlangeKind), size) + gap : 0;
         };
         const hubA = hubAt(true);
         const hubB = hubAt(false);
@@ -801,7 +801,7 @@ export function renderDrawing(state: RenderState): string {
         const other = analysis.nodeById.get(otherId);
         const endPlane = other ? symbolPlane(drawing, other.pos, node.pos) : null;
         const f = frameFor(q.x, q.y, p.x, p.y, 1, size, endPlane?.across, endPlane?.up);
-        nodes += terminalSymbol(node.terminal.kind, f, analysis.nodeJoint.get(node.id) ?? node.joint ?? drawing.options.joint ?? 'BW');
+        nodes += terminalSymbol(node.terminal.kind, f, analysis.nodeJoint.get(node.id) ?? node.joint ?? drawing.options.joint ?? 'BW', undefined, node.terminal.under);
         if (node.terminal.note) {
           // Off the end, and dragged wherever it reads best, with a leader
           // back to the end once moved (his ask, 2026-09-26: "I want to

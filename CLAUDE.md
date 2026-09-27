@@ -302,6 +302,14 @@ ships, and the decisions already taken, so they are not re-litigated.
   panel's Joint select reads "Automatic — Threaded, as its line from the
   threadolet" and can set the point on its own. SW marks' lips point back over the pipe. In SW/THD mode
   a flanged valve gets SW/THD flanges (`valveFlangeKind`).
+- **A blind keeps its flange's weld** (his complaint, 2026-09-27: "adding
+  a blind takes away the weld between the flange and the pipe"): a
+  `FLG_BLIND` end is a blind bolted to a flange welded on the pipe,
+  `terminal.under` (WN / SW / THD; `setTerminal` keeps the flange already
+  on the end, else the line's kind). `terminalWeldKind` gives that flange
+  for the weld (joint, name `PIPE / WELD NECK FLANGE`, reach), the take-out,
+  the list line beside the BLIND FLANGE one, and the symbol
+  (`terminalSymbol(..., under)`).
 - PE/CS transition: weld on the CS side, six dashes on the PE side; it ends
   the steel.
 - Palette (`src/ui/tools.ts`): Flanges WN/SW/Thd/Blind (SO and Lap removed

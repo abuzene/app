@@ -3889,6 +3889,47 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   await page.waitForTimeout(150);
 }
 
+/* ------------------------------------ a blind keeps its flange's weld */
+
+// "Adding a blind flange takes away the weld between the flange and the
+// pipe before it; the blind must not touch the flange's weld" (2026-09-27):
+// the blind bolts to the flange already there, which stays, welded.
+{
+  const pickEnd = async () => {
+    const end = (await drawingNow()).nodes.find((n) => n.terminal || (drawingNow && false)) ?? null;
+    const d = await drawingNow();
+    const id = end?.id ?? d.nodes.find((n) => d.runs.filter((r) => r.from === n.id || r.to === n.id).length === 1 && n.pos.e > 0)?.id;
+    const el = page.locator(`#canvas circle.hit-dot[data-node="${id}"]`).first();
+    await el.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+    await el.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+    await page.waitForTimeout(250);
+  };
+  const weldRows = async () => {
+    await page.click('#tabs button:has-text("Welds")');
+    await page.waitForTimeout(200);
+    const rows = (await page.locator('#tab-body table tbody tr').allInnerTexts()).map((r) => r.split('\t').slice(2, 4).join(' ')).join(' | ');
+    await page.click('#tabs button:has-text("Items")');
+    await page.waitForTimeout(200);
+    const items = await page.locator('#tab-body').innerText();
+    await page.click('#tabs button:has-text("Route")');
+    await page.waitForTimeout(150);
+    return `${rows} || ${/BLIND FLANGE/.test(items)} ${/WELD NECK FLANGE/.test(items)} ${/SOCKET WELD FLANGE/.test(items)}`;
+  };
+  await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 2000\nEND FLG');
+  await pickEnd();
+  await page.click('.tool[data-kind="FLG_BLIND"]');
+  await page.waitForTimeout(300);
+  check('a blind on a weld neck end: the flange\'s weld stays, both on the list', await weldRows(), (v) => v === 'BW PIPE / WELD NECK FLANGE || true true false', 'BW PIPE / WELD NECK FLANGE; blind and weld neck listed');
+  await routeLine('2"\nSTD\nORIGIN 0 0 0\nE 2000');
+  await pickEnd();
+  await page.click('.tool[data-kind="FLG_SW"]');
+  await page.waitForTimeout(300);
+  await pickEnd();
+  await page.click('.tool[data-kind="FLG_BLIND"]');
+  await page.waitForTimeout(300);
+  check('a blind on a socket weld flange: its SW weld stays, the flange drawn and listed as SW', `${await weldRows()} ${(await drawingNow()).nodes.find((n) => n.terminal)?.terminal?.under}`, (v) => v === 'SW PIPE / SOCKET WELD FLANGE || true false true FLG_SW', 'SW PIPE / SOCKET WELD FLANGE; blind and SW flange; under FLG_SW');
+}
+
 /* ------------------------------------ couplings, socket weld and threaded */
 
 // "Two more fittings: COUPLING SW, the socket one, and COUPLING NPT"

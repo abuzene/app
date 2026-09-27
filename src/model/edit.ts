@@ -1837,7 +1837,18 @@ export function setTerminal(drawing: Drawing, nodeId: string, kind: TerminalKind
       }
     }
   }
-  node.terminal = kind ? { kind, note: note ?? node.terminal?.note } : undefined;
+  // A blind bolts to the flange already on the end, which stays, welded to
+  // the pipe; on an open end, to a flange of the line's kind.
+  const before = node.terminal?.kind;
+  const under =
+    kind === 'FLG_BLIND'
+      ? before === 'FLG_WN' || before === 'FLG_SW' || before === 'FLG_THD'
+        ? before
+        : before === 'FLG_BLIND'
+          ? node.terminal?.under
+          : valveFlangeKind(node.joint ?? drawing.options.joint ?? 'BW')
+      : undefined;
+  node.terminal = kind ? { kind, note: note ?? node.terminal?.note, ...(under ? { under } : {}) } : undefined;
 }
 
 /** Whether pipe already leads from one point to the other, however far round. */

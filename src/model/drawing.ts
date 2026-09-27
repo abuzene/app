@@ -4,11 +4,13 @@ import type {
   EndType,
   DrawingOptions,
   FittingKind,
+  FlangeKind,
   InlineComponent,
   IsoNode,
   JointType,
   Meta,
   Run,
+  Terminal,
   Vec3,
   Weld,
   WeldReach,
@@ -450,7 +452,7 @@ export function fittingsTouchLength(drawing: Drawing, analysis: Analysis, run: R
 
 /** What a line's end piece takes off the pipe: a flange's length, a transition's stub. */
 function terminalTakeout(node: IsoNode, dn: string): number {
-  return terminalTakeoutOf(node.terminal?.kind, dn);
+  return terminalTakeoutOf(terminalWeldKind(node.terminal), dn);
 }
 
 export function fittingLabel(kind: FittingKind): string {
@@ -546,6 +548,15 @@ function componentJoint(c: InlineComponent, fallback: JointType, dn: string): Jo
   // weld or threaded flanges on those.
   if (ends === 'FLG') return flangeJoint(valveFlangeKind(fallback));
   return ends === 'BW' || ends === 'SW' || ends === 'THD' ? ends : null;
+}
+
+/**
+ * What the pipe is welded to at a line end: a blind is bolted to a flange,
+ * and that flange is what is welded (weld neck unless said).
+ */
+export function terminalWeldKind(terminal: Terminal | undefined): string | undefined {
+  if (!terminal) return undefined;
+  return terminal.kind === 'FLG_BLIND' ? (terminal.under ?? 'FLG_WN') : terminal.kind;
 }
 
 /** How a line end joins whatever terminates it. */
@@ -1205,7 +1216,8 @@ export function analyse(drawing: Drawing): Analysis {
       const facing: 1 | -1 = atStart ? -1 : 1;
 
       if (info.degree === 1) {
-        const terminal = node.terminal?.kind ?? 'OPEN';
+        // A blind is bolted to the flange welded on the pipe: that flange's weld.
+        const terminal = terminalWeldKind(node.terminal) ?? 'OPEN';
         const joint = terminalJoint(terminal, nodeJoint);
         if (joint) {
           // The point is the flange face; the weld is a flange length back
@@ -1227,7 +1239,7 @@ export function analyse(drawing: Drawing): Analysis {
             idx,
             at,
             isFlange(terminal)
-              ? { anchor: node.pos, reach: { kind: 'flange', flange: terminal === 'FLG_BLIND' ? 'FLG_WN' : terminal, paired: false } }
+              ? { anchor: node.pos, reach: { kind: 'flange', flange: terminal as FlangeKind, paired: false } }
               : terminal === 'TRANSITION'
                 ? { anchor: node.pos, reach: { kind: 'transition' } }
                 : undefined,
@@ -1342,7 +1354,7 @@ export function analyse(drawing: Drawing): Analysis {
       // Against the line's end piece, the weld to it is that piece's own.
       const onTerminal = (atStart: boolean): boolean => {
         const end = atStart ? a : b;
-        const kind = end.terminal?.kind ?? end.flange;
+        const kind = terminalWeldKind(end.terminal) ?? end.flange;
         if (!kind || !terminalJoint(kind, pointJoint(end))) return false;
         return itemAtEnd(drawing, run, atStart)?.comp.id === comp.id;
       };
@@ -1672,7 +1684,7 @@ export function analyse(drawing: Drawing): Analysis {
             category: kind === 'CAP' || kind === 'TRANSITION' ? 'FITTING' : 'FLANGE',
             // A blind closes the line by bolting to a flange on the pipe, so
             // the pipe end wears a weld neck and the blind is counted as well.
-            description: kind === 'FLG_BLIND' ? TERMINAL_LABEL.FLG_WN : TERMINAL_LABEL[kind],
+            description: TERMINAL_LABEL[terminalWeldKind(info.node.terminal) ?? kind],
             dn,
             schedule: fittingThickness,
             unit: 'off',

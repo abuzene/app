@@ -599,10 +599,10 @@ export function componentSymbol(kind: ComponentKind, f: Frame, reach?: number, f
 }
 
 /** Symbol drawn on a free end of the line, facing out of the pipe. */
-export function terminalSymbol(kind: TerminalKind, f: Frame, joint: JointType = 'BW', hub?: number): string {
+export function terminalSymbol(kind: TerminalKind, f: Frame, joint: JointType = 'BW', hub?: number, under: FlangeKind = 'FLG_WN'): string {
   if (kind === 'FLG_BLIND') {
-    // A blind bolts to a flange on the pipe: the weld neck, the gap, the blind.
-    return flangeSymbol(f, 'FLG_WN', 1, hub) + gasketLine(f, f.s * 0.25) + counterFlange(f, 'FLG_BLIND', 1, f.s * 0.5);
+    // A blind bolts to a flange on the pipe: that flange, the gap, the blind.
+    return flangeSymbol(f, under, 1, hub) + gasketLine(f, f.s * 0.25) + counterFlange(f, 'FLG_BLIND', 1, f.s * 0.5);
   }
   if (isFlange(kind)) {
     // Just this line's flange: what bolts to it is somebody else's to draw.
