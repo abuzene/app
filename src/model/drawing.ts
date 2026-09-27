@@ -13,6 +13,7 @@ import type {
   Terminal,
   Vec3,
   Weld,
+  WeldCounter,
   WeldReach,
 } from './types';
 import { AXIS_VECTOR, add, angleBetween, direction, equals3, length3, scale3, sub } from './iso';
@@ -156,8 +157,8 @@ export interface Analysis {
   joints: Weld[];
   /** The joints that are actually welds, numbered along the route. */
   welds: Weld[];
-  /** Numbered across the project: how many welds of each size this sheet numbered itself. */
-  weldCounts: Record<string, number>;
+  /** Numbered across the project: where each size's count stands after this sheet. */
+  weldEnds: Record<string, WeldCounter>;
   runLengths: Map<string, RunLengths>;
   /** Every length of pipe as cut, with the welds at its ends. */
   pieces: PipePiece[];
@@ -1410,7 +1411,12 @@ export function analyse(drawing: Drawing): Analysis {
   // Across the project (his ask, 2026-09-27): "HYF 1/2.1" — the project's
   // code, the size, and a count per size running on from the sheets before.
   const code = drawing.meta.weldCode?.trim();
-  const weldCounts: Record<string, number> = {};
+  // Each size's count runs on from the sheets before; a number typed by hand
+  // sets it, so the welds of that size after it follow on (his ask,
+  // 2026-09-27: "I changed a weld number: the ones after it change to
+  // follow, by size; the ones before stay").
+  const weldEnds: Record<string, WeldCounter> = {};
+  for (const [dn, v] of Object.entries(drawing.weldStarts ?? {})) weldEnds[dn] = typeof v === 'number' ? { n: v } : { ...v };
   const joints: Weld[] = ordered.map((j) => {
     const override = drawing.weldOverrides[j.key];
     // A joint marked as not welded after all keeps its mark, and the numbers
@@ -1422,13 +1428,16 @@ export function analyse(drawing: Drawing): Analysis {
     if (welded && typed) {
       number = typed;
       const tail = typed.match(/^(.*?)(\d+)$/);
-      if (tail && !code) {
+      if (tail && code) {
+        weldEnds[j.dn] = { n: Number(tail[2]), prefix: tail[1] };
+      } else if (tail) {
         prefix = tail[1];
         next = Number(tail[2]) + 1;
       }
     } else if (welded && code) {
-      weldCounts[j.dn] = (weldCounts[j.dn] ?? 0) + 1;
-      number = `${code} ${weldSizeTag(j.dn)}.${(drawing.weldStarts?.[j.dn] ?? 0) + weldCounts[j.dn]}`;
+      const counter = (weldEnds[j.dn] ??= { n: 0 });
+      counter.n += 1;
+      number = `${counter.prefix ?? `${code} ${weldSizeTag(j.dn)}.`}${counter.n}`;
     } else if (welded) {
       number = `${prefix}${next}`;
       next += 1;
@@ -1799,7 +1808,7 @@ export function analyse(drawing: Drawing): Analysis {
     nodeById,
     joints,
     welds,
-    weldCounts,
+    weldEnds,
     runLengths,
     pieces,
     bom,

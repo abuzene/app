@@ -1,5 +1,5 @@
 import './styles.css';
-import type { Axis, Drawing, InlineComponent, Run, Vec3 } from './model/types';
+import type { Axis, Drawing, InlineComponent, Run, Vec3, WeldCounter } from './model/types';
 import type { Preview, Selection } from './render/renderer';
 import type { AppState, Host, OletAsk, OletChoice, ReducerAsk, ReducerChoice } from './ui/types';
 import { reducerPreview } from './ui/reducer-preview';
@@ -95,33 +95,35 @@ function recompute(): void {
   state.analysis = analyse(state.drawing);
 }
 
-/** How many welds of each size a kept sheet numbered itself, by its id and stamp. */
-const weldCountCache = new Map<string, Record<string, number>>();
+/** Where each size's count stands after a kept sheet, by its id, stamp and what it began from. */
+const weldEndCache = new Map<string, Record<string, WeldCounter>>();
 
 /**
- * Numbered across the project: the welds of each size on the project's
- * sheets before this one (by sheet number), so its count runs on from
- * theirs. Undefined when the project is not numbered so.
+ * Numbered across the project: where each size's count stands after the
+ * project's sheets before this one, taken in sheet order, each running on
+ * from the one before (a number typed by hand on one sets the count for the
+ * rest). Undefined when the project is not numbered so.
  */
-function projectWeldStarts(drawing: Drawing): Record<string, number> | undefined {
+function projectWeldStarts(drawing: Drawing): Record<string, WeldCounter> | undefined {
   const code = drawing.meta.weldCode?.trim();
   const project = drawing.meta.project || '';
   if (!code || !project) return undefined;
   const here = sheetNumber(drawing.meta.sheet);
-  const starts: Record<string, number> = {};
-  for (const entry of loadLibrary()) {
-    if (entry.id === drawing.id || (entry.drawing.meta.project || '') !== project) continue;
-    if (sheetNumber(entry.drawing.meta.sheet) >= here) continue;
-    const key = `${entry.id}:${entry.savedAt}:${code}`;
-    let counts = weldCountCache.get(key);
-    if (!counts) {
-      const sheet = { ...emptyDrawing(), ...entry.drawing, meta: { ...entry.drawing.meta, weldCode: code } } as Drawing;
-      counts = analyse(sheet).weldCounts;
-      weldCountCache.set(key, counts);
+  const before = loadLibrary()
+    .filter((e) => e.id !== drawing.id && (e.drawing.meta.project || '') === project && sheetNumber(e.drawing.meta.sheet) < here)
+    .sort((a, b) => sheetNumber(a.drawing.meta.sheet) - sheetNumber(b.drawing.meta.sheet) || a.savedAt - b.savedAt);
+  let state: Record<string, WeldCounter> = {};
+  for (const entry of before) {
+    const key = `${entry.id}:${entry.savedAt}:${code}:${JSON.stringify(state)}`;
+    let ends = weldEndCache.get(key);
+    if (!ends) {
+      const sheet = { ...emptyDrawing(), ...entry.drawing, meta: { ...entry.drawing.meta, weldCode: code }, weldStarts: state } as Drawing;
+      ends = analyse(sheet).weldEnds;
+      weldEndCache.set(key, ends);
     }
-    for (const [dn, n] of Object.entries(counts)) starts[dn] = (starts[dn] ?? 0) + n;
+    state = ends;
   }
-  return starts;
+  return state;
 }
 
 /**

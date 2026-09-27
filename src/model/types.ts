@@ -244,6 +244,15 @@ export interface Run {
  * Every place the pipe meets something else. Threaded joints are marked on the
  * drawing but are not welds, so only the welded ones reach the weld schedule.
  */
+/**
+ * Where a size's count stands, numbered across the project: the last number
+ * used, and the prefix a number typed by hand set ("HYF 3." by default).
+ */
+export interface WeldCounter {
+  n: number;
+  prefix?: string;
+}
+
 export interface Weld {
   key: string;
   number: string;
@@ -376,7 +385,7 @@ export interface Drawing {
    * before this one have, so its count runs on. Worked out by the app from
    * the project's other sheets whenever the sheet is shown or printed.
    */
-  weldStarts?: Record<string, number>;
+  weldStarts?: Record<string, WeldCounter | number>;
   /** Equipment boxes drawn on the sheet. */
   equipment?: Equipment[];
   /** Dimensions put in by hand between two points. */

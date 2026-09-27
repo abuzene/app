@@ -3885,6 +3885,32 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   await page.waitForTimeout(300);
   check('the next sheet carries the numbering on', (await drawingNow()).meta.weldCode, (v) => v === 'HYF', 'HYF');
   check('sheet 2: 3" runs on from sheet 1, 1/2" starts at 1', (await numbersNow()).join(' | '), (v) => v === 'HYF 3.5 | HYF 3.6 | HYF 1/2.1 | HYF 1/2.2', 'HYF 3.5, HYF 3.6, HYF 1/2.1, HYF 1/2.2');
+
+  // "I changed a weld number: every weld after it should change to follow,
+  // by its size; the ones before it must not change" (2026-09-27).
+  const typedNo = page.locator('#tab-body [data-weld-no]').nth(0);
+  await typedNo.fill('HYF 3.20');
+  await typedNo.dispatchEvent('change');
+  await page.waitForTimeout(400);
+  check('typed HYF 3.20: the next 3" weld runs on at 3.21, 1/2" untouched', (await numbersNow()).join(' | '), (v) => v === 'HYF 3.20 | HYF 3.21 | HYF 1/2.1 | HYF 1/2.2', 'HYF 3.20 | HYF 3.21 | HYF 1/2.1 | HYF 1/2.2');
+  const laterNo = page.locator('#tab-body [data-weld-no]').nth(3);
+  await laterNo.fill('HYF 1/2.7');
+  await laterNo.dispatchEvent('change');
+  await page.waitForTimeout(400);
+  check('typed on the last 1/2" weld: the welds before it keep their numbers', (await numbersNow()).join(' | '), (v) => v === 'HYF 3.20 | HYF 3.21 | HYF 1/2.1 | HYF 1/2.7', 'HYF 3.20 | HYF 3.21 | HYF 1/2.1 | HYF 1/2.7');
+  await page.waitForTimeout(1000);
+  await page.click('#tabs button:has-text("Projects")');
+  await page.waitForTimeout(200);
+  await page.click('[data-a="new-sheet"]');
+  await page.waitForTimeout(1000);
+  await page.click('#tabs button:has-text("Command")');
+  await page.fill('#command-text', '3"\nSTD\nORIGIN 0 6000 0\nE 1000\nN 1000\n1/2"\nSCH80\nORIGIN 5000 6000 0\nE 1000\nN 1000');
+  await page.click('[data-a="run-commands"]');
+  await page.waitForTimeout(600);
+  await page.keyboard.press('Escape');
+  await page.click('#tabs button:has-text("Welds")');
+  await page.waitForTimeout(300);
+  check('sheet 3 runs on from the numbers typed on sheet 2, size by size', (await numbersNow()).join(' | '), (v) => v === 'HYF 3.22 | HYF 3.23 | HYF 1/2.8 | HYF 1/2.9', 'HYF 3.22 | HYF 3.23 | HYF 1/2.8 | HYF 1/2.9');
   await page.click('#tabs button:has-text("Route")');
   await page.waitForTimeout(150);
 }

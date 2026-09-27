@@ -839,11 +839,17 @@ ships, and the decisions already taken, so they are not re-litigated.
   on every kept sheet of the project and the one on screen
   (`setProjectWeldCode` in main.ts; `newSheetInProject` carries it). Then
   `analyse` numbers `${code} ${weldSizeTag(dn)}.${n}` (size as 1/2,
-  1-1/2, 3), n counted per size from `drawing.weldStarts[dn]`, which
-  `recompute` fills from the project's earlier sheets by sheet number
-  (`projectWeldStarts`, their `analysis.weldCounts` cached by id + stamp;
-  the print dialog does the same for other sheets). Typed numbers stay as
-  typed and take nothing from the count; the run-on-from-typed rule is off.
+  1-1/2, 3), n counted per size from `drawing.weldStarts[dn]`
+  (`WeldCounter {n, prefix}`), which `recompute` fills by running the
+  project's earlier sheets **in order**, each started from the last one's
+  `analysis.weldEnds` (`projectWeldStarts`, cached by id + stamp + code +
+  incoming state; the print dialog does the same for other sheets). **A
+  number typed over sets its size's count** (his ask, same day: "I
+  changed a weld number; the ones after it follow, by size; the ones
+  before do not change"): "HYF 3.20" makes the next 3" weld HYF 3.21, on
+  this sheet and on the sheets after it; other sizes and earlier welds
+  are untouched; the typed text before the digits becomes that size's
+  prefix. A typed number with no digits takes nothing from the count.
 - **Flange, reducer, flange with no pipe** (same day, HILLEL YAFEH sheet
   after the FILTER): "No pipe — fittings touch" on a run holding a reducer
   goes to `closeUpOnItem` in edit.ts (from `setRunDirect`): the end
