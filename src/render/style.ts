@@ -21,6 +21,24 @@ export interface ContentStyleOptions {
   dark?: boolean;
 }
 
+/**
+ * CSS limited to one element: every selector is set under `scope`. A
+ * sheet's style sits in the page as it is shown, and a style in the page
+ * reaches every drawing in it — with a project's sheets shown one under
+ * the other, the last sheet's lettering sizes were used on all of them.
+ */
+export function scopeCss(css: string, scope: string): string {
+  return css.replace(/([^{}]+)\{([^{}]*)\}/g, (_, selectors: string, body: string) => {
+    const scoped = selectors
+      .split(',')
+      .map((sel) => sel.trim())
+      .filter(Boolean)
+      .map((sel) => `${scope} ${sel}`)
+      .join(', ');
+    return `\n${scoped} {${body}}`;
+  });
+}
+
 export function contentCss({ k, u, symbol = 4, dark = false }: ContentStyleOptions): string {
   const w = (value: number) => ((value * u) / k).toFixed(4);
   /** A font size as a share of the symbol size, in paper units. */

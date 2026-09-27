@@ -1856,6 +1856,35 @@ check('with its end marked as going on to sheet 2', await page.evaluate(() => JS
   await page.selectOption('#sheet-pages', second);
   const [onePdf] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), page.click('.dialog-backdrop [data-x="pdf"]')]);
   check('another sheet of the project alone: one page, named for it', `${((await readFile(await onePdf.path())).toString('latin1').match(/\/Type\s*\/Page[^s]/g) || []).length} ${onePdf.suggestedFilename()}`, (v) => /^1 .*sheet-2\.pdf$/.test(v), '1 …sheet-2.pdf');
+
+  // "One sheet prints neat, the whole set comes out a mess" (2026-09-27):
+  // each sheet's style reached every sheet shown with it, so the last
+  // sheet's lettering sizes were used on all of them.
+  const lettering = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll('.sheet-preview svg')].map((svg) => {
+        const t = svg.querySelector('.dim-text, .weld-no');
+        return t ? `${t.getAttribute('class')}:${getComputedStyle(t).fontSize}` : '';
+      }),
+    );
+  await page.click('#print');
+  await page.waitForTimeout(250);
+  await page.click('.dialog-backdrop [data-x="preview"]');
+  await page.waitForTimeout(400);
+  const alone = (await lettering())[0];
+  await page.click('.dialog [data-close]');
+  await page.waitForTimeout(200);
+  await page.click('#print');
+  await page.waitForTimeout(250);
+  await page.selectOption('#sheet-pages', 'all');
+  await page.click('.dialog-backdrop [data-x="preview"]');
+  await page.waitForTimeout(600);
+  const together = await lettering();
+  const ids = await page.evaluate(() => [...document.querySelectorAll('.sheet-preview svg')].map((s) => s.id));
+  check('each sheet shown with the others keeps its own style', `${ids.length} ${new Set(ids).size}`, (v) => v === '2 2', '2 2');
+  check('the sheet on screen is lettered the same alone and with the set', `${alone} | ${together.join(' | ')}`, (v) => !!alone && v.startsWith(`${alone} | ${alone}`), alone);
+  await page.click('.dialog [data-close]');
+  await page.waitForTimeout(200);
 }
 // Five projects are listed; the rest on request.
 for (const name of ['Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot']) {

@@ -737,7 +737,12 @@ ships, and the decisions already taken, so they are not re-litigated.
   PDF sheet or Print alike; named `<project>-all-sheets.pdf`, one other
   sheet `<line>-sheet-k.pdf`. Stamp, notes and symbol-size rows
   (`[data-here-only]`) show only for the sheet on screen; each other sheet
-  prints with its own.
+  prints with its own. **Each sheet's style is its own** (his complaint,
+  2026-09-27: "one sheet prints neat, the whole set a mess"): a `<style>`
+  in the page reaches every SVG in it, so in the preview of all sheets the
+  last one's lettering sizes were used on all. `renderSheet` gives the
+  sheet an id (`iso-sheet-n`) and sets its CSS under it (`scopeCss` in
+  style.ts); `measureContent` does the same (`#iso-measure`).
 - The toolbar pads for the iPad status bar (`env(safe-area-inset-top)`).
 - **Only the drawing zooms** (his ask, 2026-09-26: "zoom in/out only the
   sheet, without moving the bars round it"): the viewport has

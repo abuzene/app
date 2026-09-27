@@ -3,7 +3,7 @@ import type { Drawing } from '../model/types';
 import { SYMBOL_MM, contentBounds, escapeText, renderDrawing, symbolSizeFor, type Bounds } from './renderer';
 import { sizeLabel } from '../model/pipe-data';
 import { northArrowDir } from '../model/iso';
-import { contentCss } from './style';
+import { contentCss, scopeCss } from './style';
 
 export type SheetSize = 'A4' | 'A3' | 'A2';
 
@@ -54,7 +54,8 @@ function measureContent(content: string, css: string): Bounds | null {
   host.setAttribute('width', '10');
   host.setAttribute('height', '10');
   host.style.cssText = 'position:absolute;left:-10000px;top:0;visibility:hidden;pointer-events:none';
-  host.innerHTML = `<style>${css}</style><g>${content}</g>`;
+  host.id = 'iso-measure';
+  host.innerHTML = `<style>${scopeCss(css, '#iso-measure')}</style><g>${content}</g>`;
   host.querySelectorAll('.hits').forEach((e) => e.remove());
   document.body.appendChild(host);
   try {
@@ -419,6 +420,8 @@ export function sheetNotes(notes: string | undefined, width: number): string[] {
 }
 
 /** Renders a complete, standalone drawing sheet. Units are millimetres. */
+let sheetSeq = 0;
+
 export function renderSheet(drawing: Drawing, analysis: Analysis, size: SheetSize = 'A3'): string {
   const { w: W, h: H } = SHEETS[size];
   const col = Math.min(112, W * 0.26);
@@ -464,8 +467,10 @@ export function renderSheet(drawing: Drawing, analysis: Analysis, size: SheetSiz
     notesSvg += text(dividerX + 1.2, noteY + i * 3.2, n, 'note-text');
   });
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}mm" height="${H}mm">
-<style>
+  // Its own id, so its style reaches only it (see scopeCss).
+  const id = `iso-sheet-${++sheetSeq}`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" id="${id}" viewBox="0 0 ${W} ${H}" width="${W}mm" height="${H}mm">
+<style>${scopeCss(`
 text { font-family: "Helvetica Neue", Arial, sans-serif; }
 .sheet-bg { fill: #ffffff; }
 .frame { fill: none; stroke: #12161c; stroke-width: 0.5; }
@@ -486,7 +491,7 @@ text { font-family: "Helvetica Neue", Arial, sans-serif; }
 .compass-needle { fill: #12161c; }
 .compass-label { font-size: 3px; font-weight: 700; }
 ${contentCss({ k, u: 0.24, symbol })}
-</style>
+`, `#${id}`)}</style>
 <rect class="sheet-bg" x="0" y="0" width="${W}" height="${H}"/>
 ${rect(MARGIN, MARGIN, W - MARGIN * 2, H - MARGIN * 2, 'frame')}
 ${vline(dividerX, MARGIN, H - MARGIN, 'frame')}
