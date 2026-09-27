@@ -649,8 +649,13 @@ ships, and the decisions already taken, so they are not re-litigated.
   back), the drawn pipe ends at the valve face; blind adds a BLIND FLANGE
   line and draws a blind plate on the valve face. Blind from the palette
   with the valve, or the end point it stands on, selected does the same
-  (not a terminal blind). A valve put on an end point now sits with its
-  flanged face on the end (it used to be centred on it, half past).
+  (not a terminal blind). A valve put on an **open end** goes on past it:
+  the end point moves out by the valve's length, so the pipe keeps the
+  length drawn (his complaint, 2026-09-27: "a 200 relief valve on the 290
+  pipe made it 90 — it goes on the open end, not into the pipe already
+  drawn"); `place` in tools.ts moves the end (or the start, shifting the
+  items) before adding it. It used to sit inside the pipe, taking its
+  length off it.
   The pipe list subtracts only the part of such a valve lying on the run.
 - **Fittings one after another** (`boltValveOnEnd` in edit.ts, called
   from `place` in tools.ts for a valve on an end point, tried on a copy

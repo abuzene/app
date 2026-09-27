@@ -2,7 +2,7 @@ import type { ComponentKind, FlangeKind, JointType, Run, TerminalKind } from '..
 import type { Host } from './types';
 import { COMPONENT_LABEL, COUPLING_REACH, TERMINAL_LABEL, chainStops, isCoupling, nodeFittingTakeout, dimensionStops, isMark, itemHalf, isValve, oletEntries, oletLegs, oletMarks, resolveEnds, terminalTakeoutOf, valveOpenSide } from '../model/drawing';
 import { addComponent, isCouplingPoint, isPlainPoint, placeCoupling, addEquipment, addFlangeJoint, flangeOnItemFace, applyReducer, boltValveOnEnd, runLength, setLastFlange, setTerminal, splitRun } from '../model/edit';
-import { axisBetween } from '../model/iso';
+import { add, axisBetween, direction, scale3 } from '../model/iso';
 import { DN_LIST, componentTakeout, sizeLabel, valveFlangeKind } from '../model/pipe-data';
 import { isFlange } from '../render/symbols';
 import { runOffsetAtPaper } from '../render/renderer';
@@ -440,6 +440,24 @@ function place(host: Host, kind: ComponentKind, ends?: 'SW' | 'THD'): void {
         const dn = target.dn;
         const half = isValve(kind) ? componentTakeout(kind, dn, resolveEnds(kind, dn, ends, joint) === 'FLG' && valveFlangeKind(joint)) : isCoupling(kind) ? componentTakeout(kind, dn) : 0;
         const onEnd = (info?.degree ?? 0) <= 1;
+        // On an open end the item goes on the end of the pipe, which keeps
+        // its length: the end point moves out by the item's length (his
+        // complaint, 2026-09-27: "a relief valve of 200 on the 290 pipe made
+        // it 90 — it goes on the open end, not into the pipe already drawn").
+        if (onEnd && half > 0) {
+          const a = d.nodes.find((n) => n.id === target.from);
+          const b = d.nodes.find((n) => n.id === target.to);
+          const dir = a && b ? direction(a.pos, b.pos) : null;
+          if (a && b && dir) {
+            const out = 2 * half;
+            if (target.to === nodeId) b.pos = add(b.pos, scale3(dir, out));
+            else {
+              a.pos = add(a.pos, scale3(dir, -out));
+              for (const c of target.inline) c.offset += out;
+            }
+            if (target.visual !== undefined) target.visual += out;
+          }
+        }
         const total = runLength(d, target);
         const offset = target.from === nodeId ? (onEnd ? half : 0) : onEnd ? total - half : total;
         const comp = addComponent(d, target.id, kind, offset, kind === 'SPECTACLE' ? 'FLG' : ends);

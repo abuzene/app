@@ -2658,10 +2658,13 @@ await page.waitForTimeout(150);
   await page.locator('.tool[data-kind="BALL_ACT"]').click();
   await page.waitForTimeout(300);
   const lastFlangeState = () => page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).runs[0].inline[0].lastFlange ?? 'flange');
-  check('a valve put on the end sits with its last flange face on the end', await page.evaluate(() => {
+  // Since 2026-09-27 a valve on an open end goes on past it, the pipe
+  // keeping its length: its pipe-side flange (68) starts at the old end
+  // (2000), the valve (203) beyond it.
+  check('a valve put on the open end goes on past it, its pipe-side flange at the old end', await page.evaluate(() => {
     const d = JSON.parse(localStorage.getItem('iso-draw.drawing.v1'));
     return Math.round(d.runs[0].inline[0].offset);
-  }), (v) => v > 1700 && v < 1950, 'its centre inside the run');
+  }), (v) => v === 2170, '2170 (2000 + 68 + 203 / 2)');
   check('its panel offers the last flange', await page.locator('#tab-body [data-f="last-flange"]').count(), (v) => v === 1, '1');
   await page.selectOption('#tab-body [data-f="last-flange"]', 'none');
   await page.waitForTimeout(300);
@@ -2673,7 +2676,7 @@ await page.waitForTimeout(150);
     const line = (name) => Number(rows.find((r) => r.includes(name))?.split('\t')[4] ?? 0);
     return `${line('WELD NECK FLANGE')} ${line('BLIND FLANGE')}`;
   };
-  check('taken off: one flange fewer, its weld gone, the end brought in to the valve face', `${await lastFlangeState()} ${await flangeCount()} ${await runCount()} ${Math.max(...(await nodesAt()).map((p) => p[1])) < 2000}`, (v) => v === 'none 2 0 1 true', 'none 2 0 1 true');
+  check('taken off: one flange fewer, its weld gone, the end on the valve face', `${await lastFlangeState()} ${await flangeCount()} ${await runCount()} ${Math.round(Math.max(...(await nodesAt()).map((p) => p[1])))}`, (v) => v === 'none 2 0 1 2271', 'none 2 0 1 2271');
   await page.click('#tabs button:has-text("Welds")');
   await page.waitForTimeout(200);
   check('two welds left', await page.locator('#tab-body table tbody tr').count(), (v) => v === 2, '2');
@@ -2688,7 +2691,7 @@ await page.waitForTimeout(150);
   await page.waitForTimeout(300);
   await page.selectOption('#tab-body [data-f="last-flange"]', 'flange');
   await page.waitForTimeout(300);
-  check('put back, the flange and its weld return and the end goes back out', `${await lastFlangeState()} ${await flangeCount()} ${Math.max(...(await nodesAt()).map((p) => p[1]))}`, (v) => v === 'flange 3 0 2000', 'flange 3 0 2000');
+  check('put back, the flange and its weld return and the end goes back out', `${await lastFlangeState()} ${await flangeCount()} ${Math.round(Math.max(...(await nodesAt()).map((p) => p[1])))}`, (v) => v === 'flange 3 0 2339', 'flange 3 0 2339');
   await page.keyboard.press('Escape');
 
   // The dashed line's text taken off from its own keypad.
@@ -4119,6 +4122,21 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   check('and all three are in the 3D view, their welds numbered', await page.locator('.v3d-tag').count(), (v) => v === 9, '9');
   await page.click('[data-a="v3d-close"]');
   await page.waitForTimeout(150);
+
+  // "I put a 200 relief valve on the 290 pipe and it became 90: it goes on
+  // the open end, the pipe keeps its length" (2026-09-27).
+  const relief = (await drawingNow()).runs.find((r) => r.inline.some((c) => c.kind === 'RELIEF'));
+  const reliefComp = relief.inline.find((c) => c.kind === 'RELIEF');
+  // 3" relief: 320 face to face, a 68 weld neck flange on the pipe side.
+  check('a flanged valve on an open end goes on past it: the pipe up to its flange is as drawn (700)', Math.round(reliefComp.offset - 160 - 68), (v) => v === 700, '700');
+  await routeLine('1"\nSCH40\nORIGIN 0 0 0\nW 290');
+  const openEnd = (await drawingNow()).nodes.find((n) => n.pos.e < 0).id;
+  await pick(`#canvas circle.hit-dot[data-node="${openEnd}"]`);
+  await page.click('.tool[data-kind="RELIEF"]');
+  await page.waitForTimeout(300);
+  const onEnd = await drawingNow();
+  check('his case: a 1" relief (200, threaded) on the end of a 290 pipe — the pipe stays 290, the line grows to 490', `${Math.round(Math.abs(onEnd.nodes.find((n) => n.pos.e < 0).pos.e))} ${onEnd.runs[0].inline[0].offset}`, (v) => v === '490 390', '490 390');
+  check('and the dimension up to it reads 290', await page.locator('#canvas .dim-text').evaluateAll((els) => els.map((e) => e.textContent)), (v) => v.includes('290'), '290');
   await page.click('#tabs button:has-text("Route")');
   await page.waitForTimeout(150);
 }
