@@ -481,3 +481,49 @@ tr.selected { background: var(--accent-soft); }
   background: #fff; color: var(--muted); font-size: 15px; line-height: 1; cursor: pointer;
 }
 .sheet-remove:hover { color: var(--danger, #b42318); border-color: var(--danger, #b42318); }
+
+/* ---------------------------------------------------------------- 3D view */
+.v3d-backdrop {
+  position: fixed; inset: 0; z-index: 60; background: rgba(12, 18, 27, 0.55);
+  display: flex; padding: max(10px, env(safe-area-inset-top, 0px)) 10px 10px;
+}
+.v3d {
+  flex: 1; display: flex; flex-direction: column; min-width: 0;
+  background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+.v3d-bar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 10px; border-bottom: 1px solid var(--line); background: var(--panel);
+}
+.v3d-title { font-size: 14px; margin-right: 4px; }
+.v3d-views { display: flex; gap: 4px; flex-wrap: wrap; }
+.v3d-grow { flex: 1 1 0; }
+.v3d-size { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.v3d-size select { font: inherit; font-size: 12px; padding: 3px 4px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); }
+.v3d-stage {
+  position: relative; flex: 1; min-height: 0; overflow: hidden;
+  background: radial-gradient(ellipse at 50% 40%, #ffffff 0%, #eef2f7 70%, #e3e9f1 100%);
+}
+.v3d-canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: grab; display: block; }
+.v3d-canvas:active { cursor: grabbing; }
+.v3d-labels { position: absolute; inset: 0; pointer-events: none; }
+.v3d-tag { position: absolute; width: 0; height: 0; }
+.v3d-tag::before {
+  content: ''; position: absolute; left: 0; top: 0; width: 14px; height: 1px; background: #12161c;
+  transform-origin: 0 0; transform: rotate(-45deg);
+}
+.v3d-tag span {
+  position: absolute; left: 9px; bottom: 8px; white-space: nowrap;
+  font: 700 11px "Helvetica Neue", Arial, sans-serif; color: #12161c;
+  background: #fff; border: 1px solid #12161c; border-radius: 4px; padding: 1px 4px;
+}
+.v3d-name {
+  position: absolute; transform: translate(-50%, -50%); white-space: nowrap;
+  font: 700 12px "Helvetica Neue", Arial, sans-serif; color: #12161c;
+}
+.v3d-hint {
+  position: absolute; left: 10px; bottom: 8px; font-size: 11px; color: var(--muted);
+  background: rgba(255, 255, 255, 0.75); padding: 3px 7px; border-radius: 6px; pointer-events: none;
+}
+.v3d-none { padding: 30px; color: var(--muted); }
+.v3d-bar .check span { color: var(--ink); font-size: 13px; }

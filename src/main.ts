@@ -17,6 +17,7 @@ import { SHEET_STAMPS, renderSheet, sheetStamp, sheetSymbolSize, type SheetSize 
 import { Canvas } from './ui/canvas';
 import { esc, fileStem, renderPanel, renderTabs } from './ui/panels';
 import { renderTools } from './ui/tools';
+import { open3dView } from './ui/view3d-window';
 
 const STORAGE_KEY = 'iso-draw.drawing.v1';
 const UNDO_LIMIT = 100;
@@ -1837,6 +1838,8 @@ function tidyDrawing(): void {
   });
   host.notify('Tidied: dimensions, weld numbers, balloons and letters laid out clear of each other. Undo puts them back.');
 }
+// The line in 3D, and a picture of it on the sheet (his ask, 2026-09-27).
+$('view3d').addEventListener('click', () => open3dView(host));
 $('rotate').addEventListener('click', () => {
   updateOptions((o) => {
     o.northRotation = ((o.northRotation + 1) % 4) as 0 | 1 | 2 | 3;

@@ -28,7 +28,8 @@ export interface ContentStyleOptions {
  * the other, the last sheet's lettering sizes were used on all of them.
  */
 export function scopeCss(css: string, scope: string): string {
-  return css.replace(/([^{}]+)\{([^{}]*)\}/g, (_, selectors: string, body: string) => {
+  // Comments first: one ahead of a rule was taken for part of its selector.
+  return css.replace(/\/\*[\s\S]*?\*\//g, '').replace(/([^{}]+)\{([^{}]*)\}/g, (_, selectors: string, body: string) => {
     const scoped = selectors
       .split(',')
       .map((sel) => sel.trim())

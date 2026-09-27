@@ -4,6 +4,7 @@ import { SYMBOL_MM, contentBounds, escapeText, renderDrawing, symbolSizeFor, typ
 import { sizeLabel } from '../model/pipe-data';
 import { northArrowDir } from '../model/iso';
 import { contentCss, scopeCss } from './style';
+import { render3dImage } from './view3d';
 
 export type SheetSize = 'A4' | 'A3' | 'A2';
 
@@ -76,6 +77,15 @@ interface SheetFit {
   tx: number;
   ty: number;
   content: string;
+  /** What is drawn, on the sheet in mm. */
+  box: Bounds;
+}
+
+interface Area {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
 }
 
 /**
@@ -83,8 +93,7 @@ interface SheetFit {
  * tags, balloons — so that bigger lettering never runs off the frame. A
  * first guess from the points, then measured and fitted again.
  */
-function fitSheet(drawing: Drawing, analysis: Analysis, size: SheetSize): SheetFit {
-  const area = drawingArea(size);
+function fitSheet(drawing: Drawing, analysis: Analysis, size: SheetSize, area: Area = drawingArea(size)): SheetFit {
   const nodes = contentBounds(drawing, analysis);
   const sheetDrawing = { ...drawing, options: { ...drawing.options, showGrid: false } };
   const draw = (k: number, bounds: Bounds) => {
@@ -93,7 +102,8 @@ function fitSheet(drawing: Drawing, analysis: Analysis, size: SheetSize): SheetF
     const ty = area.y + area.h / 2 - ((bounds.minY + bounds.maxY) / 2) * k;
     const view = { x: (area.x - tx) / k, y: (area.y - ty) / k, w: area.w / k, h: area.h / k };
     const content = renderDrawing({ drawing: sheetDrawing, analysis, view, selection: null, symbol });
-    return { k, symbol, tx, ty, content };
+    const box = { minX: bounds.minX * k + tx, minY: bounds.minY * k + ty, maxX: bounds.maxX * k + tx, maxY: bounds.maxY * k + ty };
+    return { k, symbol, tx, ty, content, box };
   };
   const fitTo = (b: Bounds, pad: number) =>
     Math.min((area.w - pad * 2) / Math.max(b.maxX - b.minX, 1), (area.h - pad * 2) / Math.max(b.maxY - b.minY, 1));
@@ -116,6 +126,43 @@ function fitSheet(drawing: Drawing, analysis: Analysis, size: SheetSize): SheetF
     fit = draw(k, all);
   }
   return fit;
+}
+
+/** How much of the drawing area's width the 3D picture takes, by its size. */
+const INSET_SHARE = { S: 0.26, M: 0.34, L: 0.44 };
+
+/**
+ * The drawing fitted to the sheet with room for the 3D picture, when the
+ * sheet has one: in a corner the drawing leaves free (bottom left, bottom
+ * right, top right — the compass is top left), else beside or under the
+ * drawing, whichever leaves the drawing bigger.
+ */
+function fitWithPicture(drawing: Drawing, analysis: Analysis, size: SheetSize): { fit: SheetFit; picture: Area | null; image: string | null } {
+  const area = drawingArea(size);
+  const view = drawing.view3d;
+  if (!view) return { fit: fitSheet(drawing, analysis, size, area), picture: null, image: null };
+  const w = area.w * (INSET_SHARE[view.size ?? 'M'] ?? INSET_SHARE.M);
+  const h = Math.min(w * 0.72, area.h * 0.5);
+  // Ten dots a millimetre: 254 dpi, as fine as the PDF is made.
+  const dots = Math.min(10, 1600 / w);
+  const image = render3dImage(drawing, analysis, view, Math.round(w * dots), Math.round(h * dots), 2.3 * dots);
+  if (!image) return { fit: fitSheet(drawing, analysis, size, area), picture: null, image: null };
+  const gap = 3;
+  const full = fitSheet(drawing, analysis, size, area);
+  const bottom = area.y + area.h - h;
+  const corners: Area[] = [
+    { x: area.x, y: bottom, w, h },
+    { x: area.x + area.w - w, y: bottom, w, h },
+    { x: area.x + area.w - w, y: area.y, w, h },
+  ];
+  const clear = (c: Area, b: Bounds) => b.maxX < c.x - gap || b.minX > c.x + c.w + gap || b.maxY < c.y - gap || b.minY > c.y + c.h + gap;
+  const free = corners.find((c) => clear(c, full.box));
+  if (free) return { fit: full, picture: free, image };
+  const beside = fitSheet(drawing, analysis, size, { ...area, w: area.w - w - gap });
+  const under = fitSheet(drawing, analysis, size, { ...area, h: area.h - h - gap });
+  return beside.k >= under.k
+    ? { fit: beside, picture: corners[1], image }
+    : { fit: under, picture: corners[0], image };
 }
 
 /**
@@ -433,7 +480,14 @@ export function renderSheet(drawing: Drawing, analysis: Analysis, size: SheetSiz
   // screen — the way his own sheets are drawn — with the pipe and the
   // symbols in the proportions he sees on screen. The scale is worked out
   // from the fit and noted.
-  const { k, tx, ty, content, symbol } = fitSheet(drawing, analysis, size);
+  const { fit, picture, image } = fitWithPicture(drawing, analysis, size);
+  const { k, tx, ty, content, symbol } = fit;
+  const pictureSvg =
+    picture && image
+      ? `<image class="view3d-picture" href="${image}" x="${picture.x.toFixed(2)}" y="${picture.y.toFixed(2)}" width="${picture.w.toFixed(2)}" height="${picture.h.toFixed(2)}" preserveAspectRatio="xMidYMid meet"/>` +
+        rect(picture.x, picture.y, picture.w, picture.h, 'block') +
+        text(picture.x + 1.6, picture.y + 3.4, '3D VIEW — NOT TO SCALE', 'tb-head')
+      : '';
   const scaleR = Math.round(1 / drawing.options.scale / k);
 
   // Right hand column: bill of materials, weld summary, title block.
@@ -496,6 +550,7 @@ ${contentCss({ k, u: 0.24, symbol })}
 ${rect(MARGIN, MARGIN, W - MARGIN * 2, H - MARGIN * 2, 'frame')}
 ${vline(dividerX, MARGIN, H - MARGIN, 'frame')}
 <g transform="translate(${tx.toFixed(3)} ${ty.toFixed(3)}) scale(${k.toFixed(6)})">${content}</g>
+${pictureSvg}
 ${compass(drawing, areaX + 16, areaY + 16, 5)}
 ${bom.svg}
 ${welds.svg}

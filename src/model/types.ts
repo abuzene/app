@@ -396,6 +396,13 @@ export interface Drawing {
    * where there is most room.
    */
   balloons?: Record<string, { at?: string; hidden?: boolean }>;
+  /**
+   * A picture of the line in 3D on the sheet, seen from here, drawn afresh
+   * from the drawing whenever the sheet is (his ask, 2026-09-27: "a picture
+   * of the 3D on the sheet, clearer for the shop"). `az` round the
+   * vertical, `el` above the horizontal, in degrees; `size` of the box.
+   */
+  view3d?: { az: number; el: number; welds?: boolean; size?: 'S' | 'M' | 'L' };
 }
 
 export interface DimOverride {

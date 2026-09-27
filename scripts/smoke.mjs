@@ -3985,6 +3985,81 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   check('a blind on a socket weld flange: its SW weld stays, the flange drawn and listed as SW', `${await weldRows()} ${(await drawingNow()).nodes.find((n) => n.terminal)?.terminal?.under}`, (v) => v === 'SW PIPE / SOCKET WELD FLANGE || true false true FLG_SW', 'SW PIPE / SOCKET WELD FLANGE; blind and SW flange; under FLG_SW');
 }
 
+/* ---------------------------------- the line in 3D, and its picture on the sheet */
+
+// "Is there a way to see the pipe line in 3D? … and take a picture of it
+// into the drawing, clearer for the shop" (2026-09-27).
+{
+  await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 3000\n+BALL 800\n+BALLAIR 2200\nMARK t\nN 1500\nD 1200\nEND FLG\nGOTO t\nS 900\nEND CAP');
+  await page.click('#tabs button:has-text("Welds")');
+  await page.waitForTimeout(200);
+  const welds = await page.locator('#tab-body [data-weld-no]').count();
+  await page.click('#tabs button:has-text("Route")');
+  await page.click('#view3d');
+  await page.waitForTimeout(600);
+  const drawn = await page.evaluate(() => {
+    const c = document.querySelector('.v3d-canvas');
+    return { w: c?.width ?? 0, gl: !!c?.getContext('webgl'), tags: document.querySelectorAll('.v3d-tag').length };
+  });
+  check('the 3D button opens the line as a model, weld numbers on it', `${drawn.gl} ${drawn.w > 100} ${drawn.tags}`, (v) => v === `true true ${welds}` && welds > 5, `true true ${welds} (every weld numbered)`);
+  const firstTag = await page.locator('.v3d-tag').first().getAttribute('style');
+  const stage = await page.locator('.v3d-canvas').boundingBox();
+  await page.mouse.move(stage.x + 400, stage.y + 300);
+  await page.mouse.down();
+  await page.mouse.move(stage.x + 520, stage.y + 260, { steps: 6 });
+  await page.mouse.up();
+  await page.waitForTimeout(250);
+  check('a drag turns it (the numbers go with it)', (await page.locator('.v3d-tag').first().getAttribute('style')) !== firstTag, (v) => v === true, 'moved');
+  await page.uncheck('[data-f="v3d-welds"]');
+  await page.waitForTimeout(150);
+  check('the weld numbers can be put away', await page.locator('.v3d-tag').count(), (v) => v === 0, '0');
+  await page.check('[data-f="v3d-welds"]');
+  await page.click('[data-a="v3d-sheet"]');
+  await page.waitForTimeout(250);
+  const kept = (await drawingNow()).view3d;
+  check('Put on sheet keeps the view with the drawing, turned as seen', `${!!kept} ${kept && Math.round(kept.az) !== -45} ${kept?.welds} ${kept?.size}`, (v) => v === 'true true true M', 'kept, turned, with welds, medium');
+  check('and then offers to update it or take it off', `${await page.locator('[data-a="v3d-sheet"]').innerText()} | ${await page.locator('[data-a="v3d-off"]').isVisible()}`, (v) => v === 'Update on sheet | true', 'Update on sheet | true');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+  check('Escape closes the 3D view', await page.locator('.v3d-backdrop').count(), (v) => v === 0, '0');
+  await page.click('#print');
+  await page.waitForTimeout(250);
+  await page.click('.dialog-backdrop [data-x="preview"]');
+  await page.waitForTimeout(800);
+  const picture = await page.evaluate(() => {
+    const svg = document.querySelector('.sheet-preview svg');
+    const img = svg?.querySelector('image.view3d-picture');
+    if (!img) return null;
+    const x = Number(img.getAttribute('x'));
+    const y = Number(img.getAttribute('y'));
+    const w = Number(img.getAttribute('width'));
+    const h = Number(img.getAttribute('height'));
+    // Nothing of the drawing under it: every pipe clear of the picture.
+    const pipes = [...svg.querySelectorAll('.pipe')].map((p) => {
+      const b = p.getBoundingClientRect();
+      return b;
+    });
+    const r = img.getBoundingClientRect();
+    const under = pipes.filter((b) => b.right > r.left + 1 && b.left < r.right - 1 && b.bottom > r.top + 1 && b.top < r.bottom - 1).length;
+    return { png: (img.getAttribute('href') || '').startsWith('data:image/png'), w, h, x, y, under, caption: svg.textContent.includes('3D VIEW') };
+  });
+  check('the sheet carries the 3D picture in a box of its own, clear of the drawing', picture && `${picture.png} ${picture.caption} ${picture.w > 60} ${picture.under}`, (v) => v === 'true true true 0', 'true true true 0');
+  await page.click('.dialog [data-close]');
+  await page.waitForTimeout(200);
+  await page.click('#print');
+  await page.waitForTimeout(250);
+  const [pdf3d] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), page.click('.dialog-backdrop [data-x="pdf"]')]);
+  const pdfBytes = await readFile(await pdf3d.path());
+  check('and the PDF sheet is made with it', `${(pdfBytes.toString('latin1').match(/\/Type\s*\/Page[^s]/g) || []).length} ${pdfBytes.length > 20000}`, (v) => v === '1 true', '1 true');
+  await page.click('#view3d');
+  await page.waitForTimeout(400);
+  await page.click('[data-a="v3d-off"]');
+  await page.waitForTimeout(200);
+  check('Take off sheet takes the picture off', (await drawingNow()).view3d, (v) => v === undefined, 'undefined');
+  await page.click('[data-a="v3d-close"]');
+  await page.waitForTimeout(150);
+}
+
 /* ------------------------------------ couplings, socket weld and threaded */
 
 // "Two more fittings: COUPLING SW, the socket one, and COUPLING NPT"

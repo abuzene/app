@@ -794,6 +794,33 @@ ships, and the decisions already taken, so they are not re-litigated.
   no forced second row any more. The smoke reaches the switches through
   `inViewMenu`.
 
+- **3D view** (his ask, 2026-09-27: "can the pipe line be shown in 3D —
+  and a picture of it put into the drawing, clearer for the shop"):
+  toolbar `#view3d` → `open3dView` in `src/ui/view3d-window.ts`, a full
+  window (`.v3d-backdrop`) over the app. The model is built to **true
+  dimensions** from the points (`buildModel` in `src/render/view3d.ts`):
+  pipe on `pipeSpans` at its OD, elbows swept at their radius (take-out
+  / tan(θ/2)), tees, olets, couplings, reducers (eccentric flat below),
+  WN/SW flanges from B16.5 Class 150 ODs (`FLANGE_OD`), valves red with
+  their flanges (bare / last flange none / blind honoured), a lever,
+  wheel or actuator box, caps, PE after a transition, a dark bead at
+  every weld, dashed runs and equipment boxes see-through. WebGL only,
+  no library (`Scene3D`, orthographic, lit from the side it is seen
+  from — the winding is not consistent, so never light by
+  `gl_FrontFacing`). Pen / one finger / left button turns, pinch or
+  wheel zooms, two fingers or the right button moves; Iso (the sheet's,
+  `isoAngles(northRotation)`), Plan, From S, From E, Fit; weld numbers
+  as HTML tags over it (`[data-f="v3d-welds"]`). **Put on sheet**
+  (`[data-a="v3d-sheet"]`) keeps `drawing.view3d = {az, el, welds,
+  size S|M|L}`; the picture is drawn afresh from the drawing whenever
+  the sheet is (`render3dImage`, 10 dots/mm PNG in the SVG,
+  `image.view3d-picture`, caption "3D VIEW — NOT TO SCALE"), so it never
+  goes stale. `fitWithPicture` in sheet.ts puts it in a corner the
+  drawing leaves free (bottom left, bottom right, top right; the compass
+  is top left), else fits the drawing beside or above it, whichever is
+  bigger. "Take off sheet" (`[data-a="v3d-off"]`) deletes it. No WebGL:
+  the window says so and the sheet has no picture.
+
 ## How he actually draws (learned from his sheets)
 
 - His **Station_test** sheet (3" SCH40): a WN flange at the start, two
