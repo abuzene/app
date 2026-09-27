@@ -1606,6 +1606,18 @@ export function applyChainDimension(drawing: Drawing, analysis: Analysis, key: s
     const was0 = chain.olets.find((o) => o.nodeId === nodeId)!.along;
     const stops = chainStops(drawing, chain).filter((mm) => Math.abs(mm - was0) > 0.5);
     const others = chain.olets.filter((o) => o.nodeId !== nodeId).map((o) => o.along);
+    const inner = [...stops, ...others].filter((mm) => mm > 0.5 && mm < chain.total - 0.5);
+    // Past the header's end: the header is carried on (it is the existing
+    // pipe, the olet's place is what counts), leaving a little pipe beyond
+    // the olet (his complaint, 2026-09-27: "still only up to 280").
+    const HEADER_BEYOND = 100;
+    const nextUp = Math.min(...inner.filter((mm) => mm > was0 + 0.5), Infinity);
+    if (!(nextUp < Infinity) && value > chain.total - HEADER_BEYOND) {
+      const last = chain.runs[chain.runs.length - 1];
+      const grow = value + HEADER_BEYOND - chain.total;
+      if (!stretchRun(drawing, last.run.id, last.length + grow, last.forward ? 'to' : 'from', true)) return 'The header cannot be carried on that far.';
+      return applyChainDimension(drawing, analyse(drawing), key, value);
+    }
     const below = Math.max(...[...stops, ...others].filter((mm) => mm < value - 0.5 && mm < chain.total), 0);
     const above = Math.min(...[...stops, ...others].filter((mm) => mm > value + 0.5), chain.total);
     if (value <= below + 0.5 || value >= above - 0.5) return 'That would put the olet past the next thing on the header.';

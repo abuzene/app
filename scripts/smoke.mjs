@@ -4330,6 +4330,21 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   await page.reload();
   await page.waitForTimeout(700);
   check('and it holds when the sheet is opened again', await heights(), (v) => v === '545 545 545', '545 545 545');
+
+  // "Still only up to 280" (same day): past the end of the existing header
+  // the header is carried on, 100 beyond the olet, the branch with it.
+  await page.click('#fit');
+  await page.waitForTimeout(300);
+  const betweenEl = page.locator(`#canvas [data-dim="${between}"]`).first();
+  await betweenEl.dispatchEvent('pointerdown', { bubbles: true, pointerId: 7, pointerType: 'pen', button: 0, isPrimary: true });
+  await betweenEl.dispatchEvent('pointerup', { bubbles: true, pointerId: 7, pointerType: 'pen', button: 0, isPrimary: true });
+  await page.waitForTimeout(300);
+  for (let i = 0; i < 6; i += 1) await page.locator('.dim-keypad [data-key="⌫"]').dispatchEvent('pointerdown', { bubbles: true });
+  for (const k of ['4', '0', '0']) await page.locator(`.dim-keypad [data-key="${k}"]`).dispatchEvent('pointerdown', { bubbles: true });
+  await page.locator('.dim-keypad [data-key="OK"]').dispatchEvent('pointerdown', { bubbles: true });
+  await page.waitForTimeout(400);
+  const top = (await drawingNow()).nodes.find((n) => n.id === 'n94r5k')?.pos.u;
+  check('typed past the header\'s end (400): the olet goes there, the header is carried on 100 beyond it', `${await heights()} ${top}`, (v) => v === '745 745 745 845', '745 745 745 845');
 }
 
 /* ------------------------------------ couplings, socket weld and threaded */

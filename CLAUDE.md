@@ -583,6 +583,10 @@ ships, and the decisions already taken, so they are not re-litigated.
   the branch rejoins the header): left behind askew, `straightenBranches`
   squared it back on the next load and the olet with it — "I cannot
   change the 173" between two olets on his Strauss sheet, 2026-09-27.
+  Typed past the header's far end (nothing else between), the header is
+  **carried on**, `HEADER_BEYOND` 100 mm past the olet (`stretchRun` on
+  the last leg, `moveEnd`), then the olet moved ("still only up to 280");
+  a piece typed from the header's start is kept exactly as typed.
   `applyChainDimension`
   in edit.ts: the olet's dimension moves the olet alone (inline items on
   the runs either side keep their place on the header); the last piece
