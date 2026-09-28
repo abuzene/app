@@ -5552,6 +5552,42 @@ await page.waitForTimeout(250);
   check('each typed on its own, the other two stay', await heightsNow(), (v) => v === '120 300 700', '120 300 700');
   await typeMeasure('m21gmt', 200);
   check('and again, the one between the olets', await heightsNow(), (v) => v === '120 200 700', '120 200 700');
+
+  // Same sheet, same day: "no way to change a dimension" on the 3" line off
+  // the header — an old olet location hidden on its own took all its
+  // dimensions off — and the 120 before the 2" line's threadolet would not
+  // take a bigger figure: the 62 of the valve's flange and blind after it,
+  // deleted, was a free piece with no pipe to give. Now the open end goes.
+  check('the 3" line off the header has its dimensions', await page.locator('#canvas [data-dim^="hdr:rrvq6h:"]').count(), (v) => v >= 4, 'four or more');
+  // Each figure is the text nearest its tap target.
+  const figs = () => page.evaluate(() => {
+    const texts = [...document.querySelectorAll('#canvas .dim-text')].map((t) => {
+      const r = t.getBoundingClientRect();
+      return { text: t.textContent, x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    });
+    return ['0', '1', '2', '3', '4'].map((i) => {
+      const hit = document.querySelector(`#canvas [data-dim="hdr:re9wy4:${i}"]`);
+      if (!hit) return '-';
+      const r = hit.getBoundingClientRect();
+      const cx = r.x + r.width / 2;
+      const cy = r.y + r.height / 2;
+      return texts.reduce((best, t) => (Math.hypot(t.x - cx, t.y - cy) < Math.hypot(best.x - cx, best.y - cy) ? t : best)).text;
+    }).join(' ');
+  });
+  const pieces = await figs();
+  const fig = page.locator('#canvas [data-dim="hdr:re9wy4:2"]').first();
+  const box = await fig.boundingBox();
+  const at = { bubbles: true, pointerId: 16, pointerType: 'mouse', button: 0, clientX: box.x + box.width / 2, clientY: box.y + box.height / 2, isPrimary: true };
+  await fig.dispatchEvent('pointerdown', at);
+  await page.waitForTimeout(100);
+  await fig.dispatchEvent('pointerup', at);
+  await page.waitForTimeout(300);
+  await page.keyboard.press('Control+A');
+  await page.keyboard.type('200');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(400);
+  const [a, b, , d, e] = pieces.split(' ');
+  check('the 120 up to the threadolet takes 200, the pieces after it stay', await figs(), (v) => v === `${a} ${b} 200 ${d} ${e}`, `${a} ${b} 200 ${d} ${e}`);
 }
 
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');

@@ -1,6 +1,6 @@
 import type { Analysis } from '../model/drawing';
 import type { Axis, DimOverride, Drawing, FlangeKind, Run, Vec3 } from '../model/types';
-import { COMPONENT_LABEL, COUPLING_REACH, SYMBOL_MM, couplingKindAt, isCoupling, TERMINAL_LABEL, chainStops, dimensionStops, drawnShare, trueAtShare, fittingLabel, runGroupIds, isMark, isReducer, isSupport, isValve, itemAtEnd, oletEntries, oletLegs, resolveEnds, valveOpenSide } from '../model/drawing';
+import { headerTakenOff, COMPONENT_LABEL, COUPLING_REACH, SYMBOL_MM, couplingKindAt, isCoupling, TERMINAL_LABEL, chainStops, dimensionStops, drawnShare, trueAtShare, fittingLabel, runGroupIds, isMark, isReducer, isSupport, isValve, itemAtEnd, oletEntries, oletLegs, resolveEnds, valveOpenSide } from '../model/drawing';
 import { componentTakeout, sizeLabel, valveFlangeKind } from '../model/pipe-data';
 import { AXIS_VECTOR, axisBetween, axisScreenDir, equals3, northArrowDir, project, scale3, add, sub } from '../model/iso';
 import { LETTER_BESIDE, weldTagSize, type LayoutSpecs } from './tidy';
@@ -493,11 +493,8 @@ export function renderDrawing(state: RenderState): string {
         };
         const stops = chainStops(drawing, chain);
         // A header whose dimensions were all taken off before they broke at
-        // the olets (keys `chain:`/`olet:`) stays without them.
-        const overrides = Object.keys(drawing.dimOverrides ?? {});
-        const oldKeys = overrides.filter((k) => k.startsWith(`chain:${chain.id}:`) || chain.olets.some((o) => k === `olet:${o.nodeId}`));
-        const takenOff =
-          oldKeys.length > 0 && oldKeys.every((k) => drawing.dimOverrides![k].hidden) && !overrides.some((k) => k.startsWith(`hdr:${chain.id}:`));
+        // the olets stays without them.
+        const takenOff = headerTakenOff(drawing, chain);
         for (let i = 0; i + 1 < stops.length; i += 1) {
           const span = stops[i + 1] - stops[i];
           if (span < 0.5) continue;

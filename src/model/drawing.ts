@@ -1019,6 +1019,25 @@ function chainCoord(leg: HeaderChain['runs'][number], offset: number): number {
  * "each piece measured to the centre of the olet"); the whole length is
  * dimensioned on its own further out.
  */
+/**
+ * A header whose dimensions were all taken off before they broke at the
+ * olets (its old `chain:` pieces hidden, and any old `olet:` locations)
+ * stays without them until it gets `hdr:` ones. An old olet location
+ * hidden on its own takes nothing off: it did on his Strauss sheet, and
+ * the 3" line off the header was left with no dimension to type
+ * (2026-09-28, "I have no way to change a dimension").
+ */
+export function headerTakenOff(drawing: Drawing, chain: HeaderChain): boolean {
+  const keys = Object.keys(drawing.dimOverrides ?? {});
+  const pieces = keys.filter((k) => k.startsWith(`chain:${chain.id}:`));
+  const olets = keys.filter((k) => chain.olets.some((o) => k === `olet:${o.nodeId}`));
+  return (
+    pieces.length > 0 &&
+    [...pieces, ...olets].every((k) => drawing.dimOverrides![k].hidden) &&
+    !keys.some((k) => k.startsWith(`hdr:${chain.id}:`))
+  );
+}
+
 export function chainStops(drawing: Drawing, chain: HeaderChain): number[] {
   const breaks: number[] = chain.olets.map((o) => o.along);
   for (const leg of chain.runs) {

@@ -1,6 +1,6 @@
 import type { Axis, ComponentKind, Drawing, EndType, Equipment, FlangeKind, InlineComponent, IsoNode, Measure, Run, TerminalKind, Vec3 } from './types';
 import { AXIS_VECTOR, add, axisBetween, direction, equals3, length3, scale3, step, sub } from './iso';
-import { analyse, chainStops, dimensionStops, isCoupling, nodeFittingTakeout, pipeSpans, drawnLength, runDrawnFloor, itemHalf, fittingsTouchLength, reducerSides, isReducer, minDrawnLength, isMark, isValve, itemAtEnd, oletMarks, resolveEnds, runGroupIds, terminalTakeoutOf, uid, valveOpenSide, type Analysis } from './drawing';
+import { analyse, chainStops, headerTakenOff, dimensionStops, isCoupling, nodeFittingTakeout, pipeSpans, drawnLength, runDrawnFloor, itemHalf, fittingsTouchLength, reducerSides, isReducer, minDrawnLength, isMark, isValve, itemAtEnd, oletMarks, resolveEnds, runGroupIds, terminalTakeoutOf, uid, valveOpenSide, type Analysis } from './drawing';
 import { componentTakeout, schedulesFor, sizeOf, valveFlangeKind } from './pipe-data';
 
 /** Finds an existing node at a position, so that routes join rather than overlap. */
@@ -2423,12 +2423,22 @@ export function applyAgainstFree(drawing: Drawing, analysis: Analysis, key: stri
   const delta = value - (typed.hi - typed.lo);
   if (Math.abs(delta) < 0.01) return null;
   // What moves, and which way: between the typed piece and the free one.
-  const lo = after ? typed.hi : give.hi;
-  const hi = after ? give.lo : typed.lo;
+  let lo = after ? typed.hi : give.hi;
+  let hi = after ? give.lo : typed.lo;
   const shift = after ? delta : -delta;
   const inRange = (t: number) => t >= lo - 0.5 && t <= hi + 0.5;
 
   // The free piece shrinks by `delta`: it cannot give more pipe than it has.
+  // One that runs out to an open end with too little pipe (a valve's flange
+  // and blind, his Strauss sheet, 2026-09-28: "I cannot change the 120")
+  // lets the end go instead, everything past the typed piece with it.
+  const lineEnd = Math.max(...legs.map((l) => l.start + l.length));
+  const endNode = (atEnd: boolean) => {
+    const leg = atEnd ? legs[legs.length - 1] : legs[0];
+    return atEnd === leg.forward ? leg.run.to : leg.run.from;
+  };
+  const open = (id: string) => drawing.runs.filter((r) => r.from === id || r.to === id).length === 1;
+  const endGoes = after ? give.hi >= lineEnd - 0.5 && open(endNode(true)) : give.lo <= 0.5 && open(endNode(false));
   if (delta > 0) {
     const spans = pipeSpans(drawing, analysis.nodeInfo, give.leg.run).map(([x, y]) => {
       const a = give.leg.forward ? give.leg.start + x : give.leg.start + give.leg.length - x;
@@ -2436,7 +2446,11 @@ export function applyAgainstFree(drawing: Drawing, analysis: Analysis, key: stri
       return [Math.min(a, b), Math.max(a, b)] as const;
     });
     const bare = spans.reduce((sum, [a, b]) => sum + Math.max(0, Math.min(b, give.hi) - Math.max(a, give.lo)), 0);
-    if (delta > bare - 1) return `The free piece has only ${Math.floor(bare)} mm of pipe to give: at most ${Math.floor(value - (delta - bare) - 1)} here.`;
+    if (delta > bare - 1) {
+      if (!endGoes) return `The free piece has only ${Math.floor(bare)} mm of pipe to give: at most ${Math.floor(value - (delta - bare) - 1)} here.`;
+      if (after) hi = lineEnd;
+      else lo = 0;
+    }
   }
 
   const t = (p: Vec3) => (p.e - line.origin.e) * unit.e + (p.n - line.origin.n) * unit.n + (p.u - line.origin.u) * unit.u;
@@ -2520,11 +2534,7 @@ export function applyMeasureOnLine(drawing: Drawing, analysis: Analysis, measure
     const chain = analysis.chainOfRun.get(leg.run.id);
     if (chain) {
       const stops = chainStops(drawing, chain);
-      // As the renderer has it: a header whose old dimensions were all taken off.
-      const keys = Object.keys(drawing.dimOverrides ?? {});
-      const oldKeys = keys.filter((k) => k.startsWith(`chain:${chain.id}:`) || chain.olets.some((o) => k === `olet:${o.nodeId}`));
-      const takenOff = oldKeys.length > 0 && oldKeys.every((k) => drawing.dimOverrides![k].hidden) && !keys.some((k) => k.startsWith(`hdr:${chain.id}:`));
-      if (takenOff || leg.run.noDim) continue;
+      if (headerTakenOff(drawing, chain) || leg.run.noDim) continue;
       for (let i = 0; i + 1 < stops.length; i += 1) shown.add(`hdr:${chain.id}:${i}`);
       // The whole header, end to end, on its row further out.
       if (stops.length > 2) shown.add(`hdr:${chain.id}:all`);

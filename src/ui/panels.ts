@@ -1,6 +1,6 @@
 import type { Axis, ComponentKind, EndType, Equipment, FittingKind, FlangeKind, JointType, TerminalKind } from '../model/types';
 import type { Host, TabId } from './types';
-import { COMPONENT_LABEL, DEFAULT_LOGO, ROOT_GAP, TERMINAL_LABEL, fittingLabel, fmtMm, isCoupling, isMark, isReducer, isSupport, isValve, oletLabel, oletLegs, oletMarks, pipeNetAt, reducerName, resolveEnds, suggestWeldCode, runGroupIds, valveOpenSide } from '../model/drawing';
+import { headerTakenOff, COMPONENT_LABEL, DEFAULT_LOGO, ROOT_GAP, TERMINAL_LABEL, fittingLabel, fmtMm, isCoupling, isMark, isReducer, isSupport, isValve, oletLabel, oletLegs, oletMarks, pipeNetAt, reducerName, resolveEnds, suggestWeldCode, runGroupIds, valveOpenSide } from '../model/drawing';
 import { COMMAND_HELP } from '../model/commands';
 import { DN_LIST, SIZE_LABELS, defaultValveEnds, schedulesFor, sizeLabel } from '../model/pipe-data';
 import { AXES, AXIS_VECTOR, axisBetween } from '../model/iso';
@@ -97,7 +97,7 @@ function runProperties(host: Host, runId: string): string {
   <div class="row"><label>Line</label><select data-f="dashed">${options(['solid', 'dashed'], run.dashed ? 'dashed' : 'solid', { solid: 'Solid — pipe on this sheet', dashed: 'Dashed — continued on the next sheet' })}</select></div>
   <div class="row"><label>Note</label><input type="text" data-f="note" value="${esc(run.note ?? '')}" placeholder="${run.dashed ? 'CONT. ON NEXT SHEET' : 'optional, drawn beside the pipe'}" /></div>
   ${offersAutoCoupling(run) ? `<div class="row"><label>Couplings</label><select data-f="autocpl">${options(['auto', 'none'], wantsAutoCoupling(run) ? 'auto' : 'none', { auto: 'One every 6 m of pipe', none: 'None put in by the app' })}</select></div>` : ''}
-  <div class="row"><label>Dimension</label><select data-f="nodim">${options(['show', 'hide'], run.noDim ? 'hide' : 'show')}</select></div>
+  <div class="row"><label>Dimension</label><select data-f="nodim">${options(['show', 'hide'], run.noDim || (header && headerTakenOff(drawing, header)) ? 'hide' : 'show')}</select></div>
   ${freeDimensions(drawing, analysis, run.id)
     .map(
       (f) =>
@@ -929,7 +929,9 @@ function wire(body: HTMLElement, host: Host): void {
         if (value === 'show' && d.dimOverrides) {
           const chainId = host.state.analysis.chainOfRun.get(id)?.id;
           for (const key of Object.keys(d.dimOverrides)) {
-            const ofChain = chainId && (key.startsWith(`hdr:${chainId}:`) || key.startsWith(`chain:${chainId}:`));
+            const chain = host.state.analysis.chainOfRun.get(id);
+            const ofChain =
+              chainId && (key.startsWith(`hdr:${chainId}:`) || key.startsWith(`chain:${chainId}:`) || !!chain?.olets.some((o) => key === `olet:${o.nodeId}`));
             if (key.startsWith(`${id}:`) || ofChain) delete d.dimOverrides[key].hidden;
           }
         }

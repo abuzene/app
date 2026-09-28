@@ -142,7 +142,15 @@ ships, and the decisions already taken, so they are not re-litigated.
   before) moves as one, points with all that hangs off them and items
   alike, and the free piece gives; what lies past it stays. Refused when
   the free piece has no pipe left to give (says the most it can be). No
-  free piece on the line: typed the usual way. The pipe's panel lists its
+  free piece on the line: typed the usual way. A free piece running out
+  to an **open end** with too little pipe to give (a valve's flange and
+  blind) lets the end go instead, all past the typed piece with it (his
+  Strauss sheet, 2026-09-28: "I cannot change the 120"). A header's old
+  dimensions count as taken off (`headerTakenOff` in drawing.ts, used by
+  the renderer, `applyMeasureOnLine` and the run panel's Dimension
+  select, which reads "hide" then) only when its old `chain:` pieces were
+  hidden: an old `olet:` location hidden alone left the 3" line off his
+  header with no dimension at all; Dimension: show clears those too. The pipe's panel lists its
   free pieces (`freeDimensions`, `[data-a="dim-again"]` "… — dimension it
   again"), which brings the figure back, fixed, to type.
 - **Tidy** (toolbar `#tidy`, `tidyDrawing` in main.ts, `tidyLayout` in
