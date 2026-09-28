@@ -195,7 +195,10 @@ main { flex: 1 1 auto; display: flex; min-height: 0; }
   font: 600 16px var(--mono); color: var(--ink); background: var(--bg);
   border: 1px solid var(--line); border-radius: 6px; padding: 8px 0; cursor: pointer;
 }
-.dim-keypad.text { width: 250px; grid-template-columns: repeat(5, 1fr); }
+.dim-keypad.text { width: min(400px, calc(100vw - 24px)); grid-template-columns: repeat(10, 1fr); gap: 3px; }
+.dim-keypad.text button { font-size: 15px; padding: 9px 0; }
+.dim-keypad.text button.space { grid-column: span 7; font: 600 12px var(--font); letter-spacing: 0.08em; }
+.dim-keypad.text button.ok { grid-column: span 3; }
 .dim-keypad button:active { background: var(--accent-soft); }
 .dim-keypad button.ok { background: var(--accent); color: #fff; border-color: var(--accent); }
 .dim-keypad button.wide { grid-column: 1 / -1; font: 600 13px var(--font); padding: 7px 0; }

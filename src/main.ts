@@ -597,9 +597,17 @@ function openInlineEditor(
   let fresh = true;
   const keypad = document.createElement('div');
   keypad.className = `dim-keypad ${mode}`;
-  const keys = mode === 'numeric' ? ['7', '8', '9', '4', '5', '6', '1', '2', '3', '⌫', '0', 'OK'] : ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', 'W', 'F', 'S', 'T', 'A', 'B', '-', '/', '⌫', 'OK'];
+  // Typed text is every capital letter, the figures, a point, a space and
+  // the dash and slash of "HYF 1/2.1" (his ask, 2026-09-28: "all the
+  // English letters, capitals, with a point and numbers"), laid out as on a
+  // keyboard.
+  const keys =
+    mode === 'numeric'
+      ? ['7', '8', '9', '4', '5', '6', '1', '2', '3', '⌫', '0', 'OK']
+      : [...'1234567890', ...'QWERTYUIOP', ...'ASDFGHJKL.', ...'ZXCVBNM-/', '⌫', ' ', 'OK'];
+  const keyClass = (k: string) => (k === 'OK' ? ' class="ok"' : k === ' ' ? ' class="space"' : '');
   keypad.innerHTML =
-    keys.map((k) => `<button type="button" data-key="${k}"${k === 'OK' ? ' class="ok"' : ''}>${k}</button>`).join('') +
+    keys.map((k) => `<button type="button" data-key="${k}"${keyClass(k)}>${k === ' ' ? 'SPACE' : k}</button>`).join('') +
     // What else can be done to the thing being typed over, across the bottom.
     extras.map((x, i) => `<button type="button" class="wide" data-extra="${i}">${x.label}</button>`).join('');
   // The box sits at the top of the keypad, so what is typed is always in
@@ -630,6 +638,12 @@ function openInlineEditor(
   });
   input.addEventListener('input', () => {
     fresh = false;
+    // Capitals only, from a keyboard too.
+    if (mode === 'text' && input.value !== input.value.toUpperCase()) {
+      const at = input.selectionStart;
+      input.value = input.value.toUpperCase();
+      if (at !== null) input.setSelectionRange(at, at);
+    }
   });
   wrap.appendChild(keypad);
   keypadEl = keypad;

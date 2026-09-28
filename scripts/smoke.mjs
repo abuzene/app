@@ -1651,6 +1651,13 @@ const markHit = await page.locator('#canvas [data-weld]:not([data-weld-tag])').f
 await penTap(markHit.x + markHit.width / 2, markHit.y + markHit.height / 2);
 check('a weld number opens for typing on the touch', await page.locator('.dim-editor').count(), (v) => v === 1, '1');
 check('with letters on its keypad', await page.locator('.dim-keypad [data-key="W"]').count(), (v) => v === 1, '1');
+// "All the English letters, capitals, with a point and numbers" (2026-09-28).
+check('every capital letter, the figures, a point and a space on it', await page.evaluate(() => [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789. -/'].filter((k) => !document.querySelector(`.dim-keypad [data-key="${k}"]`)).join('')), (v) => v === '', 'none missing');
+for (const k of ['H', 'Y', 'F', ' ', '1', '/', '2', '.', '1']) await page.locator(`.dim-keypad [data-key="${k}"]`).dispatchEvent('pointerdown', { bubbles: true });
+check('and "HYF 1/2.1" typed on it', await page.locator('.dim-editor').inputValue(), (v) => v === 'HYF 1/2.1', 'HYF 1/2.1');
+await page.locator('.dim-editor').press('End');
+await page.keyboard.type('x');
+check('what comes from a keyboard is in capitals too', await page.locator('.dim-editor').inputValue(), (v) => v === 'HYF 1/2.1X', 'HYF 1/2.1X');
 await page.keyboard.press('Escape');
 await page.waitForTimeout(150);
 
