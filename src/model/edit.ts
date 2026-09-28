@@ -1346,8 +1346,44 @@ export function isPlainPoint(drawing: Drawing, nodeId: string): boolean {
  * to the middle of a valve; pipe A between two valves that could not be
  * picked). Returns whether anything changed.
  */
+/**
+ * A valve whose last flange is off or blind stands on its line's open end.
+ * A few mm of pipe left between it and the end (a dimension typed on his
+ * Strauss sheet, 2026-09-28, pulled the valve back and the blind turned
+ * into a flange with pipe after it) is taken up: the end comes back to it.
+ */
+function reseatLastFlange(drawing: Drawing): boolean {
+  const joint = drawing.options.joint ?? 'BW';
+  let changed = false;
+  for (const run of drawing.runs) {
+    for (const comp of run.inline) {
+      if (!comp.lastFlange || valveOpenSide(drawing, run, comp) !== null) continue;
+      const a = drawing.nodes.find((n) => n.id === run.from);
+      const b = drawing.nodes.find((n) => n.id === run.to);
+      const dir = a && b ? direction(a.pos, b.pos) : null;
+      if (!a || !b || !dir) continue;
+      const open = (node: IsoNode) =>
+        drawing.runs.filter((r) => r.from === node.id || r.to === node.id).length === 1 && (!node.terminal || node.terminal.kind === 'OPEN');
+      const total = length3(sub(b.pos, a.pos));
+      const half = componentTakeout(comp.kind, comp.dn ?? run.dn, valveFlangeKind(joint), comp.ff);
+      const past = total - (comp.offset + half);
+      const before = comp.offset - half;
+      const others = run.inline.filter((c) => c !== comp && !isMark(c.kind));
+      if (past > 0.5 && past < 25 && open(b) && !others.some((c) => c.offset > comp.offset)) {
+        b.pos = add(b.pos, scale3(dir, -past));
+        changed = true;
+      } else if (before > 0.5 && before < 25 && open(a) && !others.some((c) => c.offset < comp.offset)) {
+        a.pos = add(a.pos, scale3(dir, before));
+        for (const c of run.inline) c.offset -= before;
+        changed = true;
+      }
+    }
+  }
+  return changed;
+}
+
 export function uncoverPoints(drawing: Drawing): boolean {
-  let changed = sortReducerSizes(drawing);
+  let changed = sortReducerSizes(drawing) || reseatLastFlange(drawing);
   const joint = drawing.options.joint ?? 'BW';
   for (const node of [...drawing.nodes]) {
     if (node.joint || node.terminal || !isPlainPoint(drawing, node.id)) continue;
@@ -2439,18 +2475,19 @@ export function applyAgainstFree(drawing: Drawing, analysis: Analysis, key: stri
   };
   const open = (id: string) => drawing.runs.filter((r) => r.from === id || r.to === id).length === 1;
   const endGoes = after ? give.hi >= lineEnd - 0.5 && open(endNode(true)) : give.lo <= 0.5 && open(endNode(false));
-  if (delta > 0) {
-    const spans = pipeSpans(drawing, analysis.nodeInfo, give.leg.run).map(([x, y]) => {
-      const a = give.leg.forward ? give.leg.start + x : give.leg.start + give.leg.length - x;
-      const b = give.leg.forward ? give.leg.start + y : give.leg.start + give.leg.length - y;
-      return [Math.min(a, b), Math.max(a, b)] as const;
-    });
-    const bare = spans.reduce((sum, [a, b]) => sum + Math.max(0, Math.min(b, give.hi) - Math.max(a, give.lo)), 0);
-    if (delta > bare - 1) {
-      if (!endGoes) return `The free piece has only ${Math.floor(bare)} mm of pipe to give: at most ${Math.floor(value - (delta - bare) - 1)} here.`;
-      if (after) hi = lineEnd;
-      else lo = 0;
-    }
+  const spans = pipeSpans(drawing, analysis.nodeInfo, give.leg.run).map(([x, y]) => {
+    const a = give.leg.forward ? give.leg.start + x : give.leg.start + give.leg.length - x;
+    const b = give.leg.forward ? give.leg.start + y : give.leg.start + give.leg.length - y;
+    return [Math.min(a, b), Math.max(a, b)] as const;
+  });
+  const bare = spans.reduce((sum, [a, b]) => sum + Math.max(0, Math.min(b, give.hi) - Math.max(a, give.lo)), 0);
+  // With no pipe in it at all it neither gives nor takes: shorter, a gap of
+  // pipe opened between the valve and its blind and the blind was lost.
+  if ((delta > bare - 1 || bare < 1) && endGoes) {
+    if (after) hi = lineEnd;
+    else lo = 0;
+  } else if (delta > bare - 1) {
+    return `The free piece has only ${Math.floor(bare)} mm of pipe to give: at most ${Math.floor(value - (delta - bare) - 1)} here.`;
   }
 
   const t = (p: Vec3) => (p.e - line.origin.e) * unit.e + (p.n - line.origin.n) * unit.n + (p.u - line.origin.u) * unit.u;

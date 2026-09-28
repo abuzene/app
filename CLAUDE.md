@@ -145,7 +145,12 @@ ships, and the decisions already taken, so they are not re-litigated.
   free piece on the line: typed the usual way. A free piece running out
   to an **open end** with too little pipe to give (a valve's flange and
   blind) lets the end go instead, all past the typed piece with it (his
-  Strauss sheet, 2026-09-28: "I cannot change the 120"). A header's old
+  Strauss sheet, 2026-09-28: "I cannot change the 120"); one with no
+  pipe in it at all takes the end along whichever way (typed shorter it
+  opened 11 mm of pipe between the valve and its blind, and the blind
+  became a flange with a pipe after it — same day). `reseatLastFlange`
+  (in `uncoverPoints`) puts such a sheet right: a valve with a
+  `lastFlange` under 25 mm short of its open end gets the end back. A header's old
   dimensions count as taken off (`headerTakenOff` in drawing.ts, used by
   the renderer, `applyMeasureOnLine` and the run panel's Dimension
   select, which reads "hide" then) only when its old `chain:` pieces were

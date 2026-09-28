@@ -5588,6 +5588,35 @@ await page.waitForTimeout(250);
   await page.waitForTimeout(400);
   const [a, b, , d, e] = pieces.split(' ');
   check('the 120 up to the threadolet takes 200, the pieces after it stay', await figs(), (v) => v === `${a} ${b} 200 ${d} ${e}`, `${a} ${b} 200 ${d} ${e}`);
+
+  // Then the 161 after the threadolet made 150 (same day): the valve came
+  // back 11 mm, pipe opened between it and its blind, and the blind turned
+  // into a flange with a pipe after it. The end goes with the valve now.
+  const letters = () => page.locator('#canvas .pipe-letter-text').count();
+  const lettersBefore = await letters();
+  const fig3 = page.locator('#canvas [data-dim="hdr:re9wy4:3"]').first();
+  const box3 = await fig3.boundingBox();
+  const at3 = { ...at, clientX: box3.x + box3.width / 2, clientY: box3.y + box3.height / 2 };
+  await fig3.dispatchEvent('pointerdown', at3);
+  await page.waitForTimeout(100);
+  await fig3.dispatchEvent('pointerup', at3);
+  await page.waitForTimeout(300);
+  await page.keyboard.press('Control+A');
+  await page.keyboard.type('150');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(400);
+  check('the 161 after it takes 150, the valve keeps its blind on the end', `${await figs()} ${await letters()}`, (v) => v === `${a} ${b} 200 150 ${e} ${lettersBefore}`, `${a} ${b} 200 150 ${e} ${lettersBefore}`);
+  // A sheet already left so is put right on opening: the end comes back.
+  const endN = () => page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).nodes.find((n) => n.id === 'njht33').pos.n);
+  const home = await endN();
+  await page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem('iso-draw.drawing.v1'));
+    d.nodes.find((n) => n.id === 'njht33').pos.n += 11;
+    localStorage.setItem('iso-draw.drawing.v1', JSON.stringify(d));
+  });
+  await page.reload();
+  await page.waitForTimeout(700);
+  check('a valve left 11 mm short of its blind end has the end back on it', await endN(), (v) => Math.abs(v - home) < 0.01, String(home));
 }
 
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
