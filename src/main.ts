@@ -10,7 +10,7 @@ import { allowFolder, chooseFolder, folderStatus, forgetFolder, restoreFolder, s
 import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, setDriveClientId, syncDrive } from './model/drive';
 import { AXES, AXIS_VECTOR, add, axisFromScreenDelta, length3, lengthAlongAxis, scale3, sub } from './model/iso';
 import { initialCommandState, runCommands } from './model/commands';
-import { moveNodes, replaceComponent, addMeasure, applyMeasureToOlet, autoCouplings, DASHED_NOTE, deleteRunGroup, measureTypeable, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, ensureNode, isCouplingPoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, runLength, setLineSize, setRunDashed, setRunDirect, startFromEquipment, straightenBranches, stretchRun, syncEquipment, uncoverPoints } from './model/edit';
+import { applyAgainstFree, moveNodes, replaceComponent, addMeasure, applyMeasureToOlet, autoCouplings, DASHED_NOTE, deleteRunGroup, measureTypeable, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, ensureNode, isCouplingPoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, runLength, setLineSize, setRunDashed, setRunDirect, startFromEquipment, straightenBranches, stretchRun, syncEquipment, uncoverPoints } from './model/edit';
 import { DN_LIST, schedulesFor, sizeLabel, sizeOf } from './model/pipe-data';
 import { northArrow, paperOf, renderDrawing, symbolSizeFor } from './render/renderer';
 import { SHEET_STAMPS, renderSheet, sheetStamp, sheetSymbolSize, type SheetSize } from './render/sheet';
@@ -465,7 +465,11 @@ function openDimensionEditor(key: string, clientX: number, clientY: number): voi
         return;
       }
       host.edit('Set dimension', (d) => {
-        if (measured) refused = applyMeasureToOlet(d, state.analysis, key.slice(5), Math.round(value));
+        // A piece whose dimension was deleted is free: it takes up the
+        // difference, and what lies past it stays (his ask, 2026-09-28).
+        const againstFree = measured ? undefined : applyAgainstFree(d, state.analysis, key, Math.round(value));
+        if (againstFree !== undefined) refused = againstFree;
+        else if (measured) refused = applyMeasureToOlet(d, state.analysis, key.slice(5), Math.round(value));
         else if (chained) refused = applyChainDimension(d, state.analysis, key, Math.round(value));
         else {
           const [runId, indexText] = key.split(':');
@@ -495,9 +499,10 @@ function openDimensionEditor(key: string, clientX: number, clientY: number): voi
             label: 'Delete this dimension',
             act: () => {
               host.edit('Delete dimension', (d) => {
-                d.dimOverrides = { ...d.dimOverrides, [key]: { ...d.dimOverrides?.[key], hidden: true } };
+                // All of it goes, where it was dragged to as well: the piece is free.
+                d.dimOverrides = { ...d.dimOverrides, [key]: { hidden: true } };
               });
-              host.notify('Dimension deleted: off the drawing and the sheet. Undo, or the run\'s panel (Dimension: show), brings it back.');
+              host.notify('Dimension deleted: that piece is free now — a dimension typed beside it on the line, it gives. The pipe\'s panel dimensions it again.');
             },
           },
         ],

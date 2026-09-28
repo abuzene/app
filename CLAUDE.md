@@ -123,6 +123,21 @@ ships, and the decisions already taken, so they are not re-litigated.
   the keypad's "Delete this dimension" (his word, 2026-09-23; still
   `hidden: true`, so off the drawing and the sheet; the run panel's
   Dimension: show brings it back).
+- **A deleted dimension leaves its piece free** (his ask, 2026-09-28:
+  "not only the display — all of it goes, and the piece is free, with no
+  fixed dimension, until I dimension it again"): the keypad's Delete
+  sets the override to `{ hidden: true }` alone (its drag offset goes
+  too). A hidden pipe piece (run `runId:i` or header `hdr:<chain>:i`, not
+  a valve's own face to face) is **free**: a dimension typed on the same
+  straight line (`straightLine` in edit.ts, through every point where a
+  run goes straight on) goes through `applyAgainstFree` first — what lies
+  between the typed piece and the nearest free piece (after it, else
+  before) moves as one, points with all that hangs off them and items
+  alike, and the free piece gives; what lies past it stays. Refused when
+  the free piece has no pipe left to give (says the most it can be). No
+  free piece on the line: typed the usual way. The pipe's panel lists its
+  free pieces (`freeDimensions`, `[data-a="dim-again"]` "… — dimension it
+  again"), which brings the figure back, fixed, to type.
 - **Tidy** (toolbar `#tidy`, `tidyDrawing` in main.ts, `tidyLayout` in
   `src/render/tidy.ts`; his ask, 2026-09-23): lays out every dimension,
   weld tag, balloon and pipe letter so nothing clashes, close to the pipe,

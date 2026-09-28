@@ -2226,3 +2226,242 @@ export function connectNodes(drawing: Drawing, fromId: string, toId: string, dn:
   }
   return { path: [], refused: 'No way round from here to there clear of the lines already drawn.' };
 }
+
+/* ------------------------------------------------------ free dimensions */
+
+/** A run on a straight line, and where it lies along it (mm from the line's start). */
+interface LineLeg {
+  run: Run;
+  forward: boolean;
+  start: number;
+  length: number;
+}
+
+/**
+ * The straight line a run lies on: carried on through every point where
+ * another run goes straight on (a plain point, a flanged joint, a tee's
+ * header, an olet), from its first point to its last.
+ */
+function straightLine(drawing: Drawing, runId: string): { legs: LineLeg[]; origin: Vec3; unit: Vec3 } | null {
+  const pos = (id: string) => drawing.nodes.find((n) => n.id === id)?.pos;
+  const first = drawing.runs.find((r) => r.id === runId);
+  const a = first && pos(first.from);
+  const b = first && pos(first.to);
+  const unit = a && b ? direction(a, b) : null;
+  if (!first || !a || !b || !unit) return null;
+  const seen = new Set([first.id]);
+  const walk = (nodeId: string, way: Vec3): { run: Run; forward: boolean }[] => {
+    const out: { run: Run; forward: boolean }[] = [];
+    let at = nodeId;
+    for (;;) {
+      const here = pos(at);
+      const next = here
+        ? drawing.runs.find((r) => {
+            if (seen.has(r.id) || (r.from !== at && r.to !== at)) return false;
+            const far = pos(r.from === at ? r.to : r.from);
+            const d = far && direction(here, far);
+            return !!d && d.e * way.e + d.n * way.n + d.u * way.u > 0.999;
+          })
+        : undefined;
+      if (!next) return out;
+      seen.add(next.id);
+      // Along `unit` means from `from` to `to`.
+      const along = way === unit;
+      out.push({ run: next, forward: along ? next.from === at : next.to === at });
+      at = next.from === at ? next.to : next.from;
+    }
+  };
+  const after = walk(first.to, unit);
+  const before = walk(first.from, scale3(unit, -1)).reverse();
+  const order = [...before, { run: first, forward: true }, ...after];
+  const lead = order[0];
+  const origin = pos(lead.forward ? lead.run.from : lead.run.to)!;
+  const t = (p: Vec3) => (p.e - origin.e) * unit.e + (p.n - origin.n) * unit.n + (p.u - origin.u) * unit.u;
+  const legs = order.map(({ run, forward }) => {
+    const p = pos(run.from)!;
+    const q = pos(run.to)!;
+    const length = length3(sub(q, p));
+    return { run, forward, start: Math.min(t(p), t(q)), length };
+  });
+  return { legs, origin, unit };
+}
+
+/** A dimension's piece along a straight line, in mm from the line's start. */
+interface LinePiece {
+  key: string;
+  lo: number;
+  hi: number;
+  leg: LineLeg;
+}
+
+/** Where a dimension key's piece lies on the line, or null when it is not on it. */
+function pieceOnLine(drawing: Drawing, analysis: Analysis, legs: LineLeg[], key: string): LinePiece | null {
+  const header = key.match(/^hdr:(.+):(\d+)$/);
+  if (header) {
+    const chain = analysis.chains.find((c) => c.id === header[1]);
+    if (!chain) return null;
+    const stops = chainStops(drawing, chain);
+    const i = Number(header[2]);
+    if (i + 1 >= stops.length) return null;
+    // Chain mm → line mm, through a leg of the chain that is on the line.
+    const map = (mm: number): number | null => {
+      const leg = chain.runs.find((l) => mm >= l.start - 0.5 && mm <= l.start + l.length + 0.5) ?? chain.runs[chain.runs.length - 1];
+      const on = legs.find((l) => l.run.id === leg.run.id);
+      if (!on) return null;
+      const into = mm - leg.start;
+      return on.forward === leg.forward ? on.start + into : on.start + on.length - into;
+    };
+    const x = map(stops[i]);
+    const y = map(stops[i + 1]);
+    if (x === null || y === null) return null;
+    const lo = Math.min(x, y);
+    const hi = Math.max(x, y);
+    const leg = legs.find((l) => (lo + hi) / 2 >= l.start - 0.5 && (lo + hi) / 2 <= l.start + l.length + 0.5)!;
+    return { key, lo, hi, leg };
+  }
+  const own = key.match(/^(.+):(\d+)$/);
+  if (!own || /^(hdr|chain|olet|meas):/.test(key)) return null;
+  const leg = legs.find((l) => l.run.id === own[1]);
+  // A run of a header is dimensioned as the header, not on its own.
+  if (!leg || analysis.chainOfRun.get(leg.run.id)) return null;
+  const stops = dimensionStops(drawing, leg.run);
+  const i = Number(own[2]);
+  if (i + 1 >= stops.length) return null;
+  const map = (mm: number) => (leg.forward ? leg.start + mm : leg.start + leg.length - mm);
+  const x = map(stops[i]);
+  const y = map(stops[i + 1]);
+  return { key, lo: Math.min(x, y), hi: Math.max(x, y), leg };
+}
+
+/** A run's item, with where it lies on the line and how far it reaches either side. */
+function itemsOnLine(legs: LineLeg[]): { comp: InlineComponent; leg: LineLeg; at: number; half: number }[] {
+  return legs.flatMap((leg) =>
+    leg.run.inline
+      .filter((c) => !isMark(c.kind))
+      .map((comp) => ({
+        comp,
+        leg,
+        at: leg.forward ? leg.start + comp.offset : leg.start + leg.length - comp.offset,
+        half: componentTakeout(comp.kind, comp.dn ?? leg.run.dn, false, comp.ff),
+      })),
+  );
+}
+
+/**
+ * The pieces of a line whose dimension was deleted: they are free (his ask,
+ * 2026-09-28: "when I delete a dimension, not only its display — the piece
+ * goes free, with no fixed dimension, until I dimension it again"). Only a
+ * length of pipe is free; a valve's own face to face stays what it is.
+ */
+function freePiecesOn(drawing: Drawing, analysis: Analysis, legs: LineLeg[]): LinePiece[] {
+  const items = itemsOnLine(legs);
+  const free: LinePiece[] = [];
+  for (const [key, over] of Object.entries(drawing.dimOverrides ?? {})) {
+    if (!over.hidden) continue;
+    const piece = pieceOnLine(drawing, analysis, legs, key);
+    if (!piece || piece.hi - piece.lo < 0.5) continue;
+    const mid = (piece.lo + piece.hi) / 2;
+    if (items.some((it) => it.half > 0 && Math.abs(mid - it.at) < it.half - 0.5)) continue;
+    free.push(piece);
+  }
+  return free;
+}
+
+/** The dimension keys of a run's (or its header's) free pieces, with their lengths. */
+export function freeDimensions(drawing: Drawing, analysis: Analysis, runId: string): { key: string; length: number }[] {
+  const line = straightLine(drawing, runId);
+  if (!line) return [];
+  const group = new Set(runGroupIds(analysis, runId));
+  return freePiecesOn(drawing, analysis, line.legs)
+    .filter((p) => group.has(p.leg.run.id))
+    .sort((x, y) => x.lo - y.lo)
+    .map((p) => ({ key: p.key, length: p.hi - p.lo }));
+}
+
+/**
+ * Types a dimension on a line with a free piece on it: the free piece takes
+ * up the difference, and what lies past it stays where it is. What lies
+ * between the typed piece and the free one — items, points, and all that
+ * hangs off those points — moves with the typed piece's end. The free
+ * piece after it is taken first, else the one before it. Returns
+ * `undefined` when there is no free piece to give (the dimension is set the
+ * usual way), else why it could not be done, or null when it was.
+ */
+export function applyAgainstFree(drawing: Drawing, analysis: Analysis, key: string, value: number): string | null | undefined {
+  if (!(value > 0) || key.endsWith(':all')) return undefined;
+  const runId = key.startsWith('hdr:') ? key.match(/^hdr:(.+):\d+$/)?.[1] : key.match(/^(.+):\d+$/)?.[1];
+  if (!runId || !drawing.runs.some((r) => r.id === runId)) return undefined;
+  const line = straightLine(drawing, runId);
+  if (!line) return undefined;
+  const { legs, unit } = line;
+  const typed = pieceOnLine(drawing, analysis, legs, key);
+  if (!typed) return undefined;
+  const items = itemsOnLine(legs);
+  // A valve's own face to face is typed as ever.
+  const mid = (typed.lo + typed.hi) / 2;
+  if (items.some((it) => it.half > 0 && Math.abs(mid - it.at) < it.half - 0.5)) return undefined;
+  const free = freePiecesOn(drawing, analysis, legs).filter((p) => p.key !== key);
+  const after = free.filter((p) => p.lo >= typed.hi - 0.5).sort((x, y) => x.lo - y.lo)[0];
+  const before = free.filter((p) => p.hi <= typed.lo + 0.5).sort((x, y) => y.hi - x.hi)[0];
+  const give = after ?? before;
+  if (!give) return undefined;
+  const delta = value - (typed.hi - typed.lo);
+  if (Math.abs(delta) < 0.01) return null;
+  // What moves, and which way: between the typed piece and the free one.
+  const lo = after ? typed.hi : give.hi;
+  const hi = after ? give.lo : typed.lo;
+  const shift = after ? delta : -delta;
+  const inRange = (t: number) => t >= lo - 0.5 && t <= hi + 0.5;
+
+  // The free piece shrinks by `delta`: it cannot give more pipe than it has.
+  if (delta > 0) {
+    const spans = pipeSpans(drawing, analysis.nodeInfo, give.leg.run).map(([x, y]) => {
+      const a = give.leg.forward ? give.leg.start + x : give.leg.start + give.leg.length - x;
+      const b = give.leg.forward ? give.leg.start + y : give.leg.start + give.leg.length - y;
+      return [Math.min(a, b), Math.max(a, b)] as const;
+    });
+    const bare = spans.reduce((sum, [a, b]) => sum + Math.max(0, Math.min(b, give.hi) - Math.max(a, give.lo)), 0);
+    if (delta > bare - 1) return `The free piece has only ${Math.floor(bare)} mm of pipe to give: at most ${Math.floor(value - (delta - bare) - 1)} here.`;
+  }
+
+  const t = (p: Vec3) => (p.e - line.origin.e) * unit.e + (p.n - line.origin.n) * unit.n + (p.u - line.origin.u) * unit.u;
+  const lineNodes = new Set(legs.flatMap((l) => [l.run.from, l.run.to]));
+  const lineRuns = new Set(legs.map((l) => l.run.id));
+  const moving = new Set(drawing.nodes.filter((n) => lineNodes.has(n.id) && inRange(t(n.pos))).map((n) => n.id));
+  // All that hangs off a point that moves goes with it; a branch that joins
+  // the line again elsewhere cannot.
+  const queue = [...moving];
+  while (queue.length > 0) {
+    const id = queue.shift()!;
+    for (const r of drawing.runs) {
+      if (lineRuns.has(r.id) || (r.from !== id && r.to !== id)) continue;
+      const far = r.from === id ? r.to : r.from;
+      if (moving.has(far)) continue;
+      if (lineNodes.has(far)) return 'A branch off the line joins it again: move a point instead.';
+      moving.add(far);
+      queue.push(far);
+    }
+  }
+  // Items keep their place in space, those between move with the rest.
+  const placed = items.map((it) => ({ ...it, to: inRange(it.at) ? it.at + shift : it.at }));
+  const marks = legs.flatMap((leg) =>
+    leg.run.inline
+      .filter((c) => isMark(c.kind))
+      .map((comp) => {
+        const at = leg.forward ? leg.start + comp.offset : leg.start + leg.length - comp.offset;
+        return { comp, leg, to: inRange(at) ? at + shift : at };
+      }),
+  );
+  const move = scale3(unit, shift);
+  for (const node of drawing.nodes) if (moving.has(node.id)) node.pos = add(node.pos, move);
+  for (const { comp, leg, to } of [...placed, ...marks]) {
+    const a = drawing.nodes.find((n) => n.id === leg.run.from)!.pos;
+    const b = drawing.nodes.find((n) => n.id === leg.run.to)!.pos;
+    const len = length3(sub(b, a));
+    const fromT = t(a);
+    comp.offset = leg.forward ? to - fromT : fromT - to;
+    if (comp.offset < -0.5 || comp.offset > len + 0.5) return 'That would push an item off its pipe.';
+  }
+  for (const leg of legs) leg.run.inline.sort((x, y) => x.offset - y.offset);
+  return null;
+}

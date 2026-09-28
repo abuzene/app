@@ -5370,9 +5370,122 @@ await page.waitForTimeout(250);
   check('with little to spare either side', Math.round(tagFit.spare * 100) / 100, (v) => v < 1.0, 'under one letter height in all');
 }
 
+/* --------------------------------- a deleted dimension leaves its piece free */
+
+// "When I delete a dimension, not only its display: all of it goes, and the
+// piece is free, with no fixed dimension, until I dimension it again"
+// (2026-09-28). A free piece takes up what a dimension typed beside it on
+// the line changes; what lies past it stays put.
+{
+  await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 3000\n+BALL 800\n+BALL 2000\nN 1000');
+  const run = (await drawingNow()).runs[0];
+  const tapDim = async (key) => {
+    const fig = page.locator(`#canvas [data-dim="${key}"]`).first();
+    const box = await fig.boundingBox();
+    const at = { bubbles: true, pointerId: 13, pointerType: 'mouse', button: 0, clientX: box.x + box.width / 2, clientY: box.y + box.height / 2, isPrimary: true };
+    await fig.dispatchEvent('pointerdown', at);
+    await page.waitForTimeout(100);
+    await fig.dispatchEvent('pointerup', at);
+    await page.waitForTimeout(300);
+  };
+  const typeDim = async (key, value) => {
+    await tapDim(key);
+    await page.keyboard.press('Control+A');
+    await page.keyboard.type(String(value));
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(400);
+  };
+  const figures = async () =>
+    page.evaluate((id) => [0, 1, 2, 3, 4].map((i) => document.querySelector(`#canvas .dim-text[data-dim="${id}:${i}"], #canvas [data-dim="${id}:${i}"] .dim-text`)?.textContent ?? '-'), run.id);
+  const state = async () => {
+    const d = await drawingNow();
+    const r = d.runs.find((x) => x.id === run.id);
+    const end = d.nodes.find((n) => n.id === r.to);
+    return { offsets: r.inline.map((c) => Math.round(c.offset)).join(' '), end: Math.round(end.pos.e), far: Math.round(d.nodes.find((n) => n.id === d.runs[1].to).pos.e) };
+  };
+  // Delete the last piece's dimension: the keypad's Delete.
+  await tapDim(`${run.id}:4`);
+  await page.click('.dim-editor-extra button:has-text("Delete this dimension")').catch(() => page.click('button:has-text("Delete this dimension")'));
+  await page.waitForTimeout(400);
+  const over = (await drawingNow()).dimOverrides?.[`${run.id}:4`];
+  check('deleted, the dimension is gone and nothing else of it is kept', JSON.stringify(over), (v) => v === '{"hidden":true}', '{"hidden":true}');
+  // The first piece typed: both valves go with its end, the free last piece
+  // gives, the elbow and all past it stay.
+  const before = await state();
+  await typeDim(`${run.id}:0`, 900);
+  const after = await state();
+  check('typed beside a free piece, what lies between moves as one', after.offsets, (v) => {
+    const [a, b] = before.offsets.split(' ').map(Number);
+    const [c, e] = v.split(' ').map(Number);
+    return c - a === e - b && c !== a;
+  }, 'both valves moved by as much');
+  check('and the free piece gives: the elbow and the line after it stay put', `${after.end} ${after.far}`, (v) => v === `${before.end} ${before.far}`, `${before.end} ${before.far}`);
+  // With the free piece before it, the last piece typed moves the valves
+  // back; the end stays.
+  await page.click('#undo');
+  await page.waitForTimeout(300);
+  await page.click('#undo');
+  await page.waitForTimeout(300);
+  await tapDim(`${run.id}:0`);
+  await page.click('button:has-text("Delete this dimension")');
+  await page.waitForTimeout(400);
+  const before2 = await state();
+  await typeDim(`${run.id}:4`, 700);
+  const after2 = await state();
+  check('the last piece typed with the first one free: the end stays, the valves come up to it', `${after2.end} ${after2.offsets}`, (v) => {
+    const [a, b] = before2.offsets.split(' ').map(Number);
+    const [end, c, e] = v.split(' ').map(Number);
+    return end === before2.end && c - a === e - b && c > a;
+  }, `the end at ${before2.end}, both valves moved by as much toward it`);
+  check('and the last piece is what was typed', await page.evaluate((id) => document.querySelector(`#canvas [data-dim="${id}:4"]`)?.closest('g')?.querySelector('.dim-text')?.textContent ?? [...document.querySelectorAll('#canvas .dim-text')].map((t) => t.textContent).join(), run.id), (v) => /700/.test(v), '700');
+  // The pipe's panel lists the free piece and dimensions it again.
+  await page.locator(`#canvas [data-run="${run.id}"]`).first().click({ force: true });
+  await page.waitForTimeout(300);
+  check('the pipe\'s panel shows the free piece', await page.locator('#tab-body [data-a="dim-again"]').count(), (v) => v === 1, '1');
+  await page.click('#tab-body [data-a="dim-again"]');
+  await page.waitForTimeout(300);
+  check('dimensioned again, its figure is back to type', await page.locator(`#canvas [data-dim="${run.id}:0"]`).count(), (v) => v >= 1, 'present');
+  const before3 = await state();
+  await typeDim(`${run.id}:4`, 800);
+  check('fixed again, a typed last piece moves the end once more', (await state()).end, (v) => v !== before3.end, `not ${before3.end}`);
+}
+
+// On a header through olets the same: the first piece typed with the last
+// free, both olets go with it, the piece between them keeps its 1000.
+{
+  await routeLine('4"\nSTD\nORIGIN 0 0 0\nE 4000\nN 2000');
+  await placeSmallOlet();
+  await placeSmallOlet();
+  const hdr = await page.evaluate(() => [...new Set([...document.querySelectorAll('#canvas [data-dim^="hdr:"]')].map((e) => e.dataset.dim))]);
+  const base = hdr.find((k) => k.endsWith(':0')).slice(0, -2);
+  const texts = () => page.locator('#canvas .dim-text').evaluateAll((els) => els.map((e) => e.textContent).sort((a, b) => a - b).join());
+  const fig = page.locator(`#canvas [data-dim="${base}:2"]`).first();
+  const box = await fig.boundingBox();
+  const at = { bubbles: true, pointerId: 14, pointerType: 'mouse', button: 0, clientX: box.x + box.width / 2, clientY: box.y + box.height / 2, isPrimary: true };
+  await fig.dispatchEvent('pointerdown', at);
+  await page.waitForTimeout(100);
+  await fig.dispatchEvent('pointerup', at);
+  await page.waitForTimeout(300);
+  await page.click('button:has-text("Delete this dimension")');
+  await page.waitForTimeout(400);
+  const fig0 = page.locator(`#canvas [data-dim="${base}:0"]`).first();
+  const box0 = await fig0.boundingBox();
+  const at0 = { ...at, clientX: box0.x + box0.width / 2, clientY: box0.y + box0.height / 2 };
+  await fig0.dispatchEvent('pointerdown', at0);
+  await page.waitForTimeout(100);
+  await fig0.dispatchEvent('pointerup', at0);
+  await page.waitForTimeout(300);
+  await page.keyboard.press('Control+A');
+  await page.keyboard.type('1200');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(400);
+  check('a header with its last piece free: both olets go, the piece between keeps its length, the header its 4000', await texts(), (v) => v === '1000,1200,2000,4000', '1200 and 1000 to the olets, riser 2000, header 4000');
+}
+
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 
 await browser.close();
+
 
 /* ------------------------------------------------------------- sandboxed */
 

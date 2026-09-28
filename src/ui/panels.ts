@@ -5,7 +5,7 @@ import { COMMAND_HELP } from '../model/commands';
 import { DN_LIST, SIZE_LABELS, defaultValveEnds, schedulesFor, sizeLabel } from '../model/pipe-data';
 import { AXES, AXIS_VECTOR, axisBetween } from '../model/iso';
 import { projectsOf } from '../model/library';
-import { applyReducer, offersAutoCoupling, resetDrawnLength, setAutoCoupling, wantsAutoCoupling, deletePoint, isCouplingPoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, runLength, setGroupLength, setLastFlange, deleteRunGroup, DASHED_NOTE, setLineSize, setRunDashed, setRunDirect, setRunLength, setTerminal, splitRun } from '../model/edit';
+import { applyReducer, freeDimensions, offersAutoCoupling, resetDrawnLength, setAutoCoupling, wantsAutoCoupling, deletePoint, isCouplingPoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, runLength, setGroupLength, setLastFlange, deleteRunGroup, DASHED_NOTE, setLineSize, setRunDashed, setRunDirect, setRunLength, setTerminal, splitRun } from '../model/edit';
 import { setDriveClientId } from '../model/drive';
 import { reducerPreview } from './reducer-preview';
 import { SHEET_STAMPS, sheetStamp } from '../render/sheet';
@@ -98,6 +98,12 @@ function runProperties(host: Host, runId: string): string {
   <div class="row"><label>Note</label><input type="text" data-f="note" value="${esc(run.note ?? '')}" placeholder="${run.dashed ? 'CONT. ON NEXT SHEET' : 'optional, drawn beside the pipe'}" /></div>
   ${offersAutoCoupling(run) ? `<div class="row"><label>Couplings</label><select data-f="autocpl">${options(['auto', 'none'], wantsAutoCoupling(run) ? 'auto' : 'none', { auto: 'One every 6 m of pipe', none: 'None put in by the app' })}</select></div>` : ''}
   <div class="row"><label>Dimension</label><select data-f="nodim">${options(['show', 'hide'], run.noDim ? 'hide' : 'show')}</select></div>
+  ${freeDimensions(drawing, analysis, run.id)
+    .map(
+      (f) =>
+        `<div class="row"><label>Free piece</label><button class="btn-line" data-a="dim-again" data-key="${esc(f.key)}" title="Its dimension was deleted: it gives when a dimension beside it is typed">${mm(f.length)} — dimension it again</button></div>`,
+    )
+    .join('')}
   ${header ? '' : `<div class="row"><label>Pipe</label><select data-f="direct">${options(['pipe', 'touch'], run.direct ? 'touch' : 'pipe', { pipe: 'A pipe between the fittings', touch: 'None — fittings joined directly' })}</select></div>`}
   <p class="empty-note">Cut length after take-outs: <strong>${mm(cut)} mm</strong>${header ? '. The olets ride on it: place each by its own dimension from the header\'s start, or a hand dimension from the olet to any point on the header.' : ''}</p>
   <div class="btn-row">
@@ -945,6 +951,16 @@ function wire(body: HTMLElement, host: Host): void {
         splitRun(d, id, half);
       });
     });
+    // A free piece dimensioned again: its dimension is back, fixed, to type.
+    runEditor.querySelectorAll<HTMLButtonElement>('[data-a="dim-again"]').forEach((button) =>
+      button.addEventListener('click', () => {
+        const key = button.dataset.key!;
+        host.edit('Dimension again', (d) => {
+          if (d.dimOverrides?.[key]) delete d.dimOverrides[key].hidden;
+        });
+        host.notify('The dimension is back and the piece fixed again: tap its figure to type it.');
+      }),
+    );
     runEditor.querySelector('[data-a="drawn-reset"]')?.addEventListener('click', () => {
       host.edit('Redraw at its own length', (d) => resetDrawnLength(d, host.state.analysis, id));
     });
