@@ -1434,7 +1434,8 @@ export function analyse(drawing: Drawing): Analysis {
     // run on past it.
     const skipped = !!override?.skip;
     const welded = j.joint !== 'THD' && !skipped;
-    const typed = override?.number?.trim();
+    // Weld numbers are in capitals, however they were typed (2026-09-28).
+    const typed = override?.number?.trim().toUpperCase();
     let number = '';
     if (welded && typed) {
       number = typed;

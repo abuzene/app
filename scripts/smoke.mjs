@@ -1659,6 +1659,25 @@ await page.locator('.dim-editor').press('End');
 await page.keyboard.type('x');
 check('what comes from a keyboard is in capitals too', await page.locator('.dim-editor').inputValue(), (v) => v === 'HYF 1/2.1X', 'HYF 1/2.1X');
 await page.keyboard.press('Escape');
+// A number typed in small letters elsewhere (his "St 1/2") reads in capitals.
+{
+  const key = await page.evaluate(() => document.querySelector('#canvas [data-weld]:not([data-weld-tag])').getAttribute('data-weld'));
+  await page.evaluate((k) => {
+    const d = JSON.parse(localStorage.getItem('iso-draw.drawing.v1'));
+    d.weldOverrides[k] = { ...d.weldOverrides[k], number: 'St 1/2' };
+    localStorage.setItem('iso-draw.drawing.v1', JSON.stringify(d));
+  }, key);
+  await page.reload();
+  await page.waitForTimeout(600);
+  check('a weld number typed in small letters reads in capitals', await page.evaluate(() => [...document.querySelectorAll('#canvas .weld-no')].map((t) => t.textContent).filter((t) => /1\/2/.test(t)).join()), (v) => v === 'ST 1/2', 'ST 1/2');
+  await page.evaluate((k) => {
+    const d = JSON.parse(localStorage.getItem('iso-draw.drawing.v1'));
+    delete d.weldOverrides[k].number;
+    localStorage.setItem('iso-draw.drawing.v1', JSON.stringify(d));
+  }, key);
+  await page.reload();
+  await page.waitForTimeout(600);
+}
 await page.waitForTimeout(150);
 
 // Printing happens from the page itself, at the sheet's size, with nothing

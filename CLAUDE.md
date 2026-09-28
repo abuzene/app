@@ -118,7 +118,9 @@ ships, and the decisions already taken, so they are not re-litigated.
   numbers, support callouts, run notes) is a keyboard in capitals (his
   ask, 2026-09-28: "all the English letters, capitals, with a point and
   numbers"): 1–0, QWERTYUIOP, ASDFGHJKL., ZXCVBNM-/⌫, SPACE and OK, ten
-  to a row; what a keyboard types there is set in capitals too.
+  to a row; what a keyboard types there is set in capitals too, and a
+  weld number typed anywhere in small letters (his "St 1/2" from the
+  Welds tab) is read in capitals by `analyse`.
 - Weld numbers are editable (typed on the drawing or in the Welds tab). A
   joint can be marked **not welded** (`weldOverrides[key].skip`: hollow
   mark, no number, numbering runs on, off the list; "No weld here" on the
