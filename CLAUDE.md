@@ -197,9 +197,17 @@ ships, and the decisions already taken, so they are not re-litigated.
   leaders leaving one point — an olet's header weld and its balloon —
   used to count as crossing at their start and drove both to odd spots:
   two leaders count as crossing only where they cut each other past
-  their starts (`cut`, a proper intersection, not a distance). A leader across a dimension line costs 4,
-  across another leader 3; one running along a pipe within 0.3 symbol
-  counts as on it. A row of dimension pieces that cannot lie clear as
+  their starts (`cut`, a proper intersection, not a distance). A leader
+  across a dimension line costs 5, across another leader 3; one running
+  along a pipe within 0.3 symbol counts as on it. **Distance is priced
+  in the same terms as a clash** (his second round, same evening, "see
+  how I set them, do the same": everything close in, leaders short): a
+  spot costs `(reach/s − 2.4) × 0.6 + (1 − square) × 0.5`, so a leader
+  four symbols longer costs about a box on a dimension line, and a
+  label is kept close rather than sent far off to clear a dashed
+  extension line (it used to be clashes × 1000). Tags may sit from 1.8
+  symbols and balloons from 1.9, right beside the pipe between it and
+  its dimension row, as he sets them. A row of dimension pieces that cannot lie clear as
   one (a header with a branch off either side) is laid out **piece by
   piece**, each on its own side (`placeRow` on a copy first), as he does
   by hand; a row on its own may go out to 13.5 symbols.
