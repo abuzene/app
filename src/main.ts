@@ -10,7 +10,7 @@ import { allowFolder, chooseFolder, folderStatus, forgetFolder, restoreFolder, s
 import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, setDriveClientId, syncDrive } from './model/drive';
 import { AXES, AXIS_VECTOR, add, axisFromScreenDelta, length3, lengthAlongAxis, scale3, sub } from './model/iso';
 import { initialCommandState, runCommands } from './model/commands';
-import { applyAgainstFree, moveNodes, replaceComponent, addMeasure, applyMeasureToOlet, autoCouplings, DASHED_NOTE, deleteRunGroup, measureTypeable, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, ensureNode, isCouplingPoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, runLength, setLineSize, setRunDashed, setRunDirect, startFromEquipment, straightenBranches, stretchRun, syncEquipment, uncoverPoints } from './model/edit';
+import { applyAgainstFree, applyMeasureOnLine, moveNodes, replaceComponent, addMeasure, applyMeasureToOlet, autoCouplings, DASHED_NOTE, deleteRunGroup, measureTypeable, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, ensureNode, isCouplingPoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, runLength, setLineSize, setRunDashed, setRunDirect, startFromEquipment, straightenBranches, stretchRun, syncEquipment, uncoverPoints } from './model/edit';
 import { DN_LIST, schedulesFor, sizeLabel, sizeOf } from './model/pipe-data';
 import { northArrow, paperOf, renderDrawing, symbolSizeFor } from './render/renderer';
 import { SHEET_STAMPS, renderSheet, sheetStamp, sheetSymbolSize, type SheetSize } from './render/sheet';
@@ -469,7 +469,12 @@ function openDimensionEditor(key: string, clientX: number, clientY: number): voi
         // difference, and what lies past it stays (his ask, 2026-09-28).
         const againstFree = measured ? undefined : applyAgainstFree(d, state.analysis, key, Math.round(value));
         if (againstFree !== undefined) refused = againstFree;
-        else if (measured) refused = applyMeasureToOlet(d, state.analysis, key.slice(5), Math.round(value));
+        else if (measured) {
+          // Along a straight line the side that keeps the other dimensions
+          // moves (his complaint, 2026-09-28: "the third sets itself").
+          const onLine = applyMeasureOnLine(d, state.analysis, key.slice(5), Math.round(value));
+          refused = onLine !== undefined ? onLine : applyMeasureToOlet(d, state.analysis, key.slice(5), Math.round(value));
+        }
         else if (chained) refused = applyChainDimension(d, state.analysis, key, Math.round(value));
         else {
           const [runId, indexText] = key.split(':');

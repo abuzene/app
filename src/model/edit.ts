@@ -1580,7 +1580,22 @@ export function measureAlongLine(drawing: Drawing, measureId: string): { runId: 
 
 /** Whether a hand dimension can be typed over: from an olet, or along one straight line. */
 export function measureTypeable(drawing: Drawing, analysis: Analysis, measureId: string): boolean {
-  return !!measureOnOlet(drawing, analysis, measureId) || !!measureAlongLine(drawing, measureId);
+  return !!measureOnOlet(drawing, analysis, measureId) || !!measureAlongLine(drawing, measureId) || measureOnStraightLine(drawing, measureId);
+}
+
+/** Whether a hand dimension's two points lie on one straight line of pipe. */
+function measureOnStraightLine(drawing: Drawing, measureId: string): boolean {
+  const measure = (drawing.measures ?? []).find((m) => m.id === measureId);
+  return !!measure && !!lineThroughBoth(drawing, measure.a, measure.b);
+}
+
+/** The straight line of pipe both points lie on, if there is one. */
+function lineThroughBoth(drawing: Drawing, a: string, b: string): ReturnType<typeof straightLine> {
+  for (const run of drawing.runs.filter((r) => r.from === a || r.to === a)) {
+    const line = straightLine(drawing, run.id);
+    if (line && line.legs.some((l) => l.run.from === b || l.run.to === b)) return line;
+  }
+  return null;
 }
 
 export function applyMeasureToOlet(drawing: Drawing, analysis: Analysis, measureId: string, value: number): string | null {
@@ -2296,12 +2311,12 @@ interface LinePiece {
 
 /** Where a dimension key's piece lies on the line, or null when it is not on it. */
 function pieceOnLine(drawing: Drawing, analysis: Analysis, legs: LineLeg[], key: string): LinePiece | null {
-  const header = key.match(/^hdr:(.+):(\d+)$/);
+  const header = key.match(/^hdr:(.+):(\d+|all)$/);
   if (header) {
     const chain = analysis.chains.find((c) => c.id === header[1]);
     if (!chain) return null;
-    const stops = chainStops(drawing, chain);
-    const i = Number(header[2]);
+    const stops = header[2] === 'all' ? [0, chain.total] : chainStops(drawing, chain);
+    const i = header[2] === 'all' ? 0 : Number(header[2]);
     if (i + 1 >= stops.length) return null;
     // Chain mm → line mm, through a leg of the chain that is on the line.
     const map = (mm: number): number | null => {
@@ -2357,7 +2372,7 @@ function freePiecesOn(drawing: Drawing, analysis: Analysis, legs: LineLeg[]): Li
   const items = itemsOnLine(legs);
   const free: LinePiece[] = [];
   for (const [key, over] of Object.entries(drawing.dimOverrides ?? {})) {
-    if (!over.hidden) continue;
+    if (!over.hidden || key.endsWith(':all')) continue;
     const piece = pieceOnLine(drawing, analysis, legs, key);
     if (!piece || piece.hi - piece.lo < 0.5) continue;
     const mid = (piece.lo + piece.hi) / 2;
@@ -2461,6 +2476,139 @@ export function applyAgainstFree(drawing: Drawing, analysis: Analysis, key: stri
     const fromT = t(a);
     comp.offset = leg.forward ? to - fromT : fromT - to;
     if (comp.offset < -0.5 || comp.offset > len + 0.5) return 'That would push an item off its pipe.';
+  }
+  for (const leg of legs) leg.run.inline.sort((x, y) => x.offset - y.offset);
+  return null;
+}
+
+/**
+ * A hand dimension typed on a straight line: one of its two points moves,
+ * with everything on the line beyond it (and all that hangs off that), so
+ * that the other dimensions still on the drawing stay as they are. Of the
+ * two sides the one that changes fewest of them goes, then the smaller
+ * one, then the point tapped second. His complaint (2026-09-28, the
+ * Strauss header: 100, 250 and 749 by hand, the header's own dimensions
+ * deleted): "it only lets me change two, the third sets itself" — typed,
+ * a dimension from an olet moved the olet alone and the next one gave.
+ * Returns `undefined` when the two points are not on one line.
+ */
+export function applyMeasureOnLine(drawing: Drawing, analysis: Analysis, measureId: string, value: number): string | null | undefined {
+  const measure = (drawing.measures ?? []).find((m) => m.id === measureId);
+  if (!measure || !(value > 0)) return undefined;
+  const line = lineThroughBoth(drawing, measure.a, measure.b);
+  if (!line) return undefined;
+  const { legs, unit, origin } = line;
+  const lineNodes = new Set(legs.flatMap((l) => [l.run.from, l.run.to]));
+  const t = (p: Vec3) => (p.e - origin.e) * unit.e + (p.n - origin.n) * unit.n + (p.u - origin.u) * unit.u;
+  const at = (id: string) => t(drawing.nodes.find((n) => n.id === id)!.pos);
+  const ta = at(measure.a);
+  const tb = at(measure.b);
+  const current = Math.abs(tb - ta);
+  if (current < 0.5) return undefined;
+  const delta = value - current;
+  if (Math.abs(delta) < 0.01) return null;
+  const lineRuns = new Set(legs.map((l) => l.run.id));
+
+  // The dimensions standing on the line, each as two places along it.
+  const fixed: [number, number][] = [];
+  for (const other of drawing.measures ?? []) {
+    if (other.id === measureId || !lineNodes.has(other.a) || !lineNodes.has(other.b)) continue;
+    fixed.push([at(other.a), at(other.b)]);
+  }
+  const shown = new Set<string>();
+  for (const leg of legs) {
+    const chain = analysis.chainOfRun.get(leg.run.id);
+    if (chain) {
+      const stops = chainStops(drawing, chain);
+      // As the renderer has it: a header whose old dimensions were all taken off.
+      const keys = Object.keys(drawing.dimOverrides ?? {});
+      const oldKeys = keys.filter((k) => k.startsWith(`chain:${chain.id}:`) || chain.olets.some((o) => k === `olet:${o.nodeId}`));
+      const takenOff = oldKeys.length > 0 && oldKeys.every((k) => drawing.dimOverrides![k].hidden) && !keys.some((k) => k.startsWith(`hdr:${chain.id}:`));
+      if (takenOff || leg.run.noDim) continue;
+      for (let i = 0; i + 1 < stops.length; i += 1) shown.add(`hdr:${chain.id}:${i}`);
+      // The whole header, end to end, on its row further out.
+      if (stops.length > 2) shown.add(`hdr:${chain.id}:all`);
+    } else if (!leg.run.noDim) {
+      const stops = dimensionStops(drawing, leg.run);
+      for (let i = 0; i + 1 < stops.length; i += 1) shown.add(`${leg.run.id}:${i}`);
+    }
+  }
+  for (const key of shown) {
+    if (drawing.dimOverrides?.[key]?.hidden) continue;
+    const piece = pieceOnLine(drawing, analysis, legs, key);
+    if (piece) fixed.push([piece.lo, piece.hi]);
+  }
+
+  // Each side: the points beyond the one that moves, and what hangs off them.
+  const sideOf = (movingId: string, stayId: string) => {
+    const tm = at(movingId);
+    const way = Math.sign(tm - at(stayId));
+    const beyond = (x: number) => (x - tm) * way >= -0.5;
+    const nodes = new Set(drawing.nodes.filter((n) => lineNodes.has(n.id) && beyond(t(n.pos))).map((n) => n.id));
+    const queue = [...nodes];
+    while (queue.length > 0) {
+      const id = queue.shift()!;
+      for (const r of drawing.runs) {
+        if (lineRuns.has(r.id) || (r.from !== id && r.to !== id)) continue;
+        const far = r.from === id ? r.to : r.from;
+        if (nodes.has(far)) continue;
+        if (lineNodes.has(far)) return null;
+        nodes.add(far);
+        queue.push(far);
+      }
+    }
+    const changed = fixed.filter(([x, y]) => beyond(x) !== beyond(y)).length;
+    return { tm, way, beyond, nodes, changed };
+  };
+  const sides = [sideOf(measure.b, measure.a), sideOf(measure.a, measure.b)].filter((s) => s !== null);
+  // From an olet, the olet alone may move (his ask, 2026-09-23: "the olet
+  // moves, the point stays"): taken when it changes no more than a side.
+  const olet = measureOnOlet(drawing, analysis, measureId);
+  if (olet) {
+    const x = at(olet.oletId);
+    const here = (y: number) => Math.abs(y - x) < 0.5;
+    const changed = fixed.filter(([p, q]) => here(p) !== here(q)).length;
+    if (sides.every((side) => changed <= side.changed)) return undefined;
+  }
+  if (sides.length === 0) return 'A branch off the line joins it again: move a point instead.';
+  sides.sort((x, y) => x.changed - y.changed || x.nodes.size - y.nodes.size);
+  const side = sides[0];
+
+  // Shorter, the pipe next to the point that moves has to have that much
+  // to give: on each run from the moving side into the other, the length
+  // of bare pipe at its moving end.
+  if (delta < 0) {
+    for (const leg of legs) {
+      const fromIn = side.nodes.has(leg.run.from);
+      if (fromIn === side.nodes.has(leg.run.to)) continue;
+      const spans = pipeSpans(drawing, analysis.nodeInfo, leg.run);
+      const span = fromIn ? spans[0] : spans[spans.length - 1];
+      // An item between the moving end and that pipe leaves none to give.
+      const blocked =
+        !span ||
+        leg.run.inline.some((c) => {
+          if (isMark(c.kind)) return false;
+          const half = itemHalf(drawing, leg.run, c);
+          return fromIn ? c.offset + half <= span[0] + 0.5 : c.offset - half >= span[1] - 0.5;
+        });
+      const give = blocked ? 0 : span[1] - span[0];
+      if (-delta > give - 1) return `There is only ${Math.max(0, Math.floor(give - 1))} mm of pipe to give there: at least ${Math.ceil(current - give + 1)}.`;
+    }
+  }
+
+  const move = scale3(unit, side.way * delta);
+  const shift = side.way * delta;
+  const placed = legs.flatMap((leg) =>
+    leg.run.inline.map((comp) => {
+      const x = leg.forward ? leg.start + comp.offset : leg.start + leg.length - comp.offset;
+      return { comp, leg, to: side.beyond(x) ? x + shift : x };
+    }),
+  );
+  for (const node of drawing.nodes) if (side.nodes.has(node.id)) node.pos = add(node.pos, move);
+  for (const { comp, leg, to } of placed) {
+    const a = drawing.nodes.find((n) => n.id === leg.run.from)!.pos;
+    const fromT = t(a);
+    comp.offset = leg.forward ? to - fromT : fromT - to;
   }
   for (const leg of legs) leg.run.inline.sort((x, y) => x.offset - y.offset);
   return null;

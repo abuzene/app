@@ -5482,6 +5482,52 @@ await page.waitForTimeout(250);
   check('a header with its last piece free: both olets go, the piece between keeps its length, the header its 4000', await texts(), (v) => v === '1000,1200,2000,4000', '1200 and 1000 to the olets, riser 2000, header 4000');
 }
 
+/* ------------- three hand dimensions on a header, each typed on its own */
+
+// "Why can I not change these three? It lets me change two and the third
+// sets itself, though I deleted all the dimensions and it should be free"
+// (Strauss sheet, 2026-09-28): 100, 250 and 749 by hand along the existing
+// 6", its own dimensions deleted. Typed, a dimension from an olet moved the
+// olet alone and the next one gave. Now the side that keeps the other
+// dimensions moves: each stays as typed, the header's ends give.
+{
+  await routeLine('6"\nSCH40\nORIGIN 0 0 0\nU 100');
+  await page.evaluate((part) => {
+    const d = JSON.parse(localStorage.getItem('iso-draw.drawing.v1'));
+    Object.assign(d, part);
+    localStorage.setItem('iso-draw.drawing.v1', JSON.stringify(d));
+  }, {"nodes": [{"id": "n8oirg", "pos": {"e": 0, "n": 0, "u": 35}}, {"id": "n94r5k", "pos": {"e": 0, "n": 0, "u": 1134}}, {"id": "nbfm3n", "pos": {"e": 0, "n": 0, "u": 135}, "fittingOverride": "OLET", "joint": "BW", "olets": [{"dir": "N", "dn": "DN65"}]}, {"id": "njht33", "pos": {"e": 0, "n": 950, "u": 135}, "fittingOverride": "OLET", "joint": "THD", "olets": [{"dir": "U", "dn": "DN15"}]}, {"id": "no8atp", "pos": {"e": 0, "n": 0, "u": 385}, "fittingOverride": "OLET", "joint": "BW", "olets": [{"dir": "S", "dn": "DN80"}]}, {"id": "nxpxgy", "pos": {"e": 0, "n": -619.5, "u": 385}, "fittingOverride": "OLET", "joint": "THD", "olets": [{"dir": "U", "dn": "DN15"}]}, {"id": "n1y7u2", "pos": {"e": 0, "n": -689.5, "u": 385}, "joint": "BW", "terminal": {"kind": "FLG_WN"}}, {"id": "n1bmso", "pos": {"e": 0, "n": 549, "u": 135}, "fittingOverride": "OLET", "joint": "THD", "olets": [{"dir": "U", "dn": "DN15"}]}], "runs": [{"id": "raoz1a", "from": "n8oirg", "to": "nbfm3n", "dn": "DN150", "schedule": "SCH40", "inline": [], "visual": 650, "dashed": true, "note": "EXISTING 6\""}, {"id": "rcaapk", "from": "nbfm3n", "to": "no8atp", "dn": "DN150", "schedule": "SCH40", "inline": [], "visual": 460, "dashed": true}, {"id": "rpndwx", "from": "no8atp", "to": "n94r5k", "dn": "DN150", "schedule": "SCH40", "inline": [], "visual": 388.79999999999995, "dashed": true}, {"id": "re9wy4", "from": "nbfm3n", "to": "n1bmso", "dn": "DN50", "schedule": "SCH40", "inline": [{"id": "c1awnf", "kind": "BALL", "offset": 340}], "visual": 803.5}, {"id": "r2zwwe", "from": "n1bmso", "to": "njht33", "dn": "DN50", "schedule": "SCH40", "inline": [{"id": "cbik0y", "kind": "BALL_ACT", "offset": 250, "lastFlange": "blind"}], "visual": 479.5}, {"id": "rrvq6h", "from": "no8atp", "to": "nxpxgy", "dn": "DN80", "schedule": "SCH40", "inline": [{"id": "cuphcc", "kind": "BALL", "offset": 310}], "visual": 940}, {"id": "ryp27c", "from": "nxpxgy", "to": "n1y7u2", "dn": "DN80", "schedule": "SCH40", "inline": [], "visual": 388.8}], "dimOverrides": {"raoz1a:0": {"hidden": true}, "olet:nbfm3n": {"hidden": true}, "chain:raoz1a:0": {"hidden": true}, "olet:njht33": {"hidden": true}, "olet:nxpxgy": {"hidden": true}, "olet:no8atp": {"hidden": true}, "hdr:re9wy4:all": {"hidden": true}, "hdr:re9wy4:5": {"hidden": true}}, "measures": [{"id": "m29scv", "a": "nbfm3n", "b": "n8oirg"}, {"id": "m21gmt", "a": "no8atp", "b": "nbfm3n"}, {"id": "m3g2j7", "a": "no8atp", "b": "n94r5k"}]});
+  await page.reload();
+  await page.waitForTimeout(700);
+  await page.click('#fit');
+  await page.waitForTimeout(300);
+  const heightsNow = () => page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem('iso-draw.drawing.v1'));
+    const u = (id) => d.nodes.find((n) => n.id === id).pos.u;
+    return `${u('nbfm3n') - u('n8oirg')} ${u('no8atp') - u('nbfm3n')} ${u('n94r5k') - u('no8atp')}`;
+  });
+  const typeMeasure = async (id, value) => {
+    const fig = page.locator(`#canvas [data-dim="meas:${id}"]`).first();
+    const box = await fig.boundingBox();
+    const at = { bubbles: true, pointerId: 15, pointerType: 'mouse', button: 0, clientX: box.x + box.width / 2, clientY: box.y + box.height / 2, isPrimary: true };
+    await fig.dispatchEvent('pointerdown', at);
+    await page.waitForTimeout(100);
+    await fig.dispatchEvent('pointerup', at);
+    await page.waitForTimeout(300);
+    await page.keyboard.press('Control+A');
+    await page.keyboard.type(String(value));
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(400);
+  };
+  check('his three hand dimensions on the header', await heightsNow(), (v) => v === '100 250 749', '100 250 749');
+  await typeMeasure('m29scv', 120);
+  await typeMeasure('m21gmt', 300);
+  await typeMeasure('m3g2j7', 700);
+  check('each typed on its own, the other two stay', await heightsNow(), (v) => v === '120 300 700', '120 300 700');
+  await typeMeasure('m21gmt', 200);
+  check('and again, the one between the olets', await heightsNow(), (v) => v === '120 200 700', '120 200 700');
+}
+
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 
 await browser.close();

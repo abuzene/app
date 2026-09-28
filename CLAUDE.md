@@ -704,6 +704,18 @@ ships, and the decisions already taken, so they are not re-litigated.
   with both flanges.
 - **Run note removal**: the note's keypad has "Remove this text"
   (clears `run.note` and its drag offset); a dashed run stays dashed.
+- **A hand dimension typed on a straight line keeps the others** (his
+  complaint, 2026-09-28, the Strauss header: 100, 250 and 749 by hand, the
+  header's own dimensions deleted — "it lets me change two, the third
+  sets itself"): `applyMeasureOnLine` in edit.ts (tried first for every
+  typed `meas:`) moves one of its two points with all on the line beyond
+  it and all that hangs off that; of the two sides the one that changes
+  fewest of the dimensions still standing on the line (other hand
+  dimensions, shown run/header pieces) goes, then the smaller side, then
+  the point tapped second; from an olet the olet alone moves (as before,
+  `applyMeasureToOlet`) when that changes no more of them. Shorter, the pipe at the moving end must have
+  it to give. `measureTypeable` accepts any two points on one straight
+  line (`lineThroughBoth`).
 - **Hand dimensions along one straight line are typeable**
   (`measureAlongLine`/`measureTypeable` in edit.ts; flange to flange): the
   point tapped second moves with everything beyond it, by stretching the
