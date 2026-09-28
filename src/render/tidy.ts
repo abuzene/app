@@ -369,7 +369,7 @@ export function tidyLayout(specs: LayoutSpecs, trace?: TidyTrace): TidyResult {
   // a thin dashed extension line least (his ask, 2026-09-26: "try as far
   // as possible that the lines do not cut").
   const UNDER_BOX: Record<string, number> = { pipe: 4, point: 4, text: 6, figure: 6, box: 6, dimline: 3, dimfull: 0, ext: 1, leader: 2 };
-  const ACROSS: Record<string, number> = { dimfull: 4, ext: 0.8, leader: 3 };
+  const ACROSS: Record<string, number> = { dimfull: 5, ext: 0.8, leader: 3 };
   // Whether two leaders cut each other past their starts: two leaving one
   // point (an olet's weld and its balloon) touch there and do not cross,
   // while two from points close together cross when they fan the wrong
@@ -434,6 +434,15 @@ export function tidyLayout(specs: LayoutSpecs, trace?: TidyTrace): TidyResult {
     }
     return c;
   };
+  // What a spot costs a label in distance alone, as its options are priced.
+  const spotCost = (label: Label, p: Pt): number => {
+    if (label.home && Math.hypot(p.x - label.home.x, p.y - label.home.y) < 1e-6) return 0;
+    const reach = Math.hypot(p.x - label.at.x, p.y - label.at.y);
+    if (reach < 1e-6) return 0;
+    const nl = Math.hypot(label.n.x, label.n.y) || 1;
+    const square = Math.abs(((p.x - label.at.x) / reach) * (label.n.x / nl) + ((p.y - label.at.y) / reach) * (label.n.y / nl));
+    return Math.max(0, reach / s - 2.4) * 0.6 + (1 - square) * 0.5;
+  };
   const optionsFor = (label: Label): { p: Pt; cost: number }[] => {
     const nl = Math.hypot(label.n.x, label.n.y) || 1;
     const nx = label.n.x / nl;
@@ -441,14 +450,18 @@ export function tidyLayout(specs: LayoutSpecs, trace?: TidyTrace): TidyResult {
     const options: { p: Pt; cost: number }[] = [];
     if (label.home) options.push({ p: label.home, cost: 0 });
     // Anywhere along its pipe, close beside it, before any leader.
-    (label.along ?? []).forEach((p, i) => options.push({ p, cost: s * 0.05 * (i + 1) }));
+    (label.along ?? []).forEach((p, i) => options.push({ p, cost: 0.02 * (i + 1) }));
     for (const reach of label.reaches) {
       for (let i = 0; i < 24; i += 1) {
         const ang = (i / 24) * Math.PI * 2;
         const dx = Math.cos(ang);
         const dy = Math.sin(ang);
         const square = Math.abs(dx * nx + dy * ny);
-        options.push({ p: { x: label.at.x + dx * reach, y: label.at.y + dy * reach }, cost: reach + (1 - square) * s * 1.4 });
+        // In the same terms as a clash: a leader four symbols longer costs
+        // about what a box on a dimension line does, so a label is kept
+        // close, as he sets them by hand, rather than sent far off to
+        // clear a dashed extension line (2026-09-28: "see how I set them").
+        options.push({ p: { x: label.at.x + dx * reach, y: label.at.y + dy * reach }, cost: Math.max(0, reach / s - 2.4) * 0.6 + (1 - square) * 0.5 });
       }
     }
     return options.sort((x, y) => x.cost - y.cost);
@@ -463,8 +476,8 @@ export function tidyLayout(specs: LayoutSpecs, trace?: TidyTrace): TidyResult {
     let bestScore = Infinity;
     for (const o of options) {
       const c = costOf(label, o.p);
-      // Clashes first; among equals, the nearer (options come nearest first).
-      const score = c * 1000 + o.cost;
+      // Clashes and distance together (options come nearest first).
+      const score = c + o.cost;
       if (score < bestScore) {
         best = o.p;
         bestScore = score;
@@ -483,12 +496,13 @@ export function tidyLayout(specs: LayoutSpecs, trace?: TidyTrace): TidyResult {
       n: tag.n,
       w: weldTagSize(tag.text, s).w,
       h: weldTagSize(tag.text, s).h,
-      reaches: [2.4, 3.1, 3.8, 4.6, 5.6, 6.8, 8.2, 10, 12].map((k) => k * s),
+      // From right beside the pipe (between it and its dimension line, as he sets them) outward.
+      reaches: [1.8, 2.1, 2.4, 3.1, 3.8, 4.6, 5.6, 6.8, 8.2, 10, 12].map((k) => k * s),
     });
   }
   for (const balloon of specs.balloons) {
     const r = s * 1.05;
-    labels.push({ id: `b:${balloon.key}`, at: balloon.at, n: balloon.n, w: r * 2, h: r * 2, reaches: [2.8, 3.6, 4.4, 5.4, 6.6, 8.0, 9.6, 11.5].map((k) => k * s), feet: balloon.feet });
+    labels.push({ id: `b:${balloon.key}`, at: balloon.at, n: balloon.n, w: r * 2, h: r * 2, reaches: [1.9, 2.3, 2.8, 3.6, 4.4, 5.4, 6.6, 8.0, 9.6, 11.5].map((k) => k * s), feet: balloon.feet });
   }
   for (const letter of specs.letters) {
     labels.push({
@@ -561,17 +575,17 @@ export function tidyLayout(specs: LayoutSpecs, trace?: TidyTrace): TidyResult {
       const here = where.get(label.id)!;
       const tried = optionsFor(label)
         .map((o) => ({ ...o, own: costOf(label, o.p) }))
-        .sort((x, y) => x.own * 1000 + x.cost - (y.own * 1000 + y.cost))
+        .sort((x, y) => x.own + x.cost - (y.own + y.cost))
         .slice(0, 20);
       const hereCost = tried.find((o) => Math.hypot(o.p.x - here.x, o.p.y - here.y) < 1e-6)?.cost ?? optionsFor(label).find((o) => Math.hypot(o.p.x - here.x, o.p.y - here.y) < 1e-6)?.cost ?? 0;
-      let best = { p: here, score: total * 1000 + hereCost, total };
+      let best = { p: here, score: total + hereCost, total };
       const before = [own.get(label.id) ?? []];
       for (const o of tried) {
         if (Math.hypot(o.p.x - here.x, o.p.y - here.y) < 1e-6) continue;
         setOwn(label, o.p);
         where.set(label.id, o.p);
         const t = totalAfter([label], before);
-        const score = t * 1000 + o.cost;
+        const score = t + o.cost;
         if (score < best.score - 1e-9) best = { p: o.p, score, total: t };
       }
       setOwn(label, best.p);
@@ -597,7 +611,8 @@ export function tidyLayout(specs: LayoutSpecs, trace?: TidyTrace): TidyResult {
         where.set(a.id, pb);
         where.set(b.id, pa);
         const t = totalAfter([a, b], before);
-        if (t < total - 1e-9) {
+        const gain = total + spotCost(a, pa) + spotCost(b, pb) - (t + spotCost(a, pb) + spotCost(b, pa));
+        if (gain > 1e-9) {
           total = t;
           moved = true;
           settle();
