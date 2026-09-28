@@ -1644,6 +1644,62 @@ export function applyMeasureToOlet(drawing: Drawing, analysis: Analysis, measure
   return stretchRun(drawing, line.runId, length, line.end, true) ? null : 'The line cannot be made that length here.';
 }
 
+/**
+ * Moves an olet (its branch already moved) to another place on its header,
+ * past other olets: the two header runs at it are joined into one, and the
+ * run at the new place is split there, the olet keeping its id (its welds,
+ * numbers and branch stay its own). Items on the header keep their place.
+ */
+function reseatOlet(drawing: Drawing, nodeId: string, headerRuns: Set<string>, to: Vec3): string | null {
+  const node = drawing.nodes.find((n) => n.id === nodeId);
+  const at = drawing.runs.filter((r) => headerRuns.has(r.id) && (r.from === nodeId || r.to === nodeId));
+  if (!node || at.length !== 2) return 'The olet could not be moved along its header.';
+  const pos = (id: string) => drawing.nodes.find((n) => n.id === id)!.pos;
+  const placed = (run: Run) => {
+    const d = direction(pos(run.from), pos(run.to));
+    return run.inline.map((comp) => ({ comp, p: d ? add(pos(run.from), scale3(d, comp.offset)) : pos(run.from) }));
+  };
+  // Off the header: one run from the far end of the first to the far end of the second.
+  const [keep, gone] = at;
+  const items = [...placed(keep), ...placed(gone)];
+  const a = keep.from === nodeId ? keep.to : keep.from;
+  const b = gone.from === nodeId ? gone.to : gone.from;
+  keep.visual = keep.visual !== undefined && gone.visual !== undefined ? keep.visual + gone.visual : undefined;
+  keep.from = a;
+  keep.to = b;
+  drawing.runs = drawing.runs.filter((r) => r !== gone);
+  keep.inline = items.map(({ comp, p }) => ({ ...comp, offset: length3(sub(p, pos(a))) })).sort((x, y) => x.offset - y.offset);
+  // On again at its new place, splitting the header run there.
+  node.pos = { ...to };
+  const host = drawing.runs.find((r) => {
+    if (r !== keep && !headerRuns.has(r.id)) return false;
+    const len = length3(sub(pos(r.to), pos(r.from)));
+    const d1 = length3(sub(to, pos(r.from)));
+    const d2 = length3(sub(pos(r.to), to));
+    return d1 > 0.5 && d2 > 0.5 && Math.abs(d1 + d2 - len) < 0.5;
+  });
+  if (!host) return 'The olet could not be moved along its header.';
+  const len = length3(sub(pos(host.to), pos(host.from)));
+  const cut = length3(sub(to, pos(host.from)));
+  const after: Run = {
+    ...host,
+    id: uid('r'),
+    from: nodeId,
+    inline: host.inline.filter((c) => c.offset > cut).map((c) => ({ ...c, offset: c.offset - cut })),
+    visual: host.visual !== undefined ? (host.visual * (len - cut)) / len : undefined,
+  };
+  host.inline = host.inline.filter((c) => c.offset <= cut);
+  host.visual = host.visual !== undefined ? (host.visual * cut) / len : undefined;
+  host.to = nodeId;
+  // The header's note stays where it was written, once.
+  delete after.note;
+  if (after.visual === undefined) delete after.visual;
+  if (host.visual === undefined) delete host.visual;
+  if (keep.visual === undefined) delete keep.visual;
+  drawing.runs.push(after);
+  return null;
+}
+
 export function applyChainDimension(drawing: Drawing, analysis: Analysis, key: string, value: number): string | null {
   if (!(value > 0)) return 'A dimension has to be more than nothing.';
   const olet = key.match(/^olet:(.+)$/);
@@ -1669,9 +1725,16 @@ export function applyChainDimension(drawing: Drawing, analysis: Analysis, key: s
       if (!stretchRun(drawing, last.run.id, last.length + grow, last.forward ? 'to' : 'from', true)) return 'The header cannot be carried on that far.';
       return applyChainDimension(drawing, analyse(drawing), key, value);
     }
-    const below = Math.max(...[...stops, ...others].filter((mm) => mm < value - 0.5 && mm < chain.total), 0);
-    const above = Math.min(...[...stops, ...others].filter((mm) => mm > value + 0.5), chain.total);
-    if (value <= below + 0.5 || value >= above - 0.5) return 'That would put the olet past the next thing on the header.';
+    // Past another olet it may go (his Strauss sheet, 2026-09-28: "can the
+    // 3" branch go under the 2" one"): it is lifted off the header there and
+    // put on again at its new place. A valve it cannot pass.
+    const fixed = stops.filter((mm) => !others.some((o) => Math.abs(o - mm) < 0.5));
+    const between = (mm: number) => (mm - was0) * (mm - value) < 0 || Math.abs(mm - value) < 0.5;
+    if (value < 0.5 || value > chain.total - 0.5 || fixed.some((mm) => mm > 0.5 && mm < chain.total - 0.5 && between(mm))) {
+      return 'That would put the olet past the next thing on the header.';
+    }
+    if (others.some((mm) => Math.abs(mm - value) < 1)) return 'Another olet is there already.';
+    const passes = others.some((mm) => (mm - was0) * (mm - value) < 0);
     const dir = direction(start.pos, end.pos);
     if (!dir) return 'No such dimension.';
     const was = chain.olets.find((o) => o.nodeId === nodeId)!.along;
@@ -1703,6 +1766,7 @@ export function applyChainDimension(drawing: Drawing, analysis: Analysis, key: s
       box.at = add(box.at, shift);
       if (box.standPos) box.standPos = add(box.standPos, shift);
     }
+    if (passes) return reseatOlet(drawing, nodeId, headerRuns, add(start.pos, scale3(dir, value)));
     node.pos = add(start.pos, scale3(dir, value));
     // What sits along the runs either side keeps its place on the header.
     const before = chain.runs.find((leg) => (leg.forward ? leg.run.to : leg.run.from) === nodeId);

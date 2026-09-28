@@ -5,7 +5,7 @@ import { COMMAND_HELP } from '../model/commands';
 import { DN_LIST, SIZE_LABELS, defaultValveEnds, schedulesFor, sizeLabel } from '../model/pipe-data';
 import { AXES, AXIS_VECTOR, axisBetween } from '../model/iso';
 import { projectsOf } from '../model/library';
-import { applyReducer, freeDimensions, offersAutoCoupling, resetDrawnLength, setAutoCoupling, wantsAutoCoupling, deletePoint, isCouplingPoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, runLength, setGroupLength, setLastFlange, deleteRunGroup, DASHED_NOTE, setLineSize, setRunDashed, setRunDirect, setRunLength, setTerminal, splitRun } from '../model/edit';
+import { applyChainDimension, applyReducer, freeDimensions, offersAutoCoupling, resetDrawnLength, setAutoCoupling, wantsAutoCoupling, deletePoint, isCouplingPoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, runLength, setGroupLength, setLastFlange, deleteRunGroup, DASHED_NOTE, setLineSize, setRunDashed, setRunDirect, setRunLength, setTerminal, splitRun } from '../model/edit';
 import { setDriveClientId } from '../model/drive';
 import { reducerPreview } from './reducer-preview';
 import { SHEET_STAMPS, sheetStamp } from '../render/sheet';
@@ -150,6 +150,24 @@ function alongLine(host: Host, nodeId: string): string {
   return '';
 }
 
+/**
+ * An olet's place on its header, typed from the header's start: it may go
+ * past the other olets there (his Strauss sheet, 2026-09-28: "can the 3"
+ * branch go under the 2" one"), its branch with it.
+ */
+function oletAlongHeader(host: Host, nodeId: string): string {
+  const { drawing, analysis } = host.state;
+  const chain = analysis.chains.find((c) => c.olets.some((o) => o.nodeId === nodeId));
+  const along = chain?.olets.find((o) => o.nodeId === nodeId)?.along;
+  const a = chain && drawing.nodes.find((n) => n.id === chain.from);
+  const b = chain && drawing.nodes.find((n) => n.id === chain.to);
+  if (!chain || along === undefined || !a || !b) return '';
+  const end: Record<string, string> = { U: 'bottom', D: 'top', E: 'west', W: 'east', N: 'south', S: 'north' };
+  const axis = axisBetween(a.pos, b.pos);
+  return `<div class="row"><label>On the header</label><input type="number" data-f="olet-along" step="1" min="1" value="${Math.round(along)}" title="From its ${axis ? end[axis] : 'first'} end; it may pass the other olets" /></div>
+  <p class="empty-note">mm from the header's ${axis ? end[axis] : 'first'} end (${Math.round(chain.total)} long). Type a place past another olet to move this one there, branch and all.</p>`;
+}
+
 function nodeProperties(host: Host, nodeId: string): string {
   const { drawing, analysis } = host.state;
   const node = drawing.nodes.find((n) => n.id === nodeId);
@@ -195,6 +213,7 @@ function nodeProperties(host: Host, nodeId: string): string {
       : ''
   }
   ${alongLine(host, nodeId)}
+  ${isOlet ? oletAlongHeader(host, nodeId) : ''}
   ${pendingOlets
     .map(
       (mark, k) => `<div class="row"><label>${pendingOlets.length > 1 ? `Olet ${k + 1} size` : 'Branch size'}</label><select data-olet-dn="${mark.markIndex}">${options(DN_LIST, mark.dn, SIZE_LABELS)}</select></div>
@@ -1039,6 +1058,20 @@ function wire(body: HTMLElement, host: Host): void {
     // so picking the route back up is a button too.
     nodeEditor.querySelector('[data-a="draw-from"]')?.addEventListener('click', () => {
       host.continueFrom(id);
+    });
+    nodeEditor.querySelector<HTMLInputElement>('[data-f="olet-along"]')?.addEventListener('change', (e) => {
+      const value = Math.round(Number((e.target as HTMLInputElement).value));
+      if (!(value > 0)) return;
+      // Tried on a copy first, so a refusal leaves nothing in the undo list.
+      const why = applyChainDimension(structuredClone(host.state.drawing), host.state.analysis, `olet:${id}`, value);
+      if (why) {
+        host.notify(why);
+        host.touch();
+        return;
+      }
+      host.edit('Move olet', (d) => {
+        applyChainDimension(d, host.state.analysis, `olet:${id}`, value);
+      });
     });
     nodeEditor.querySelectorAll<HTMLSelectElement>('[data-olet-dn], [data-olet-dir]').forEach((select) => {
       select.addEventListener('change', () => {

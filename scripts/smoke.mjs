@@ -5617,6 +5617,24 @@ await page.waitForTimeout(250);
   await page.reload();
   await page.waitForTimeout(700);
   check('a valve left 11 mm short of its blind end has the end back on it', await endN(), (v) => Math.abs(v - home) < 0.01, String(home));
+
+  // "Can the 3" branch go under the 2" one? If not, do it for me" (same
+  // sheet, same evening): an olet's panel takes its place on the header,
+  // and it may pass another olet, its branch with it.
+  const ups = () => page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem('iso-draw.drawing.v1'));
+    const u = (id) => d.nodes.find((n) => n.id === id).pos.u;
+    return { start: u('n8oirg'), two: u('nbfm3n'), three: u('no8atp'), threeBranch: u('nxpxgy'), runs: d.runs.length };
+  });
+  const was = await ups();
+  await tapNode('no8atp');
+  const along = was.two - was.start - 50;
+  await page.fill('#tab-body [data-f="olet-along"]', String(along));
+  await page.keyboard.press('Tab');
+  await page.waitForTimeout(500);
+  const now = await ups();
+  check('the 3" olet typed below the 2" one goes there, its branch with it', `${now.three - now.start} ${now.threeBranch === now.three} ${now.three < now.two} ${now.runs}`, (v) => v === `${along} true true ${was.runs}`, `${along} true true ${was.runs}`);
+  check('and the header keeps its note once', await page.locator('#canvas .run-note').evaluateAll((els) => els.filter((e) => /EXISTING/.test(e.textContent)).length), (v) => v === 1, '1');
 }
 
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');

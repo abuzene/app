@@ -618,6 +618,13 @@ ships, and the decisions already taken, so they are not re-litigated.
   the branch rejoins the header): left behind askew, `straightenBranches`
   squared it back on the next load and the olet with it — "I cannot
   change the 173" between two olets on his Strauss sheet, 2026-09-27.
+  **An olet may pass another olet** (his ask, 2026-09-28, Strauss: "can
+  the 3" branch go under the 2" one"): typed past it (a piece up to it,
+  or the olet panel's **On the header** field `[data-f="olet-along"]`,
+  mm from the header's start end, tried on a copy first), `reseatOlet`
+  lifts it off the header (its two runs joined into one) and splits the
+  run at the new place, the olet keeping its id (welds, numbers, branch);
+  the split-off run takes no note. It never passes a valve face.
   Typed past the header's far end (nothing else between), the header is
   **carried on**, `HEADER_BEYOND` 100 mm past the olet (`stretchRun` on
   the last leg, `moveEnd`), then the olet moved ("still only up to 280");
