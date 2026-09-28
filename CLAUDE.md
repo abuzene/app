@@ -188,7 +188,23 @@ ships, and the decisions already taken, so they are not re-litigated.
   what they fall on (`UNDER_BOX`, `ACROSS`): lettering, labels and pipes
   worst, a dimension line next, another leader, a dashed extension line
   least. 24 directions, reaches out to 12 symbols, then three passes
-  placing each label again against all the rest. Dimension rows start 3
+  placing each label again against all the rest, **then all together**
+  (his Strauss sheet, 2026-09-28: "the marked lines cross each other"):
+  up to four passes in which each label is tried at its 20 best spots
+  against the cost of the whole drawing (`totalClash`, recomputed only
+  for the labels near the move), and two labels near one point change
+  places when that costs less (one alone could not get there). Two
+  leaders leaving one point — an olet's header weld and its balloon —
+  used to count as crossing at their start and drove both to odd spots:
+  two leaders count as crossing only where they cut each other past
+  their starts (`cut`, a proper intersection, not a distance). A leader across a dimension line costs 4,
+  across another leader 3; one running along a pipe within 0.3 symbol
+  counts as on it. A row of dimension pieces that cannot lie clear as
+  one (a header with a branch off either side) is laid out **piece by
+  piece**, each on its own side (`placeRow` on a copy first), as he does
+  by hand; a row on its own may go out to 13.5 symbols.
+  `tidyLayout(specs, trace?)` reports every label's cost and why, with a
+  `probe` for any spot, for tuning. Dimension rows start 3
   symbols off the pipe so the **pipe letter** fits between, and a letter
   may sit anywhere along its pipe, close beside it with no leader
   (`besideAlong`; the renderer draws no leader within `LETTER_BESIDE`).

@@ -179,7 +179,10 @@ function besideAlong(feet: [Pt, Pt][], first: Pt, w: number, h: number, clear: n
   return out.sort((p, q) => Math.hypot(p.x - first.x, p.y - first.y) - Math.hypot(q.x - first.x, q.y - first.y));
 }
 
-export function tidyLayout(specs: LayoutSpecs): TidyResult {
+/** What a label's spot costs and why, for the smoke and for tuning. */
+export type TidyTrace = (id: string, p: Pt, cost: number, why: string[], probe: (q: Pt) => { cost: number; why: string[] }) => void;
+
+export function tidyLayout(specs: LayoutSpecs, trace?: TidyTrace): TidyResult {
   const s = specs.size;
   const gap = s * 0.2;
   const fixed: Capsule[] = [
@@ -228,7 +231,12 @@ export function tidyLayout(specs: LayoutSpecs): TidyResult {
   // Short rows nearest the pipe, the long ones (totals) outside them.
   rows.sort((x, y) => x.longest - y.longest);
   const alongs = [0.5, 0.36, 0.64, 0.24, 0.76];
-  for (const row of rows) {
+  type Row = (typeof rows)[number];
+  // A row that cannot be laid clear as one (a header with a branch off
+  // either side: the pieces' one line crosses one branch or the other)
+  // is laid out piece by piece, each on the side clear for it, as on
+  // his own sheets (the 749 right of the header, the 100 and 250 left).
+  const placeRow = (row: Row, offsets: number[]): number => {
     const { a: ra, b: rb } = row.dims[0];
     const len = Math.hypot(rb.x - ra.x, rb.y - ra.y);
     // One normal for the row; each dimension's own offset is signed to it.
@@ -237,7 +245,7 @@ export function tidyLayout(specs: LayoutSpecs): TidyResult {
     if ((mid.x - specs.centroid.x) * n.x + (mid.y - specs.centroid.y) * n.y < 0) n = { x: -n.x, y: -n.y };
     const options: { off: number; cost: number }[] = [];
     // Not closer than three symbols: the pipe's letter goes between.
-    for (const k of [3.0, 3.8, 4.6, 5.4, 6.4, 7.6, 9.0]) {
+    for (const k of offsets) {
       for (const side of [1, -1]) options.push({ off: k * s * side, cost: k * s + (side < 0 ? s * 1.6 : 0) });
     }
     options.sort((x, y) => x.cost - y.cost);
@@ -277,6 +285,24 @@ export function tidyLayout(specs: LayoutSpecs): TidyResult {
       if (clashes === 0) break;
     }
     if (best) placed.push(...best.caps);
+    return bestCost;
+  };
+  const OFFSETS = [3.0, 3.8, 4.6, 5.4, 6.4, 7.6, 9.0];
+  for (const row of rows) {
+    if (row.dims.length < 2) {
+      placeRow(row, [...OFFSETS, 11, 13.5]);
+      continue;
+    }
+    // Tried as one row on a copy of what is placed; clashing, the pieces
+    // go one by one instead.
+    const mark = placed.length;
+    const cost = placeRow(row, OFFSETS);
+    if (cost < 1000) continue;
+    placed.length = mark;
+    for (const dim of row.dims) {
+      const l = Math.hypot(dim.b.x - dim.a.x, dim.b.y - dim.a.y);
+      placeRow({ dims: [dim], u: row.u, spans: [[0, l]], longest: l }, [...OFFSETS, 11, 13.5]);
+    }
   }
 
   // Then the labels on leaders: the nearest free spot round what each
@@ -329,46 +355,86 @@ export function tidyLayout(specs: LayoutSpecs): TidyResult {
     };
   };
   const own = new Map<string, Capsule[]>();
-  const others = (id: string): Capsule[] => {
-    const out: Capsule[] = [...placed];
-    for (const [k, cs] of own) if (k !== id) out.push(...cs);
-    return out;
+  // Every label's shapes in one list, each marked with whose it is: what a
+  // label is tested against is that list less its own, with no copying
+  // (the whole is costed many times over).
+  const labelCaps: (Capsule & { owner: string })[] = [];
+  const setOwnCaps = (id: string, cs: Capsule[]) => {
+    own.set(id, cs);
+    for (let i = labelCaps.length - 1; i >= 0; i -= 1) if (labelCaps[i].owner === id) labelCaps.splice(i, 1);
+    for (const c of cs) labelCaps.push({ ...c, owner: id });
   };
   // How badly each thing reads under a label, or across a leader: over
   // lettering or a pipe worst, a dimension line next, another leader, and
   // a thin dashed extension line least (his ask, 2026-09-26: "try as far
   // as possible that the lines do not cut").
   const UNDER_BOX: Record<string, number> = { pipe: 4, point: 4, text: 6, figure: 6, box: 6, dimline: 3, dimfull: 0, ext: 1, leader: 2 };
-  const ACROSS: Record<string, number> = { dimfull: 2.5, ext: 0.8, leader: 1.5 };
-  const costOf = (label: Label, p: Pt, rest: Capsule[]): number => {
+  const ACROSS: Record<string, number> = { dimfull: 4, ext: 0.8, leader: 3 };
+  // Whether two leaders cut each other past their starts: two leaving one
+  // point (an olet's weld and its balloon) touch there and do not cross,
+  // while two from points close together cross when they fan the wrong
+  // way round.
+  const cut = (p: Pt, p2: Pt, q: Pt, q2: Pt): boolean => {
+    const d = (p2.x - p.x) * (q2.y - q.y) - (p2.y - p.y) * (q2.x - q.x);
+    if (Math.abs(d) < 1e-9) return false;
+    const t = ((q.x - p.x) * (q2.y - q.y) - (q.y - p.y) * (q2.x - q.x)) / d;
+    const u = ((q.x - p.x) * (p2.y - p.y) - (q.y - p.y) * (p2.x - p.x)) / d;
+    return t > 0.03 && t < 1 && u > 0.03 && u < 1;
+  };
+  const costOf = (label: Label, p: Pt, why?: string[]): number => {
     const { box, leader, whole } = shapesAt(label, p);
     let c = 0;
-    for (const o of [...fixed, ...rest]) {
-      if (segDistance(box.a, box.b, o.a, o.b) < box.r + o.r + gap) c += UNDER_BOX[o.kind ?? 'box'] ?? 4;
-    }
+    const add = (n: number, what: string) => {
+      c += n;
+      why?.push(`${what} ${n}`);
+    };
+    // A cheap first look at where each shape lies: most are nowhere near.
+    const bx0 = Math.min(box.a.x, box.b.x) - box.r - gap;
+    const bx1 = Math.max(box.a.x, box.b.x) + box.r + gap;
+    const by0 = Math.min(box.a.y, box.b.y) - box.r - gap;
+    const by1 = Math.max(box.a.y, box.b.y) + box.r + gap;
+    const far = (o: Capsule, x0: number, x1: number, y0: number, y1: number) =>
+      Math.min(o.a.x, o.b.x) - o.r > x1 || Math.max(o.a.x, o.b.x) + o.r < x0 || Math.min(o.a.y, o.b.y) - o.r > y1 || Math.max(o.a.y, o.b.y) + o.r < y0;
+    const under = (o: Capsule) => {
+      if (far(o, bx0, bx1, by0, by1)) return;
+      if (segDistance(box.a, box.b, o.a, o.b) < box.r + o.r + gap) add(UNDER_BOX[o.kind ?? 'box'] ?? 4, `box on ${o.kind ?? 'box'}`);
+    };
+    for (const o of fixed) under(o);
+    for (const o of placed) under(o);
+    for (const o of labelCaps) if (o.owner !== label.id) under(o);
     if (leader && whole) {
+      const lx0 = Math.min(whole.a.x, whole.b.x) - s;
+      const lx1 = Math.max(whole.a.x, whole.b.x) + s;
+      const ly0 = Math.min(whole.a.y, whole.b.y) - s;
+      const ly1 = Math.max(whole.a.y, whole.b.y) + s;
       // Against the drawing: a pipe only when crossed or run along (a weld
       // on a tee sits between pipes; leaving it, the leader is near them
       // whichever way it goes), and no symbol right by its own point.
       for (const o of fixed) {
+        if (far(o, lx0, lx1, ly0, ly1)) continue;
         if (o.kind === 'point' && Math.hypot(o.a.x - whole.a.x, o.a.y - whole.a.y) < o.r + s * 1.6) continue;
-        const reach = o.kind === 'pipe' ? s * 0.08 : o.r + leader.r;
-        if (segDistance(leader.a, leader.b, o.a, o.b) < reach) c += o.kind === 'text' ? 3 : 3;
+        // Crossing a pipe, or running along one right beside it.
+        const reach = o.kind === 'pipe' ? s * 0.3 : o.r + leader.r;
+        if (segDistance(leader.a, leader.b, o.a, o.b) < reach) add(3, `leader on ${o.kind}`);
       }
-      for (const o of rest) {
+      const across = (o: Capsule) => {
+        if (far(o, lx0, lx1, ly0, ly1)) return;
         const k = o.kind ?? 'box';
-        if (k in ACROSS) {
-          if (segDistance(whole.a, whole.b, o.a, o.b) < 1e-6 + (k === 'dimfull' ? o.r * 0.5 : 0)) c += ACROSS[k];
+        if (k === 'leader') {
+          if (cut(whole.a, whole.b, o.a, o.b)) add(ACROSS[k], `leader across ${k}`);
+        } else if (k in ACROSS) {
+          if (segDistance(whole.a, whole.b, o.a, o.b) < 1e-6 + (k === 'dimfull' ? o.r * 0.5 : 0)) add(ACROSS[k], `leader across ${k}`);
         } else if (k === 'box' || k === 'figure') {
           // Through another label, or a dimension's figure.
-          if (segDistance(leader.a, leader.b, o.a, o.b) < o.r) c += 3;
+          if (segDistance(leader.a, leader.b, o.a, o.b) < o.r) add(3, `leader through ${k}`);
         }
-      }
+      };
+      for (const o of placed) across(o);
+      for (const o of labelCaps) if (o.owner !== label.id) across(o);
     }
     return c;
   };
-  const placeLabel = (label: Label): Pt => {
-    const rest = others(label.id);
+  const optionsFor = (label: Label): { p: Pt; cost: number }[] => {
     const nl = Math.hypot(label.n.x, label.n.y) || 1;
     const nx = label.n.x / nl;
     const ny = label.n.y / nl;
@@ -385,11 +451,18 @@ export function tidyLayout(specs: LayoutSpecs): TidyResult {
         options.push({ p: { x: label.at.x + dx * reach, y: label.at.y + dy * reach }, cost: reach + (1 - square) * s * 1.4 });
       }
     }
-    options.sort((x, y) => x.cost - y.cost);
+    return options.sort((x, y) => x.cost - y.cost);
+  };
+  const setOwn = (label: Label, p: Pt) => {
+    const { box, whole } = shapesAt(label, p);
+    setOwnCaps(label.id, whole ? [{ ...box, kind: 'box' }, whole] : [{ ...box, kind: 'box' }]);
+  };
+  const placeLabel = (label: Label): Pt => {
+    const options = optionsFor(label);
     let best = options[0].p;
     let bestScore = Infinity;
     for (const o of options) {
-      const c = costOf(label, o.p, rest);
+      const c = costOf(label, o.p);
       // Clashes first; among equals, the nearer (options come nearest first).
       const score = c * 1000 + o.cost;
       if (score < bestScore) {
@@ -398,8 +471,7 @@ export function tidyLayout(specs: LayoutSpecs): TidyResult {
       }
       if (c === 0) break;
     }
-    const { box, whole } = shapesAt(label, best);
-    own.set(label.id, whole ? [{ ...box, kind: 'box' }, whole] : [{ ...box, kind: 'box' }]);
+    setOwn(label, best);
     return best;
   };
 
@@ -444,8 +516,110 @@ export function tidyLayout(specs: LayoutSpecs): TidyResult {
   for (let pass = 0; pass < 3; pass += 1) {
     for (const label of order) {
       const p = where.get(label.id)!;
-      if (costOf(label, p, others(label.id)) === 0) continue;
+      if (costOf(label, p) === 0) continue;
       where.set(label.id, placeLabel(label));
+    }
+  }
+  // Then all together: each label is tried at its few best spots against
+  // what the whole drawing costs, so one moving out of another's way, or
+  // a longer leader that frees two crossings, counts (his Strauss sheet,
+  // 2026-09-28: "the marked lines cross each other, and that is not good").
+  // The whole's cost is kept label by label; a trial move recomputes only
+  // the labels near enough to the moved one's shapes, before and after,
+  // for the others cannot have changed.
+  const costs = new Map<string, number>();
+  const near = (label: Label, shapes: Capsule[][]): boolean => {
+    const mine = own.get(label.id) ?? [];
+    for (const cs of shapes) for (const c of cs) for (const m of mine) if (segDistance(c.a, c.b, m.a, m.b) < c.r + m.r + s * 2) return true;
+    return false;
+  };
+  const totalClash = (): number => {
+    let t = 0;
+    for (const label of order) {
+      const c = costOf(label, where.get(label.id)!);
+      costs.set(label.id, c);
+      t += c;
+    }
+    return t;
+  };
+  const totalAfter = (moved: Label[], before: Capsule[][]): number => {
+    const after = moved.map((m) => own.get(m.id) ?? []);
+    let t = 0;
+    for (const label of order) {
+      const again = moved.includes(label) || near(label, before) || near(label, after);
+      t += again ? costOf(label, where.get(label.id)!) : (costs.get(label.id) ?? 0);
+    }
+    return t;
+  };
+  const settle = (): void => {
+    totalClash();
+  };
+  let total = totalClash();
+  for (let pass = 0; pass < 4 && total > 0; pass += 1) {
+    let moved = false;
+    for (const label of order) {
+      const here = where.get(label.id)!;
+      const tried = optionsFor(label)
+        .map((o) => ({ ...o, own: costOf(label, o.p) }))
+        .sort((x, y) => x.own * 1000 + x.cost - (y.own * 1000 + y.cost))
+        .slice(0, 20);
+      const hereCost = tried.find((o) => Math.hypot(o.p.x - here.x, o.p.y - here.y) < 1e-6)?.cost ?? optionsFor(label).find((o) => Math.hypot(o.p.x - here.x, o.p.y - here.y) < 1e-6)?.cost ?? 0;
+      let best = { p: here, score: total * 1000 + hereCost, total };
+      const before = [own.get(label.id) ?? []];
+      for (const o of tried) {
+        if (Math.hypot(o.p.x - here.x, o.p.y - here.y) < 1e-6) continue;
+        setOwn(label, o.p);
+        where.set(label.id, o.p);
+        const t = totalAfter([label], before);
+        const score = t * 1000 + o.cost;
+        if (score < best.score - 1e-9) best = { p: o.p, score, total: t };
+      }
+      setOwn(label, best.p);
+      where.set(label.id, best.p);
+      if (best.p !== here) {
+        moved = true;
+        settle();
+      }
+      total = best.total;
+    }
+    // Two labels near one point whose leaders cross change places: one
+    // alone cannot get there, each step on its own costing more.
+    for (let i = 0; i < order.length && total > 0; i += 1) {
+      for (let j = i + 1; j < order.length; j += 1) {
+        const a = order[i];
+        const b = order[j];
+        if (a.home || b.home || Math.hypot(a.at.x - b.at.x, a.at.y - b.at.y) > s * 6) continue;
+        const pa = where.get(a.id)!;
+        const pb = where.get(b.id)!;
+        const before = [own.get(a.id) ?? [], own.get(b.id) ?? []];
+        setOwn(a, pb);
+        setOwn(b, pa);
+        where.set(a.id, pb);
+        where.set(b.id, pa);
+        const t = totalAfter([a, b], before);
+        if (t < total - 1e-9) {
+          total = t;
+          moved = true;
+          settle();
+        } else {
+          setOwn(a, pa);
+          setOwn(b, pb);
+          where.set(a.id, pa);
+          where.set(b.id, pb);
+        }
+      }
+    }
+    if (!moved) break;
+  }
+  if (trace) {
+    for (const label of order) {
+      const why: string[] = [];
+      const p = where.get(label.id)!;
+      const c = costOf(label, p, why);
+      trace(label.id, p, c, why, (q) => {
+        const w: string[] = [];
+        return { cost: costOf(label, q, w), why: w };
+      });
     }
   }
   for (const tag of specs.tags) {

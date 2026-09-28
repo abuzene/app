@@ -5635,6 +5635,38 @@ await page.waitForTimeout(250);
   const now = await ups();
   check('the 3" olet typed below the 2" one goes there, its branch with it', `${now.three - now.start} ${now.threeBranch === now.three} ${now.three < now.two} ${now.runs}`, (v) => v === `${along} true true ${was.runs}`, `${along} true true ${was.runs}`);
   check('and the header keeps its note once', await page.locator('#canvas .run-note').evaluateAll((els) => els.filter((e) => /EXISTING/.test(e.textContent)).length), (v) => v === 1, '1');
+
+  // "Improve Tidy: the marked lines cross each other, and that is not
+  // good" (same sheet, same evening): the weld tags and balloons round
+  // the 2" branch's valve had their leaders across each other and across
+  // the dimension line. Laid out all together now, with two leaders from
+  // one point (an olet's weld and its balloon) no longer counted as
+  // crossing, no leader crosses another.
+  await page.keyboard.press('Escape');
+  await page.click('#tidy');
+  await page.waitForTimeout(2500);
+  const crossings = await page.evaluate(() => {
+    const seg = (sel) => [...document.querySelectorAll(`#canvas ${sel}`)].map((l) => [{ x: +l.getAttribute('x1'), y: +l.getAttribute('y1') }, { x: +l.getAttribute('x2'), y: +l.getAttribute('y2') }]);
+    const cross = ([p, p2], [q, q2]) => {
+      const d = (p2.x - p.x) * (q2.y - q.y) - (p2.y - p.y) * (q2.x - q.x);
+      if (Math.abs(d) < 1e-9) return false;
+      const t = ((q.x - p.x) * (q2.y - q.y) - (q.y - p.y) * (q2.x - q.x)) / d;
+      const u = ((q.x - p.x) * (p2.y - p.y) - (q.y - p.y) * (p2.x - p.x)) / d;
+      return t > 0.05 && t < 0.98 && u > 0.05 && u < 0.98;
+    };
+    const leaders = [...seg('.weld-leader'), ...seg('.balloon-leader')];
+    let each = 0;
+    let dim = 0;
+    for (let i = 0; i < leaders.length; i += 1) {
+      for (let j = i + 1; j < leaders.length; j += 1) if (cross(leaders[i], leaders[j])) each += 1;
+      for (const x of seg('.dim-line')) if (cross(leaders[i], x)) dim += 1;
+    }
+    return `${each} ${dim}`;
+  });
+  check('Tidy on his Strauss sheet: no leader crosses another, at most one a dimension line', crossings, (v) => {
+    const [each, dim] = v.split(' ').map(Number);
+    return each === 0 && dim <= 1;
+  }, '0 and at most 1');
 }
 
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
