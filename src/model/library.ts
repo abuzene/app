@@ -116,11 +116,61 @@ export function markRemoved(ids: Iterable<string>): void {
 /** Rewrites the sheet count on every sheet of a project: "2 of 3". */
 export function renumberProject(name: string, total: number): void {
   const entries = loadLibrary();
+  const now = Date.now();
   for (const entry of entries) {
     if ((entry.drawing.meta.project || '') !== name) continue;
-    entry.drawing.meta.sheet = `${sheetNumber(entry.drawing.meta.sheet)} of ${total}`;
+    const sheet = `${sheetNumber(entry.drawing.meta.sheet)} of ${total}`;
+    if (entry.drawing.meta.sheet === sheet) continue;
+    entry.drawing.meta.sheet = sheet;
+    // Changed, it is newer: a sync carries it to the other side.
+    entry.savedAt = Math.max(now, entry.savedAt + 1);
   }
-  saveLibrary(entries);
+  saveLibrary(entries.sort((a, b) => b.savedAt - a.savedAt));
+}
+
+/**
+ * Numbers the sheets of each named project 1…n of n, in their order, so a
+ * sheet removed leaves no gap (his complaint, 2026-09-30: "3 sheets, not
+ * 4" — sheets 1, 2 and 4 of 4 were left after sheet 3 went). The
+ * "CONT. ON SH.n" / "CONT. FROM SH.k" notes follow their sheets' new
+ * numbers. Returns the ids of the sheets that changed.
+ */
+export function renumberSheets(only?: string): string[] {
+  const entries = loadLibrary();
+  const now = Date.now();
+  const changed: string[] = [];
+  for (const project of projectsOf(entries)) {
+    if (!project.name || (only !== undefined && project.name !== only)) continue;
+    const total = project.sheets.length;
+    const next = new Map<number, number>();
+    project.sheets.forEach((entry, i) => {
+      const old = sheetNumber(entry.drawing.meta.sheet);
+      if (!next.has(old)) next.set(old, i + 1);
+    });
+    project.sheets.forEach((entry, i) => {
+      const drawing = entry.drawing;
+      let dirty = false;
+      const sheet = `${i + 1} of ${total}`;
+      if (drawing.meta.sheet !== sheet) {
+        drawing.meta.sheet = sheet;
+        dirty = true;
+      }
+      for (const node of drawing.nodes) {
+        const note = node.terminal?.note;
+        if (!note) continue;
+        const renamed = note.replace(/(CONT\. (?:ON|FROM) SH\.)(\d+)/, (all, head: string, k: string) => (next.has(Number(k)) ? `${head}${next.get(Number(k))}` : all));
+        if (renamed !== note) {
+          node.terminal!.note = renamed;
+          dirty = true;
+        }
+      }
+      if (!dirty) return;
+      entry.savedAt = Math.max(now, entry.savedAt + 1);
+      changed.push(entry.id);
+    });
+  }
+  if (changed.length) saveLibrary(entries.sort((a, b) => b.savedAt - a.savedAt));
+  return changed;
 }
 
 /** The k in "k of n"; 1 when the field says something else. */

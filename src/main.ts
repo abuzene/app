@@ -5,7 +5,7 @@ import type { AppState, Host, OletAsk, OletChoice, ReducerAsk, ReducerChoice } f
 import { reducerPreview } from './ui/reducer-preview';
 import { tidyLayout, type LayoutSpecs } from './render/tidy';
 import { COMPONENT_LABEL, isValve, analyse, chainStops, dimensionStops, drawnLength, drawnStations, runDrawnFloor, trueAtShare, type DrawnStations, isMark, isReducer, itemAtEnd, itemHalf, runGroupIds, emptyDrawing, oletLegs, oletMarks, uid } from './model/drawing';
-import { isRemoved, loadLibrary, projectsOf, removeDrawing, renumberProject, sheetNumber, upsertDrawing, worthKeeping } from './model/library';
+import { isRemoved, loadLibrary, projectsOf, removeDrawing, renumberProject, renumberSheets, sheetNumber, upsertDrawing, worthKeeping } from './model/library';
 import { allowFolder, chooseFolder, folderStatus, forgetFolder, restoreFolder, syncFolder } from './model/folder';
 import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, setDriveClientId, syncDrive } from './model/drive';
 import { AXES, AXIS_VECTOR, add, axisFromScreenDelta, length3, lengthAlongAxis, scale3, sub } from './model/iso';
@@ -276,6 +276,8 @@ const host: Host = {
       // The sheet on screen goes too: kept under a new id it came straight
       // back into the list and Drive (his complaint, 2026-09-26).
       if (id === state.drawing.id) clearRemovedSheet();
+      // The sheets left are numbered 1…n again, no gap (2026-09-30).
+      renumberKept(entry.drawing.meta.project || '');
       render();
       // Its Drive copy goes now, not at some later sync (his ask,
       // 2026-09-26: "remove should delete the project's file from Drive").
@@ -2928,6 +2930,8 @@ async function runDriveSync(): Promise<void> {
         takeUp(entry.drawing);
       }
     }
+    // A sheet removed on the other device leaves no gap here either.
+    renumberKept();
   } catch (err) {
     host.notify(err instanceof Error ? err.message : 'Google Drive could not be reached.');
   } finally {
@@ -2983,6 +2987,7 @@ async function runFolderSync(quiet = false): Promise<void> {
         takeUp(entry.drawing);
       }
     }
+    if (downloaded || result.removed) renumberKept();
   } catch (err) {
     host.notify(`The folder could not be reached (${err instanceof Error ? err.message : 'unknown'}).`);
   } finally {
@@ -2992,6 +2997,25 @@ async function runFolderSync(quiet = false): Promise<void> {
 }
 
 let keepTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Numbers the kept sheets of a project (or of every project) 1…n of n
+ * again, and brings the sheet on screen into line with its kept copy.
+ */
+function renumberKept(project?: string): void {
+  keepNow();
+  const changed = renumberSheets(project);
+  if (!state.drawing.id || !changed.includes(state.drawing.id)) return;
+  const kept = loadLibrary().find((e) => e.id === state.drawing.id)?.drawing;
+  if (!kept) return;
+  state.drawing.meta.sheet = kept.meta.sheet;
+  for (const node of state.drawing.nodes) {
+    const note = kept.nodes.find((n) => n.id === node.id)?.terminal?.note;
+    if (node.terminal && note) node.terminal.note = note;
+  }
+  recompute();
+  persist();
+}
 
 /** Puts the drawing on screen in the library now, if it is worth keeping. */
 function keepNow(): void {
@@ -3225,6 +3249,9 @@ refreshSizeSelects();
 // it and sync straight away, in the Projects tab where it was asked for.
 const signedIn = finishDriveSignIn();
 if (signedIn) state.tab = 'projects';
+// Sheets kept with a gap in their numbers (one removed before this was
+// done) are numbered again.
+renumberKept();
 render();
 fitView();
 if (signedIn || driveStatus().connected) void runDriveSync();

@@ -1914,6 +1914,33 @@ check('with its end marked as going on to sheet 2', await page.evaluate(() => JS
   await page.click('.dialog [data-close]');
   await page.waitForTimeout(200);
 }
+// "I have 3 sheets, not 4" (2026-09-30): sheets 1, 2 and 4 of 4 were left
+// after sheet 3 was removed. The sheets left are numbered 1…n again, the
+// one on screen too, and a continuation note follows its sheet.
+{
+  await page.click('#tabs button:has-text("Projects")');
+  await page.waitForTimeout(200);
+  await page.click('[data-a="new-sheet"]');
+  await page.waitForTimeout(1200);
+  const alphaSheets = () => page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.library.v1')).filter((e) => e.drawing.meta.project === 'Alpha Job').map((e) => e.drawing.meta.sheet).sort().join(', '));
+  check('a third sheet: 1, 2 and 3 of 3', await alphaSheets(), (v) => v === '1 of 3, 2 of 3, 3 of 3', '1 of 3, 2 of 3, 3 of 3');
+  const alphaLib = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.library.v1')).filter((e) => e.drawing.meta.project === 'Alpha Job'));
+  const secondId = alphaLib.find((e) => e.drawing.meta.sheet === '2 of 3').id;
+  // The first sheet's end said where the line went on: to what is now sheet 3.
+  await page.evaluate((id) => {
+    const lib = JSON.parse(localStorage.getItem('iso-draw.library.v1'));
+    const first = lib.find((e) => e.drawing.meta.project === 'Alpha Job' && e.drawing.meta.sheet === '1 of 3');
+    first.drawing.nodes.find((n) => n.terminal?.note)?.terminal && (first.drawing.nodes.find((n) => n.terminal?.note).terminal.note = 'CONT. ON SH.3');
+    localStorage.setItem('iso-draw.library.v1', JSON.stringify(lib));
+  }, secondId);
+  await page.click(`[data-remove-sheet="${secondId}"]`);
+  await page.waitForTimeout(200);
+  await page.click('.dialog-backdrop [data-confirm]');
+  await page.waitForTimeout(600);
+  check('sheet 2 removed: the others are 1 and 2 of 2', await alphaSheets(), (v) => v === '1 of 2, 2 of 2', '1 of 2, 2 of 2');
+  check('the sheet on screen reads 2 of 2 too', `${await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).meta.sheet)} | ${(await page.locator('#tab-body').innerText()).match(/sheet \d+ of \d+ is on screen/)?.[0]}`, (v) => v === '2 of 2 | sheet 2 of 2 is on screen', '2 of 2 | sheet 2 of 2 is on screen');
+  check('and the first sheet\'s continuation note follows it: CONT. ON SH.2', await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.library.v1')).find((e) => e.drawing.meta.project === 'Alpha Job' && e.drawing.meta.sheet === '1 of 2').drawing.nodes.map((n) => n.terminal?.note).filter(Boolean).join()), (v) => v === 'CONT. ON SH.2', 'CONT. ON SH.2');
+}
 // Five projects are listed; the rest on request.
 for (const name of ['Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot']) {
   await startNewDrawing();
@@ -2214,7 +2241,8 @@ const fromPc = JSON.parse(JSON.stringify(kept[0].drawing));
 fromPc.id = 'dother';
 fromPc.meta.project = 'From PC';
 drive.seed(fromPc, Date.now());
-const edited = JSON.parse(JSON.stringify(kept[0].drawing));
+const onScreenNow = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).id);
+const edited = JSON.parse(JSON.stringify(kept.find((e) => e.id === onScreenNow).drawing));
 edited.meta.lineNumber = 'PC-EDIT';
 const myFile = [...drive.files.values()].find((f) => f.appProperties?.isoId === edited.id);
 myFile.appProperties.savedAt = String(Date.now() + 10000);

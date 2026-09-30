@@ -51,7 +51,14 @@ ships, and the decisions already taken, so they are not re-litigated.
   sheet, and **New sheet in this project** (`newSheetInProject` in main.ts:
   title block carried over, sheets renumbered "k of n", the picked open end
   marked `CONT. ON SH.n`, the new sheet starting from a point marked
-  `CONT. FROM SH.k`).
+  `CONT. FROM SH.k`). **Sheets are numbered 1…n of n with no gap** (his
+  complaint, 2026-09-30: "3 sheets, not 4" — 1, 2 and 4 of 4 were left
+  after sheet 3 was removed): `renumberSheets` in library.ts (through
+  `renumberKept` in main.ts, which brings the sheet on screen into line)
+  runs after a Remove, after a Drive sync and a folder sync that brought
+  or removed sheets, and at start; the `CONT. ON/FROM SH.k` notes follow
+  their sheets' new numbers, and a renumbered sheet is stamped newer so a
+  sync carries it over.
 
 ## Before every push
 
