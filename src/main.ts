@@ -10,7 +10,7 @@ import { allowFolder, chooseFolder, folderStatus, forgetFolder, restoreFolder, s
 import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, setDriveClientId, syncDrive } from './model/drive';
 import { AXES, AXIS_VECTOR, add, axisFromScreenDelta, length3, lengthAlongAxis, scale3, sub } from './model/iso';
 import { initialCommandState, runCommands } from './model/commands';
-import { applyAgainstFree, applyKeepingOthers, applyMeasureOnLine, moveNodes, replaceComponent, addMeasure, applyMeasureToOlet, autoCouplings, DASHED_NOTE, deleteRunGroup, measureTypeable, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, ensureNode, isCouplingPoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, runLength, setLineSize, setRunDashed, setRunDirect, startFromEquipment, straightenBranches, stretchRun, syncEquipment, uncoverPoints } from './model/edit';
+import { applyAgainstFree, applyKeepingOthers, mergeOlet, applyMeasureOnLine, moveNodes, replaceComponent, addMeasure, applyMeasureToOlet, autoCouplings, DASHED_NOTE, deleteRunGroup, measureTypeable, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, ensureNode, isCouplingPoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, runLength, setLineSize, setRunDashed, setRunDirect, startFromEquipment, straightenBranches, stretchRun, syncEquipment, uncoverPoints } from './model/edit';
 import { DN_LIST, schedulesFor, sizeLabel, sizeOf } from './model/pipe-data';
 import { northArrow, paperOf, renderDrawing, symbolSizeFor } from './render/renderer';
 import { SHEET_STAMPS, renderSheet, sheetStamp, sheetSymbolSize, type SheetSize } from './render/sheet';
@@ -1202,6 +1202,31 @@ const canvas = new Canvas(svg, {
     // Back to where the drag began, then on to where the pointer is now.
     replaceDrawing(JSON.parse(slideNodeFrom.snapshot) as Drawing);
     recompute();
+    // Let go over another olet of its header: the two go on one point (his
+    // HYF sheet, 2026-09-30: "I want them at exactly the same point").
+    const onto = oletDropTarget(nodeId, paper);
+    if (onto) {
+      if (commit) {
+        slideNodeFrom = null;
+        const why = mergeOlet(structuredClone(state.drawing), state.analysis, nodeId, onto);
+        if (why) {
+          host.notify(why);
+          render();
+          return;
+        }
+        host.edit('Olets on one point', (d) => {
+          mergeOlet(d, state.analysis, nodeId, onto);
+        });
+        state.selection = { kind: 'node', id: onto };
+        host.notify('Put on the same point of the header.');
+        render();
+        return;
+      }
+      renderCanvasOnly();
+      hoverMessage = 'let go to put it on this point, with the other';
+      renderHud();
+      return;
+    }
     // Not to scale, sliding a point moves it on the drawing only: the drawn
     // lengths either side change, the typed ones stay.
     const apply = state.drawing.options.schematic ? slideDrawnTo(nodeId, paper) : slideNodeTo(nodeId, paper);
@@ -1259,6 +1284,25 @@ function joinPoints(fromId: string, toId: string, dn: string, schedule: string, 
   const elbows = path.filter((id) => state.analysis.nodeInfo.get(id)?.fitting === 'ELBOW_90').length;
   host.notify(elbows === 0 ? 'Joined: the pipe runs straight through.' : elbows === 1 ? 'Joined, with an elbow at the turn.' : `Joined, with ${elbows} elbows.`);
   render();
+}
+
+/** Another olet of the same header under the pointer, to put a dragged one on. */
+function oletDropTarget(nodeId: string, paper: { x: number; y: number }): string | null {
+  const chain = state.analysis.chains.find((c) => c.olets.some((o) => o.nodeId === nodeId));
+  if (!chain) return null;
+  let best: string | null = null;
+  let nearest = symbolSizeFor(state.drawing, state.analysis) * 1.6;
+  for (const olet of chain.olets) {
+    if (olet.nodeId === nodeId) continue;
+    const q = paperOf(state.analysis, state.drawing, olet.nodeId);
+    if (!q) continue;
+    const d = Math.hypot(q.x - paper.x, q.y - paper.y);
+    if (d < nearest) {
+      nearest = d;
+      best = olet.nodeId;
+    }
+  }
+  return best;
 }
 
 /** Another open end lying where this one does, if there is one. */

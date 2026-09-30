@@ -1,6 +1,6 @@
 import type { Axis, ComponentKind, Drawing, EndType, Equipment, FlangeKind, InlineComponent, IsoNode, Measure, Run, TerminalKind, Vec3 } from './types';
 import { AXIS_VECTOR, add, axisBetween, direction, equals3, length3, scale3, step, sub } from './iso';
-import { analyse, chainStops, headerTakenOff, dimensionStops, isCoupling, nodeFittingTakeout, pipeSpans, drawnLength, runDrawnFloor, itemHalf, fittingsTouchLength, reducerSides, isReducer, minDrawnLength, isMark, isValve, itemAtEnd, oletMarks, resolveEnds, runGroupIds, terminalTakeoutOf, uid, valveOpenSide, type Analysis } from './drawing';
+import { analyse, chainStops, headerTakenOff, dimensionStops, isCoupling, nodeFittingTakeout, pipeSpans, drawnLength, runDrawnFloor, itemHalf, fittingsTouchLength, reducerSides, isReducer, minDrawnLength, isMark, isValve, itemAtEnd, oletEntries, oletLegs, oletMarks, resolveEnds, runGroupIds, terminalTakeoutOf, uid, valveOpenSide, type Analysis } from './drawing';
 import { componentTakeout, schedulesFor, sizeOf, valveFlangeKind } from './pipe-data';
 
 /** Finds an existing node at a position, so that routes join rather than overlap. */
@@ -1705,6 +1705,108 @@ function reseatOlet(drawing: Drawing, nodeId: string, headerRuns: Set<string>, t
   return null;
 }
 
+/**
+ * Puts one olet (or half coupling) on another's point of the same header:
+ * its marks join the other's, each leaving its own way, and its branch,
+ * with all that hangs off it, moves along the header with it (his HYF
+ * sheet, 2026-09-30: three 1/2" half couplings "at exactly the same point
+ * on the header"). The point it leaves goes, the header joined through.
+ * Weld numbers and dragged balloons follow their olet by the way it leaves.
+ */
+export function mergeOlet(drawing: Drawing, analysis: Analysis, fromId: string, intoId: string): string | null {
+  if (fromId === intoId) return null;
+  const from = drawing.nodes.find((n) => n.id === fromId);
+  const into = drawing.nodes.find((n) => n.id === intoId);
+  const fromInfo = analysis.nodeInfo.get(fromId);
+  const intoInfo = analysis.nodeInfo.get(intoId);
+  const fromLegs = fromInfo?.fitting === 'OLET' ? oletLegs(fromInfo) : null;
+  const intoLegs = intoInfo?.fitting === 'OLET' ? oletLegs(intoInfo) : null;
+  if (!from || !into || !fromLegs || !intoLegs) return 'Only olets on the same header can be put on one point.';
+  const chain = analysis.chains.find((c) => c.olets.some((o) => o.nodeId === fromId));
+  if (!chain || !chain.olets.some((o) => o.nodeId === intoId)) return 'Only olets on the same header can be put on one point.';
+  const kind = (n: IsoNode) => `${n.halfCoupling ? 'half' : 'olet'}:${n.joint ?? ''}`;
+  if (kind(from) !== kind(into)) return `One point takes one kind: that one is ${into.halfCoupling ? 'a half coupling' : 'an olet'} of another sort.`;
+  const fromEntries = oletEntries(fromLegs);
+  const intoEntries = oletEntries(intoLegs);
+  const clash = fromEntries.find((e) => intoEntries.some((f) => f.dir === e.dir));
+  if (clash) return `Both leave the header the same way (${clash.dir}); on one point each must go its own way.`;
+  // What each one carries, by the way it leaves: weld numbers and tags,
+  // dragged balloons. The keys follow their place in the list, which the
+  // merge changes.
+  type Kept = { header?: unknown; branch?: unknown; balloon?: unknown };
+  const kept = new Map<string, Kept>();
+  const collect = (nodeId: string, entries: { dir: Axis }[]) =>
+    entries.forEach((entry, k) => {
+      const header = k === 0 ? `n:${nodeId}:header` : `n:${nodeId}:header:${entry.dir}`;
+      const branch = k === 0 ? `n:${nodeId}:branch` : `n:${nodeId}:branch:${entry.dir}`;
+      const balloon = k === 0 ? `node:${nodeId}` : `node:${nodeId}:${entry.dir}`;
+      kept.set(entry.dir, { header: drawing.weldOverrides?.[header], branch: drawing.weldOverrides?.[branch], balloon: drawing.itemOverrides?.[balloon] });
+      if (drawing.weldOverrides) {
+        delete drawing.weldOverrides[header];
+        delete drawing.weldOverrides[branch];
+      }
+      if (drawing.itemOverrides) delete drawing.itemOverrides[balloon];
+    });
+  collect(intoId, intoEntries);
+  collect(fromId, fromEntries);
+  // The branch, all that hangs off the olet, goes with it.
+  const headerRuns = new Set(chain.runs.map((leg) => leg.run.id));
+  const header = new Set(chain.runs.flatMap((leg) => [leg.run.from, leg.run.to]));
+  const shift = sub(into.pos, from.pos);
+  const moving = new Set<string>();
+  const queue = drawing.runs.filter((r) => !headerRuns.has(r.id) && (r.from === fromId || r.to === fromId)).map((r) => (r.from === fromId ? r.to : r.from));
+  while (queue.length > 0) {
+    const id = queue.shift()!;
+    if (id === fromId || moving.has(id)) continue;
+    if (header.has(id)) return 'The olet\'s branch joins the header again further on, so it cannot move along it.';
+    moving.add(id);
+    for (const r of drawing.runs) {
+      if (r.from === id && !moving.has(r.to)) queue.push(r.to);
+      if (r.to === id && !moving.has(r.from)) queue.push(r.from);
+    }
+  }
+  for (const node of drawing.nodes) if (moving.has(node.id)) node.pos = add(node.pos, shift);
+  for (const box of drawing.equipment ?? []) {
+    if (box.stand && moving.has(box.stand)) {
+      box.at = add(box.at, shift);
+      if (box.standPos) box.standPos = add(box.standPos, shift);
+    }
+  }
+  for (const r of drawing.runs) {
+    if (headerRuns.has(r.id)) continue;
+    if (r.from === fromId) r.from = intoId;
+    if (r.to === fromId) r.to = intoId;
+  }
+  for (const m of drawing.measures ?? []) {
+    if (m.a === fromId) m.a = intoId;
+    if (m.b === fromId) m.b = intoId;
+  }
+  into.olets = [...oletMarks(into), ...oletMarks(from)];
+  into.olet = undefined;
+  // The point it leaves is a plain one, joined through.
+  from.olet = undefined;
+  from.olets = undefined;
+  delete from.halfCoupling;
+  from.fittingOverride = undefined;
+  from.joint = undefined;
+  joinThrough(drawing, fromId);
+  // Back on, each by the way it leaves.
+  const info = analyse(drawing).nodeInfo.get(intoId);
+  const legs = info ? oletLegs(info) : null;
+  (legs ? oletEntries(legs) : []).forEach((entry, k) => {
+    const carried = kept.get(entry.dir);
+    if (!carried) return;
+    const put = (bag: 'weldOverrides' | 'itemOverrides', key: string, value: unknown) => {
+      if (value === undefined) return;
+      (drawing as unknown as Record<string, Record<string, unknown>>)[bag] = { ...(drawing[bag] as Record<string, unknown> | undefined), [key]: value };
+    };
+    put('weldOverrides', k === 0 ? `n:${intoId}:header` : `n:${intoId}:header:${entry.dir}`, carried.header);
+    put('weldOverrides', k === 0 ? `n:${intoId}:branch` : `n:${intoId}:branch:${entry.dir}`, carried.branch);
+    put('itemOverrides', k === 0 ? `node:${intoId}` : `node:${intoId}:${entry.dir}`, carried.balloon);
+  });
+  return null;
+}
+
 export function applyChainDimension(drawing: Drawing, analysis: Analysis, key: string, value: number): string | null {
   if (!(value > 0)) return 'A dimension has to be more than nothing.';
   const olet = key.match(/^olet:(.+)$/);
@@ -1738,7 +1840,9 @@ export function applyChainDimension(drawing: Drawing, analysis: Analysis, key: s
     if (value < 0.5 || value > chain.total - 0.5 || fixed.some((mm) => mm > 0.5 && mm < chain.total - 0.5 && between(mm))) {
       return 'That would put the olet past the next thing on the header.';
     }
-    if (others.some((mm) => Math.abs(mm - value) < 1)) return 'Another olet is there already.';
+    // Typed onto another olet: the two go on one point (2026-09-30).
+    const onto = chain.olets.find((o) => o.nodeId !== nodeId && Math.abs(o.along - value) < 1);
+    if (onto) return mergeOlet(drawing, analysis, nodeId, onto.nodeId);
     const passes = others.some((mm) => (mm - was0) * (mm - value) < 0);
     const dir = direction(start.pos, end.pos);
     if (!dir) return 'No such dimension.';

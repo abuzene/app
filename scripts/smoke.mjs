@@ -4610,6 +4610,72 @@ const couplingsNow = async () => (await drawingNow()).nodes.filter((n) => n.fitt
   await page.selectOption('#joint', 'BW');
 }
 
+/* ------------------------------------ olets put together on one point */
+
+// "I cannot move these half couplings at all, and I want them at exactly
+// the same point on the header" (HYF sheet 1, 2026-09-30): not to scale,
+// every piece of his header was drawn at its least, so a drag had no room.
+// Typed onto another's place, or let go over it, an olet joins it there.
+{
+  await routeLine('4"\nSCH40\nORIGIN 0 0 0\nN 3000');
+  await page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem('iso-draw.drawing.v1'));
+    const hc = (id, n, dir) => ({ id, pos: { e: 0, n, u: 0 }, fittingOverride: 'OLET', joint: 'THD', halfCoupling: true, olets: [{ dir, dn: 'DN15' }] });
+    d.nodes = [{ id: 'ha', pos: { e: 0, n: 0, u: 0 } }, hc('h1', 1000, 'U'), hc('h2', 1500, 'E'), hc('h3', 2000, 'W'), { id: 'hb', pos: { e: 0, n: 3000, u: 0 } }];
+    const run = (id, from, to) => ({ id, from, to, dn: 'DN100', schedule: 'SCH40', inline: [] });
+    d.runs = [run('hr1', 'ha', 'h1'), run('hr2', 'h1', 'h2'), run('hr3', 'h2', 'h3'), run('hr4', 'h3', 'hb')];
+    d.weldOverrides = { 'n:h1:header': { number: 'HYF 1/2.7' }, 'n:h3:header': { number: 'HYF 1/2.9' } };
+    d.options.schematic = true;
+    localStorage.setItem('iso-draw.drawing.v1', JSON.stringify(d));
+  });
+  await page.reload();
+  await page.waitForTimeout(700);
+  await page.click('#fit');
+  await page.waitForTimeout(300);
+  const pickPoint = async (id) => {
+    const el = page.locator(`#canvas circle.hit-dot[data-node="${id}"]`).first();
+    await el.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+    await el.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+    await page.waitForTimeout(250);
+  };
+  const marks = async () => (await drawingNow()).nodes.filter((n) => n.olets?.length).map((n) => `${n.id}:${n.olets.map((o) => o.dir).join('')}`).join(' ');
+  await pickPoint('h2');
+  const at2 = await page.locator('#tab-body [data-f="olet-along"]').inputValue();
+  await pickPoint('h3');
+  await page.fill('#tab-body [data-f="olet-along"]', at2);
+  await page.dispatchEvent('#tab-body [data-f="olet-along"]', 'change');
+  await page.waitForTimeout(400);
+  check('typed onto another half coupling\'s place, it joins it on that point', `${await marks()} ${(await drawingNow()).runs.length}`, (v) => v === 'h1:U h2:EW 3', 'h1:U h2:EW, 3 runs');
+  check('its weld number goes with it', JSON.stringify((await drawingNow()).weldOverrides), (v) => /"n:h2:header:W":\{"number":"HYF 1\/2.9"\}/.test(v), 'HYF 1/2.9 on the W one of h2');
+  // Dragged with the pen and let go over the other: the same.
+  const dot = async (id) => { const b = await page.locator(`#canvas circle.hit-dot[data-node="${id}"]`).first().boundingBox(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; };
+  const p1 = await dot('h1');
+  const p2 = await dot('h2');
+  await pen('mousePressed', p1.x, p1.y);
+  for (let i = 1; i <= 8; i += 1) {
+    await pen('mouseMoved', p1.x + ((p2.x - p1.x) * i) / 8, p1.y + ((p2.y - p1.y) * i) / 8);
+    await page.waitForTimeout(30);
+  }
+  await pen('mouseReleased', p2.x, p2.y);
+  await page.waitForTimeout(400);
+  check('let go over the other, the dragged one joins it: three on one point', `${await marks()} ${(await drawingNow()).runs.length}`, (v) => v === 'h2:EWU 2', 'h2:EWU, 2 runs');
+  check('each keeps its own weld number, by the way it leaves', JSON.stringify((await drawingNow()).weldOverrides), (v) => /"n:h2:header:U":\{"number":"HYF 1\/2.7"\}/.test(v) && /"n:h2:header:W":\{"number":"HYF 1\/2.9"\}/.test(v), 'HYF 1/2.7 on U, HYF 1/2.9 on W');
+  await page.click('#tabs button:has-text("Items")');
+  await page.waitForTimeout(200);
+  const hcLine = (await page.locator('#tab-body').innerText()).split('\n').find((l) => /HALF COUPLING/.test(l)) ?? '';
+  check('the list still counts three half couplings', hcLine.split('\t')[4], (v) => v === '3', '3');
+  await page.click('#tabs button:has-text("Route")');
+  await page.waitForTimeout(150);
+  // Back to scale: a new drawing keeps the last one's options.
+  await page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem('iso-draw.drawing.v1'));
+    d.options.schematic = false;
+    localStorage.setItem('iso-draw.drawing.v1', JSON.stringify(d));
+  });
+  await page.reload();
+  await page.waitForTimeout(600);
+}
+
 /* ------------------------------- a coupling every 6 m on small-bore pipe */
 
 // "Pipe 1 1/2 and under needs a coupling added automatically every 6 m"

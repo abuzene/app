@@ -652,6 +652,20 @@ ships, and the decisions already taken, so they are not re-litigated.
   `n:<node>:branch:<dir>`. The panel shows size/way per pending olet
   (`[data-olet-dn]`/`[data-olet-dir]` = mark index); Draw the branch from
   here arms the first pending one's size.
+  **Olets already placed are put on one point** (his HYF sheet 1,
+  2026-09-30: three 1/2" half couplings, "I cannot move them at all, and
+  I want them at exactly the same point on the header" — not to scale,
+  every piece of that header was drawn at its floor, so a drag had no
+  room): `mergeOlet` in edit.ts, from a drag let go over another olet of
+  the same header (`oletDropTarget` in main.ts, within 1.6 symbols; the
+  HUD says "let go to put it on this point" while over it) or a place
+  typed onto another's (`applyChainDimension`'s `olet:` case, the panel's
+  On the header). Same kind only (half coupling or olet, same joint),
+  each leaving its own way; its branch with all that hangs off it moves
+  along the header with it, hand dimensions to it follow, the point it
+  leaves is joined through, and weld overrides and dragged balloons are
+  carried over **by direction** (the keys go by place in the list, which
+  the merge changes).
 - **Dimensions by hand** (`drawing.measures: {id, a, b}[]`, keys
   `meas:<id>`): pick a point, then the Marks palette "Dimension" tool, the
   HUD "Dimension from here" or the panel button (`host.measureFrom`,
