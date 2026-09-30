@@ -767,6 +767,24 @@ ships, and the decisions already taken, so they are not re-litigated.
   `applyMeasureToOlet`) when that changes no more of them. Shorter, the pipe at the moving end must have
   it to give. `measureTypeable` accepts any two points on one straight
   line (`lineThroughBoth`).
+- **A typed dimension keeps the others** (his complaint, 2026-09-30, HYF
+  sheet: 6000 / 2949 / 3600 welded pipe to pipe, "the middle one should be
+  6000 without changing the other dimensions; the ones beside it always
+  change"): a run or header figure tapped and typed goes through
+  `applyKeepingOthers` in edit.ts (after `applyAgainstFree`). It tries, each
+  on a copy, the usual move (`applyDimension`/`applyChainDimension`), then
+  all of the straight line past the piece moved on by the difference, then
+  all before it moved back (`moveLineBeyond`: points, what hangs off them,
+  equipment, items past the cut), and keeps the one that changes fewest of
+  the dimensions on the drawing (`shownDimensions`, as the renderer shows
+  them, header totals included); a tie goes to the usual move, so an olet
+  typed still moves alone and the header's total stays. Not tried on a
+  valve's own face to face, nor shorter than the piece's pipe allows. So
+  a pipe typed up to a valve that would hit the next one moves both on
+  (no longer refused), and an olet typed past the header's end carries the
+  piece beyond it along. **Right after placing an item** (valve, tee,
+  weld, coupling: `host.editDimension` → `openDimensionEditor(…, placing)`)
+  the usual move alone: the item goes where typed, the other side gives.
 - **Hand dimensions along one straight line are typeable**
   (`measureAlongLine`/`measureTypeable` in edit.ts; flange to flange): the
   point tapped second moves with everything beyond it, by stretching the

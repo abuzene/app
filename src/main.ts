@@ -10,7 +10,7 @@ import { allowFolder, chooseFolder, folderStatus, forgetFolder, restoreFolder, s
 import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, setDriveClientId, syncDrive } from './model/drive';
 import { AXES, AXIS_VECTOR, add, axisFromScreenDelta, length3, lengthAlongAxis, scale3, sub } from './model/iso';
 import { initialCommandState, runCommands } from './model/commands';
-import { applyAgainstFree, applyMeasureOnLine, moveNodes, replaceComponent, addMeasure, applyMeasureToOlet, autoCouplings, DASHED_NOTE, deleteRunGroup, measureTypeable, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, ensureNode, isCouplingPoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, runLength, setLineSize, setRunDashed, setRunDirect, startFromEquipment, straightenBranches, stretchRun, syncEquipment, uncoverPoints } from './model/edit';
+import { applyAgainstFree, applyKeepingOthers, applyMeasureOnLine, moveNodes, replaceComponent, addMeasure, applyMeasureToOlet, autoCouplings, DASHED_NOTE, deleteRunGroup, measureTypeable, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, ensureNode, isCouplingPoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, runLength, setLineSize, setRunDashed, setRunDirect, startFromEquipment, straightenBranches, stretchRun, syncEquipment, uncoverPoints } from './model/edit';
 import { DN_LIST, schedulesFor, sizeLabel, sizeOf } from './model/pipe-data';
 import { northArrow, paperOf, renderDrawing, symbolSizeFor } from './render/renderer';
 import { SHEET_STAMPS, renderSheet, sheetStamp, sheetSymbolSize, type SheetSize } from './render/sheet';
@@ -403,7 +403,9 @@ const host: Host = {
       return;
     }
     const box = target.getBoundingClientRect();
-    openDimensionEditor(key, box.left + box.width / 2, box.top + box.height / 2);
+    // Opened by placing an item: typed, it positions that item and the
+    // other side takes the rest.
+    openDimensionEditor(key, box.left + box.width / 2, box.top + box.height / 2, true);
   },
 };
 
@@ -416,7 +418,7 @@ let dimensionEditor: HTMLInputElement | null = null;
  * Up to a valve it moves the valve; on the last piece it moves the end. The
  * other side of whatever moved takes up the difference.
  */
-function openDimensionEditor(key: string, clientX: number, clientY: number): void {
+function openDimensionEditor(key: string, clientX: number, clientY: number, placing = false): void {
   // A header chain's pieces and its olets' distances have keys of their own.
   const chained = key.startsWith('hdr:') || key.startsWith('chain:') || key.startsWith('olet:');
   const measured = key.startsWith('meas:');
@@ -475,10 +477,17 @@ function openDimensionEditor(key: string, clientX: number, clientY: number): voi
           const onLine = applyMeasureOnLine(d, state.analysis, key.slice(5), Math.round(value));
           refused = onLine !== undefined ? onLine : applyMeasureToOlet(d, state.analysis, key.slice(5), Math.round(value));
         }
-        else if (chained) refused = applyChainDimension(d, state.analysis, key, Math.round(value));
-        else {
+        else if (chained) {
+          // The others on the drawing stay as they read (his complaint,
+          // 2026-09-30: "the ones beside it always change").
+          const usual = (dd: Drawing) => applyChainDimension(dd, state.analysis, key, Math.round(value));
+          refused = placing ? usual(d) : applyKeepingOthers(d, state.analysis, key, Math.round(value), usual);
+        } else {
           const [runId, indexText] = key.split(':');
-          refused = applyDimension(d, runId, Number(indexText), Math.round(value));
+          const usual = (dd: Drawing) => applyDimension(dd, runId, Number(indexText), Math.round(value));
+          // Just placed, the item goes where typed and the other side gives;
+          // tapped later, the dimensions beside it stay (2026-09-30).
+          refused = placing ? usual(d) : applyKeepingOthers(d, state.analysis, key, Math.round(value), usual);
           // Typed up to a coupling the app put in, it is his from then on.
           const run = d.runs.find((r) => r.id === runId);
           const end = run && d.nodes.find((n) => n.id === run.to);

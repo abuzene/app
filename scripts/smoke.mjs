@@ -4320,7 +4320,32 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   await page.click('#fit');
   await page.waitForTimeout(300);
   await typeInto(`${north}:0`, '450');
-  check('a valve is not pushed into the next one: refused, with how far it can go', `${(await drawingNow()).runs[2].inline.map((c) => c.offset).join()} ${/at most \d+ here/.test(await page.locator('#hud').innerText())}`, (v) => v === '350,700 true', '350,700 true');
+  // Since 2026-09-30 ("without changing the other dimensions") the valve
+  // does not stop at the next one: it and all past it move on, the pipe
+  // between them kept.
+  check('a valve is not pushed into the next one: both move on, the pipe between kept', `${(await drawingNow()).runs[2].inline.map((c) => c.offset).join()} ${/at most \d+ here/.test(await page.locator('#hud').innerText())}`, (v) => v === '550,900 false', '550,900 false');
+
+  // "The middle one should be 6000 without changing the other dimensions;
+  // the ones beside it always change" (HYF sheet, 2026-09-30): three
+  // straight 4" pipes welded end to end, the middle one typed.
+  await routeLine('4"\nSTD\nORIGIN 0 0 0\nN 6000\nN 2949\nN 3600\nW 700');
+  await page.click('#fit');
+  await page.waitForTimeout(300);
+  const middle = (await drawingNow()).runs[1].id;
+  const middleFig = page.locator(`#canvas [data-dim="${middle}:0"]`).first();
+  const mb = await middleFig.boundingBox();
+  const at = { bubbles: true, pointerId: 3, pointerType: 'pen', button: 0, clientX: mb.x + mb.width / 2, clientY: mb.y + mb.height / 2, isPrimary: true };
+  await middleFig.dispatchEvent('pointerdown', at);
+  await page.waitForTimeout(100);
+  await middleFig.dispatchEvent('pointerup', at);
+  await page.waitForTimeout(300);
+  for (let i = 0; i < 6; i += 1) await page.locator('.dim-keypad [data-key="⌫"]').dispatchEvent('pointerdown', { bubbles: true });
+  for (const k of '6000') await page.locator(`.dim-keypad [data-key="${k}"]`).dispatchEvent('pointerdown', { bubbles: true });
+  await page.locator('.dim-keypad [data-key="OK"]').dispatchEvent('pointerdown', { bubbles: true });
+  await page.waitForTimeout(400);
+  const figures = await page.evaluate(() => [...document.querySelectorAll('#canvas .dim-text')].map((t) => t.textContent).join(' '));
+  check('the middle pipe typed 6000: the pipes either side keep 6000 and 3600', figures, (v) => v === '6000 6000 3600 700', '6000 6000 3600 700');
+  check('and the line beyond goes on with it', (await drawingNow()).nodes.map((n) => Math.round(n.pos.n)).sort((a, b) => a - b).at(-1), (v) => v === 15600, '15600');
 }
 
 /* ------------------------- the dimension between two olets on a header */
@@ -4370,7 +4395,7 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
   await page.locator('.dim-keypad [data-key="OK"]').dispatchEvent('pointerdown', { bubbles: true });
   await page.waitForTimeout(400);
   const top = (await drawingNow()).nodes.find((n) => n.id === 'n94r5k')?.pos.u;
-  check('typed past the header\'s end (400): the olet goes there, the header is carried on 100 beyond it', `${await heights()} ${top}`, (v) => v === '745 745 745 845', '745 745 745 845');
+  check('typed past the header\'s end (400): the olet goes there, the header carried on with the piece beyond it kept', `${await heights()} ${top}`, (v) => v === '745 745 745 890', '745 745 745 890 (the 145 beyond it kept, 2026-09-30)');
 
   // "The olet's weld is the one I marked, 3.1, not the one you drew" (3D
   // view, same day): its header weld is round its foot on the header's

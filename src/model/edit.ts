@@ -2724,3 +2724,164 @@ export function applyMeasureOnLine(drawing: Drawing, analysis: Analysis, measure
   for (const leg of legs) leg.run.inline.sort((x, y) => x.offset - y.offset);
   return null;
 }
+
+/* ------------------------------------------ typed dimensions keep the others */
+
+/**
+ * Every dimension standing on the drawing, by its key, with what it reads:
+ * the runs' pieces, the headers' pieces and totals, and the hand
+ * dimensions — as the renderer shows them (hidden ones and taken-off
+ * headers left out).
+ */
+export function shownDimensions(drawing: Drawing, analysis: Analysis): Map<string, number> {
+  const out = new Map<string, number>();
+  const hidden = (key: string) => !!drawing.dimOverrides?.[key]?.hidden;
+  for (const run of drawing.runs) {
+    if (run.noDim) continue;
+    const chain = analysis.chainOfRun.get(run.id);
+    if (chain) {
+      if (chain.id !== run.id || headerTakenOff(drawing, chain)) continue;
+      const stops = chainStops(drawing, chain);
+      for (let i = 0; i + 1 < stops.length; i += 1) {
+        const key = `hdr:${chain.id}:${i}`;
+        if (stops[i + 1] - stops[i] >= 0.5 && !hidden(key)) out.set(key, stops[i + 1] - stops[i]);
+      }
+      if (stops.length > 2 && !hidden(`hdr:${chain.id}:all`)) out.set(`hdr:${chain.id}:all`, chain.total);
+    } else {
+      const stops = dimensionStops(drawing, run);
+      for (let i = 0; i + 1 < stops.length; i += 1) {
+        const key = `${run.id}:${i}`;
+        if (stops[i + 1] - stops[i] >= 0.5 && !hidden(key)) out.set(key, stops[i + 1] - stops[i]);
+      }
+    }
+  }
+  for (const m of drawing.measures ?? []) {
+    const a = drawing.nodes.find((n) => n.id === m.a);
+    const b = drawing.nodes.find((n) => n.id === m.b);
+    if (a && b) out.set(`meas:${m.id}`, length3(sub(b.pos, a.pos)));
+  }
+  return out;
+}
+
+/**
+ * Everything on a straight line past `cut` (after it along the line, or
+ * before it), with all that hangs off it, moved along the line by
+ * `shift`. Items keep their place on the part that stays. Returns why
+ * not, or null.
+ */
+function moveLineBeyond(drawing: Drawing, runId: string, cut: number, after: boolean, shift: number): string | null {
+  const line = straightLine(drawing, runId);
+  if (!line) return 'No line.';
+  const { legs, unit, origin } = line;
+  const t = (p: Vec3) => (p.e - origin.e) * unit.e + (p.n - origin.n) * unit.n + (p.u - origin.u) * unit.u;
+  const beyond = (x: number) => (after ? x >= cut - 0.5 : x <= cut + 0.5);
+  const lineNodes = new Set(legs.flatMap((l) => [l.run.from, l.run.to]));
+  const lineRuns = new Set(legs.map((l) => l.run.id));
+  const moving = new Set(drawing.nodes.filter((n) => lineNodes.has(n.id) && beyond(t(n.pos))).map((n) => n.id));
+  const queue = [...moving];
+  while (queue.length > 0) {
+    const id = queue.shift()!;
+    for (const r of drawing.runs) {
+      if (lineRuns.has(r.id) || (r.from !== id && r.to !== id)) continue;
+      const far = r.from === id ? r.to : r.from;
+      if (moving.has(far)) continue;
+      if (lineNodes.has(far)) return 'A branch off the line joins it again.';
+      moving.add(far);
+      queue.push(far);
+    }
+  }
+  const placed = legs.flatMap((leg) =>
+    leg.run.inline.map((comp) => {
+      const x = leg.forward ? leg.start + comp.offset : leg.start + leg.length - comp.offset;
+      return { comp, leg, to: beyond(x) ? x + shift : x };
+    }),
+  );
+  const move = scale3(unit, shift);
+  for (const node of drawing.nodes) if (moving.has(node.id)) node.pos = add(node.pos, move);
+  for (const box of drawing.equipment ?? []) {
+    if (!box.stand || !moving.has(box.stand)) continue;
+    box.at = add(box.at, move);
+    if (box.standPos) box.standPos = add(box.standPos, move);
+  }
+  for (const { comp, leg, to } of placed) {
+    const a = drawing.nodes.find((n) => n.id === leg.run.from)!.pos;
+    comp.offset = leg.forward ? to - t(a) : t(a) - to;
+  }
+  for (const leg of legs) leg.run.inline.sort((x, y) => x.offset - y.offset);
+  return null;
+}
+
+/**
+ * A dimension typed on a run or a header, set so that the other
+ * dimensions on the drawing stay as they read (his complaint, 2026-09-30,
+ * HILLEL YAFEH: "the middle one should be 6000 without changing the
+ * others — the ones beside it always change"): the usual way (the next
+ * piece gives: a point or valve slides), everything on the line past the
+ * piece moving along with the far end, and everything before it moving
+ * back, are each tried on a copy; the one that changes the fewest of the
+ * other dimensions wins, the usual way first on a tie, then the far end.
+ * A way that would leave the piece's own pipe too short is not taken.
+ */
+export function applyKeepingOthers(drawing: Drawing, analysis: Analysis, key: string, value: number, usual: (d: Drawing) => string | null): string | null {
+  const before = shownDimensions(drawing, analysis);
+  const current = before.get(key);
+  const runId = key.startsWith('hdr:') ? key.match(/^hdr:(.+):(?:\d+|all)$/)?.[1] : key.match(/^(.+):\d+$/)?.[1];
+  const tries: (() => { d: Drawing; why: string | null })[] = [
+    () => {
+      const d = structuredClone(drawing);
+      return { d, why: usual(d) };
+    },
+  ];
+  const line = runId && current !== undefined && !key.endsWith(':all') ? straightLine(drawing, runId) : null;
+  const typed = line ? pieceOnLine(drawing, analysis, line.legs, key) : null;
+  if (line && typed) {
+    const delta = value - (typed.hi - typed.lo);
+    const mid = (typed.lo + typed.hi) / 2;
+    const items = itemsOnLine(line.legs);
+    const ownValve = items.some((it) => it.half > 0 && Math.abs(mid - it.at) < it.half - 0.5);
+    // Shorter, the piece's own pipe must have it to give.
+    let bare = 0;
+    for (const leg of line.legs) {
+      for (const [x, y] of pipeSpans(drawing, analysis.nodeInfo, leg.run)) {
+        const p = leg.forward ? leg.start + x : leg.start + leg.length - x;
+        const q = leg.forward ? leg.start + y : leg.start + leg.length - y;
+        bare += Math.max(0, Math.min(Math.max(p, q), typed.hi) - Math.max(Math.min(p, q), typed.lo));
+      }
+    }
+    if (!ownValve && (delta > 0 || bare + delta >= 1)) {
+      for (const after of [true, false]) {
+        tries.push(() => {
+          const d = structuredClone(drawing);
+          const why = moveLineBeyond(d, typed.leg.run.id, after ? typed.hi : typed.lo, after, after ? delta : -delta);
+          return { d, why };
+        });
+      }
+    }
+  }
+  let best: { d: Drawing; changed: number } | null = null;
+  let firstWhy: string | null = null;
+  for (const attempt of tries) {
+    const { d, why } = attempt();
+    if (why) {
+      firstWhy ??= why;
+      continue;
+    }
+    const after = shownDimensions(d, analyse(d));
+    const reads = after.get(key);
+    if (reads !== undefined && Math.abs(reads - value) > 0.6) continue;
+    // A tie goes to the usual move (an olet typed moves alone, the
+    // header's total stays).
+    let changed = 0;
+    for (const [k, v] of before) {
+      if (k === key) continue;
+      const w = after.get(k);
+      if (w === undefined || Math.abs(w - v) > 0.6) changed += 1;
+    }
+    if (!best || changed < best.changed) best = { d, changed };
+    if (changed === 0) break;
+  }
+  if (!best) return firstWhy ?? 'That dimension cannot be set here.';
+  for (const k of Object.keys(drawing)) delete (drawing as unknown as Record<string, unknown>)[k];
+  Object.assign(drawing, best.d);
+  return null;
+}
