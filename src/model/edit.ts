@@ -492,9 +492,10 @@ function runsAt(drawing: Drawing, nodeId: string): Run[] {
 /** Couplings put along a run (the first way they were made) become points. */
 function couplingsToPoints(drawing: Drawing): void {
   for (const run of [...drawing.runs]) {
-    const couplings = run.inline.filter((c) => isCoupling(c.kind));
+    // A union typed as a command (+UNION) goes on a point the same way.
+    const couplings = run.inline.filter((c) => isCoupling(c.kind) || c.kind === 'UNION');
     if (couplings.length === 0) continue;
-    run.inline = run.inline.filter((c) => !isCoupling(c.kind));
+    run.inline = run.inline.filter((c) => !isCoupling(c.kind) && c.kind !== 'UNION');
     // From the far end back, so the offsets still to cut stay good.
     for (const comp of couplings.sort((x, y) => y.offset - x.offset)) {
       if (comp.auto) continue;
@@ -502,7 +503,8 @@ function couplingsToPoints(drawing: Drawing): void {
       const node = nodeId ? drawing.nodes.find((n) => n.id === nodeId) : undefined;
       if (!node) continue;
       node.fittingOverride = 'COUPLING';
-      node.joint = comp.kind === 'COUPLING_THD' ? 'THD' : 'SW';
+      node.joint = comp.kind === 'COUPLING_SW' ? 'SW' : 'THD';
+      if (comp.kind === 'UNION') node.union = true;
     }
   }
 }
@@ -512,7 +514,7 @@ function couplingsToPoints(drawing: Drawing): void {
  * `at` along the run, or on a point the line runs straight through.
  * Returns the point, or null where there is no room.
  */
-export function placeCoupling(drawing: Drawing, joint: 'SW' | 'THD', where: { runId: string; at: number } | { nodeId: string }): string | null {
+export function placeCoupling(drawing: Drawing, joint: 'SW' | 'THD', where: { runId: string; at: number } | { nodeId: string }, union = false): string | null {
   let nodeId: string | null;
   if ('nodeId' in where) {
     nodeId = isPlainPoint(drawing, where.nodeId) ? where.nodeId : null;
@@ -524,6 +526,8 @@ export function placeCoupling(drawing: Drawing, joint: 'SW' | 'THD', where: { ru
   node.fittingOverride = 'COUPLING';
   node.joint = joint;
   node.autoCoupling = undefined;
+  if (union) node.union = true;
+  else delete node.union;
   return node.id;
 }
 
@@ -543,6 +547,7 @@ export function removeCoupling(drawing: Drawing, nodeId: string): boolean {
   node.fittingOverride = undefined;
   node.autoCoupling = undefined;
   node.joint = undefined;
+  delete node.union;
   joinThrough(drawing, nodeId);
   return true;
 }

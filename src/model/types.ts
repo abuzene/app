@@ -154,6 +154,11 @@ export interface IsoNode {
    * again after every change. Moved by hand it is his, and the flag goes.
    */
   autoCoupling?: boolean;
+  /**
+   * The coupling on this point is a union (his ask, 2026-09-30): threaded
+   * ends (NPT) either side of a nut, named UNION NPT 3000# on the list.
+   */
+  union?: boolean;
   /** Overrides the drawing's default joint type at this point. */
   joint?: JointType;
   /**
@@ -286,8 +291,8 @@ export type WeldReach =
   | { kind: 'olet' }
   /** A flange on a point: the end of its hub, plus half the gasket gap when paired. */
   | { kind: 'flange'; flange: FlangeKind; paired: boolean }
-  /** A coupling on a point: its sleeve's end, a set distance out. */
-  | { kind: 'coupling' }
+  /** A coupling on a point: its sleeve's end, a set distance out (`body` symbols; a union's is shorter). */
+  | { kind: 'coupling'; body?: number }
   /** An in-line item: its face, plus a flange when it is flanged. `comp` names it, so the mark sits where the item is drawn. */
   | { kind: 'valve'; trueHalf: number; flange?: FlangeKind; comp?: string }
   /** A PE/steel transition on the end: the weld on its steel side. */

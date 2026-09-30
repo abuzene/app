@@ -217,14 +217,22 @@ export function isCoupling(kind: string): boolean {
 /** How far a coupling is drawn either side of its centre, in symbols: shorter than a valve. */
 export const COUPLING_REACH = 0.7;
 
-/** A coupling on a point: its kind by the point's joint, NPT on a threaded one. */
-export function couplingKindAt(node: IsoNode): 'COUPLING_SW' | 'COUPLING_THD' {
+/**
+ * How far a union's threads are drawn from its centre, in symbols: closer
+ * in than a coupling's, the nut's double line between (his ask, 2026-09-30).
+ */
+export const UNION_REACH = 0.5;
+
+/** A coupling on a point: its kind by the point's joint, NPT on a threaded one; a union is its own. */
+export function couplingKindAt(node: IsoNode): 'COUPLING_SW' | 'COUPLING_THD' | 'UNION' {
+  if (node.union) return 'UNION';
   return node.joint === 'THD' ? 'COUPLING_THD' : 'COUPLING_SW';
 }
 
-/** What a coupling is called, on the list and in a weld's name. */
-export function couplingName(joint: JointType | undefined): string {
-  return joint === 'THD' ? 'COUPLING NPT 3000#' : 'COUPLING SW 3000#';
+/** What a coupling (or union) is called, on the list and in a weld's name. */
+export function couplingName(joint: JointType | undefined, union = false): string {
+  const ends = joint === 'THD' ? 'NPT' : 'SW';
+  return `${union ? 'UNION' : 'COUPLING'} ${ends} 3000#`;
 }
 
 /** What a point's fitting takes off the pipe running into it. */
@@ -1363,12 +1371,12 @@ export function analyse(drawing: Drawing): Analysis {
           nodeJoint,
           run.dn,
           run.schedule,
-          `PIPE / ${info.fitting === 'COUPLING' ? couplingName(nodeJoint) : fittingLabel(info.fitting)}`,
+          `PIPE / ${info.fitting === 'COUPLING' ? couplingName(nodeJoint, !!node.union) : fittingLabel(info.fitting)}`,
           pos,
           facing,
           idx,
           distance,
-          { anchor: node.pos, reach: { kind: info.fitting === 'COUPLING' ? 'coupling' : 'fitting' } },
+          { anchor: node.pos, reach: info.fitting === 'COUPLING' ? { kind: 'coupling', body: node.union ? UNION_REACH : COUPLING_REACH } : { kind: 'fitting' } },
         );
       }
     }
@@ -1683,7 +1691,7 @@ export function analyse(drawing: Drawing): Analysis {
           category: 'FITTING',
           description:
             info.fitting === 'COUPLING'
-              ? couplingName(pointJoint(info.node))
+              ? couplingName(pointJoint(info.node), !!info.node.union)
               : (info.fitting === 'TEE_REDUCING' && branch
                   ? `${fittingLabel(info.fitting)} ${sizeLabel(dn)} x ${sizeLabel(branch.dn)}`
                   : fittingLabel(info.fitting)) + jointSuffix(pointJoint(info.node)),

@@ -167,6 +167,8 @@ const COUPLING_SW_E: Record<string, number> = { DN15: 9.5, DN20: 9.5, DN25: 12.5
 /** Threaded coupling, 3000#: overall length (ASME B16.11 "W"), mm. */
 const COUPLING_THD_W: Record<string, number> = { DN15: 48, DN20: 51, DN25: 60, DN32: 67, DN40: 79, DN50: 86, DN65: 92, DN80: 108, DN100: 121 };
 /** How far an NPT pipe end screws in, made up tight, mm. */
+/** A threaded union's length end to end (class 3000), in mm. */
+const UNION_THD_L: Record<string, number> = { DN8: 41, DN10: 44, DN15: 48, DN20: 52, DN25: 58, DN32: 64, DN40: 68, DN50: 76, DN65: 90, DN80: 96, DN100: 110 };
 const THREAD_ENGAGEMENT: Record<string, number> = { DN15: 13.6, DN20: 13.9, DN25: 17.3, DN32: 18, DN40: 18.4, DN50: 19.2, DN65: 28.9, DN80: 30.5, DN100: 33 };
 /** The pipe is set back from the bottom of a socket before it is welded (ASME B31.3), mm. */
 export const SOCKET_GAP = 1.6;
@@ -232,7 +234,9 @@ export function componentTakeout(kind: string, dn: string, flanged: boolean | st
   if (kind === 'FLG_SO') return lookup(FLANGE_LEN.SO, dn) ?? 0;
   if (kind === 'SPECTACLE') return 0;
   if (kind === 'RED_CONC' || kind === 'RED_ECC') return reducerLength(dn, dn) / 2;
-  if (kind === 'UNION') return 25;
+  // A threaded union (MSS SP-83, class 3000): half its length end to end,
+  // less the thread made up in it.
+  if (kind === 'UNION') return Math.max(3, (lookup(UNION_THD_L, dn) ?? 96) / 2 - (lookup(THREAD_ENGAGEMENT, dn) ?? 30.5));
   // A coupling takes out, each side of its centre, what lies between the
   // pipe ends: to the socket's bottom less the set-back, or to where the
   // thread is made up.

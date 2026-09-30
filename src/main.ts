@@ -1684,7 +1684,8 @@ function renderHud(): void {
     const plain = sel.kind === 'node' && isPlainPoint(state.drawing, sel.id);
     const coupling = sel.kind === 'node' && isCouplingPoint(state.drawing, sel.id);
     const what = sel.kind === 'run' ? 'pipe' : sel.kind === 'node' ? (flanged ? 'flanges' : 'point') : sel.kind === 'equipment' ? 'equipment' : 'item';
-    parts.push(`<button class="hud-stop hud-delete" id="hud-delete" type="button">${flanged ? 'Remove flanges' : olet ? 'Remove olet' : coupling ? 'Remove coupling' : plain ? 'Remove point' : `Delete ${what}`}</button>`);
+    const union = coupling && !!state.drawing.nodes.find((n) => n.id === sel.id)?.union;
+    parts.push(`<button class="hud-stop hud-delete" id="hud-delete" type="button">${flanged ? 'Remove flanges' : olet ? 'Remove olet' : union ? 'Remove union' : coupling ? 'Remove coupling' : plain ? 'Remove point' : `Delete ${what}`}</button>`);
   }
   parts.push(`<span>snap ${state.drawing.options.snap} mm</span>`);
   if (state.drawing.options.schematic) parts.push('<span>not to scale</span>');
@@ -3195,7 +3196,8 @@ function deleteSelection(): void {
   const plain = sel.kind === 'node' && isPlainPoint(state.drawing, sel.id);
   // A coupling goes, and the pipe runs on through as one.
   const coupling = sel.kind === 'node' && isCouplingPoint(state.drawing, sel.id);
-  host.edit(flanged ? 'Remove flanges' : olet ? 'Remove olet' : coupling ? 'Remove coupling' : plain ? 'Remove point' : 'Delete', (d) => {
+  const union = coupling && !!state.drawing.nodes.find((n) => n.id === sel.id)?.union;
+  host.edit(flanged ? 'Remove flanges' : olet ? 'Remove olet' : union ? 'Remove union' : coupling ? 'Remove coupling' : plain ? 'Remove point' : 'Delete', (d) => {
     if (sel.kind === 'run') deleteRunGroup(d, state.analysis, sel.id);
     else if (sel.kind === 'equipment') removeEquipment(d, sel.id);
     else if (sel.kind === 'node' && flanged) removeFlangeJoint(d, sel.id);

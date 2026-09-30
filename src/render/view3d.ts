@@ -495,7 +495,13 @@ export function buildModel(drawing: Drawing, analysis: Analysis): Model3D {
       const dn = dnOf(0);
       const l = legOf(info, 0);
       const len = nodeFittingTakeout(info, dn) * 2 + od(dn) * 0.5;
-      g.tube(vadd(p, vmul(l, -len / 2)), vadd(p, vmul(l, len / 2)), od(dn) * 0.66 + 3, od(dn) * 0.66 + 3, COUPLING, [true, true]);
+      if (node.union) {
+        // A union: its two threaded ends, and the nut, wider, in the middle.
+        g.tube(vadd(p, vmul(l, -len / 2)), vadd(p, vmul(l, len / 2)), od(dn) * 0.62 + 3, od(dn) * 0.62 + 3, COUPLING, [true, true]);
+        g.tube(vadd(p, vmul(l, -len * 0.18)), vadd(p, vmul(l, len * 0.18)), od(dn) * 0.85 + 5, od(dn) * 0.85 + 5, COUPLING, [true, true]);
+      } else {
+        g.tube(vadd(p, vmul(l, -len / 2)), vadd(p, vmul(l, len / 2)), od(dn) * 0.66 + 3, od(dn) * 0.66 + 3, COUPLING, [true, true]);
+      }
     }
 
     // A flanged joint: a flange each side of the gasket.

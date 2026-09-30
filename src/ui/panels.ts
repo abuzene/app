@@ -244,7 +244,7 @@ function nodeProperties(host: Host, nodeId: string): string {
     ${node.flange ? '<button class="btn-line danger" data-a="remove-flanges">Remove both flanges — join the pipe straight</button>' : ''}
     <button class="btn-line" data-a="measure-from">Dimension from here</button>
     ${isEnd && (info?.degree ?? 0) === 1 ? '<button class="btn-line" data-a="join-from">Join to another end</button>' : ''}
-    ${oletAlone ? '<button class="btn-line danger" data-a="remove-olet">Remove olet — the header runs on whole</button>' : isCouplingPoint(drawing, nodeId) ? '<button class="btn-line danger" data-a="delete-node">Remove coupling — the pipe runs straight through</button>' : isPlainPoint(drawing, nodeId) ? '<button class="btn-line danger" data-a="delete-node">Remove point — the pipe runs straight through</button>' : '<button class="btn-line danger" data-a="delete-node">Delete point and its runs</button>'}
+    ${oletAlone ? '<button class="btn-line danger" data-a="remove-olet">Remove olet — the header runs on whole</button>' : isCouplingPoint(drawing, nodeId) ? `<button class="btn-line danger" data-a="delete-node">Remove ${drawing.nodes.find((n) => n.id === nodeId)?.union ? 'union' : 'coupling'} — the pipe runs straight through</button>` : isPlainPoint(drawing, nodeId) ? '<button class="btn-line danger" data-a="delete-node">Remove point — the pipe runs straight through</button>' : '<button class="btn-line danger" data-a="delete-node">Delete point and its runs</button>'}
   </div>
 </div>`;
 }

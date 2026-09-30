@@ -437,6 +437,19 @@ ships, and the decisions already taken, so they are not re-litigated.
   turns them on/off along the line (`setAutoCoupling`). 2" and over: never
   automatic, by hand only (his word: "on 2" only the option to put it in
   by hand"); `wantsAutoCoupling`/`offersAutoCoupling` are small bore only.
+  **Threaded union** (his ask, 2026-09-30: "add a threaded union; show it
+  to me before adding it"; three symbols shown, he picked the book one
+  and corrected it): a coupling point with `node.union` (palette
+  `Union NPT`, `.tool[data-kind="UNION"]` → `placeCouplingTool` →
+  `placeCoupling(…, union)`; `+UNION` commands go to a point through
+  `couplingsToPoints`). `couplingKindAt` gives `UNION`, named `UNION NPT
+  3000#` (`couplingName(joint, union)`), take-out from `UNION_THD_L`
+  (MSS SP-83 class 3000 length / 2 less the thread made up). Drawn: its
+  thread marks at `UNION_REACH` 0.5 symbol (closer in than a coupling's,
+  `WeldReach` `coupling` carries `body`), **no pipe seen between them**
+  (`.sym-gap`, a paper fill with no stroke) and the nut's double line
+  across the middle, ±1.05 symbols, longer than the threads (his three
+  corrections). HUD/panel **Remove union**; 3D: the ends and a wider nut.
   Branch (tee, olets), Marks
   (Support, L50 support, AG/UG), Joints (a BW weld: `placeWeld` splits the
   run at a plain point, welded pipe to pipe, dimension opened). Two columns

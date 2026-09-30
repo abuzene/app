@@ -149,7 +149,7 @@ check('a length can be typed', await page.locator('#tab-body .run-list input[dat
 // Palette.
 await page.locator('#tab-body .run-list tbody tr').first().click();
 await page.waitForTimeout(200);
-check('the palette carries the fittings, couplings (SW, NPT), ball valves (flanged, air, SW, threaded), regulator, filter, relief, tee, olets, marks, equipment, move area and a weld', await page.locator('.tool').count(), (v) => v === 28, '28');
+check('the palette carries the fittings, couplings (SW, NPT), the threaded union, ball valves (flanged, air, SW, threaded), regulator, filter, relief, tee, olets, marks, equipment, move area and a weld', await page.locator('.tool').count(), (v) => v === 29, '29');
 check('and no slip-on or lap joint flange, which are not used here', await page.locator('.tool[data-kind="FLG_SO"], .tool[data-kind="FLG_LAP"]').count(), (v) => v === 0, '0');
 check('a tee can be placed on a header', await page.locator('.tool[data-branch="TEE"]').count(), (v) => v === 1, '1');
 check('the actuated ball valve is there', await page.locator('.tool[data-kind="BALL_ACT"]').count(), (v) => v === 1, '1');
@@ -4497,6 +4497,51 @@ const couplingsNow = async () => (await drawingNow()).nodes.filter((n) => n.fitt
   await page.click('#hud-delete');
   await page.waitForTimeout(300);
   check('removed, the pipe runs through as one', `${(await drawingNow()).runs.length} ${(await couplingsNow()).length}`, (v) => v === '3 1', '3 runs, 1 coupling left');
+}
+
+/* ------------------------------------------------------ a threaded union */
+
+// "Add a threaded union too; show it to me first" (2026-09-30): he picked
+// the book symbol and had it corrected: no pipe seen inside it, the threads
+// closer to the middle, the middle lines a little longer. A point of its
+// own like the coupling, threaded (NPT) both ends.
+{
+  await page.selectOption('#joint', 'THD');
+  await routeLine('1"\nSCH80\nORIGIN 0 0 0\nE 1000\nN 800');
+  check('the palette has Union NPT', await page.locator('.tool[data-kind="UNION"]').innerText(), (v) => v.trim() === 'Union NPT', 'Union NPT');
+  const firstRun = (await drawingNow()).runs[0].id;
+  const pipeEl = page.locator(`#canvas [data-run="${firstRun}"]`).first();
+  await pipeEl.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await pipeEl.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await page.waitForTimeout(250);
+  await page.click('.tool[data-kind="UNION"]');
+  await page.waitForTimeout(300);
+  check('a union put in the pipe opens the dimension up to it', await page.locator('.dim-editor').count(), (v) => v === 1, '1');
+  await page.keyboard.press('Control+A');
+  await page.keyboard.type('400');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(300);
+  const unions = async () => (await drawingNow()).nodes.filter((n) => n.union).map((n) => `${n.joint}@${Math.round(n.pos.e)},${Math.round(n.pos.n)}`).join(' ');
+  check('it is a threaded point of its own where typed, the pipe split in two', `${await unions()} ${(await drawingNow()).runs.length}`, (v) => v === 'THD@400,0 3', 'THD@400,0 3 runs');
+  await page.click('#tabs button:has-text("Items")');
+  await page.waitForTimeout(200);
+  check('named UNION NPT 3000# on the list', (await page.locator('#tab-body').innerText()).includes('UNION NPT 3000#'), (v) => v === true, 'UNION NPT 3000#');
+  await page.click('#tabs button:has-text("Route")');
+  await page.waitForTimeout(150);
+  check('drawn with no pipe inside it, its threads either side, the double line across', `${await page.locator('#canvas .node polygon.sym-gap').count()} ${await page.locator('#canvas .node line.sym-line').count()}`, (v) => v === '1 2', '1 gap, 2 lines');
+  const unionId = (await drawingNow()).nodes.find((n) => n.union).id;
+  const udot = page.locator(`#canvas circle.hit-dot[data-node="${unionId}"]`).first();
+  await udot.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await udot.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await page.waitForTimeout(250);
+  check('a union picked offers Remove union', await page.locator('#hud-delete').innerText(), (v) => v === 'Remove union', 'Remove union');
+  await page.click('#hud-delete');
+  await page.waitForTimeout(300);
+  check('removed, the pipe runs through as one', `${(await drawingNow()).runs.length} ${await unions()}`, (v) => v === '2 ', '2 runs, no union');
+  // Typed as a command it goes on a point too.
+  await routeLine('1"\nSCH80\nORIGIN 0 0 0\nE 1000\n+UNION 600\nN 800');
+  check('+UNION in the Command tab puts a union on a point', await unions(), (v) => v === 'THD@600,0', 'THD@600,0');
+  await page.selectOption('#joint', 'BW');
 }
 
 /* ------------------------------- a coupling every 6 m on small-bore pipe */

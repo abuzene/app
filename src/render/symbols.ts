@@ -594,12 +594,16 @@ export function componentSymbol(kind: ComponentKind, f: Frame, reach?: number, f
       return eccentricReducer(f, reach ?? s * 0.9, flip ? -1 : 1);
     case 'CAP':
       return capSymbol(f, 1);
-    case 'UNION':
-      return (
-        line(f, [-s * 0.4, 0, -s], [-s * 0.4, 0, s], 'sym-line') +
-        line(f, [s * 0.4, 0, -s], [s * 0.4, 0, s], 'sym-line') +
-        line(f, [0, 0, -s * 0.7], [0, 0, s * 0.7], 'sym-line')
-      );
+    case 'UNION': {
+      // His pick, 2026-09-30 (option A, corrected): the threads on its ends
+      // (drawn as its joint marks, half a symbol out), the nut's double line
+      // across the middle, a little longer than the threads, and no pipe
+      // seen between the threads.
+      const r = reach ?? s * 0.5;
+      const w = s * 0.4;
+      const gap = poly([pt(f, -r, 0, -w), pt(f, r, 0, -w), pt(f, r, 0, w), pt(f, -r, 0, w)], 'sym-gap');
+      return gap + line(f, [-s * 0.14, 0, -s * 1.05], [-s * 0.14, 0, s * 1.05], 'sym-line') + line(f, [s * 0.14, 0, -s * 1.05], [s * 0.14, 0, s * 1.05], 'sym-line');
+    }
     case 'COUPLING_SW':
     case 'COUPLING_THD': {
       // A sleeve over the joint of two pipes, a little inside the joint

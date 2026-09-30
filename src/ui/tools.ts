@@ -1,6 +1,6 @@
 import type { ComponentKind, FlangeKind, JointType, Run, TerminalKind } from '../model/types';
 import type { Host } from './types';
-import { COMPONENT_LABEL, COUPLING_REACH, TERMINAL_LABEL, chainStops, isCoupling, nodeFittingTakeout, dimensionStops, isMark, itemHalf, isValve, oletEntries, oletLegs, oletMarks, resolveEnds, terminalTakeoutOf, valveOpenSide } from '../model/drawing';
+import { COMPONENT_LABEL, COUPLING_REACH, UNION_REACH, TERMINAL_LABEL, chainStops, isCoupling, nodeFittingTakeout, dimensionStops, isMark, itemHalf, isValve, oletEntries, oletLegs, oletMarks, resolveEnds, terminalTakeoutOf, valveOpenSide } from '../model/drawing';
 import { addComponent, isCouplingPoint, isPlainPoint, placeCoupling, addEquipment, addFlangeJoint, flangeOnItemFace, applyReducer, boltValveOnEnd, runLength, setLastFlange, setTerminal, splitRun } from '../model/edit';
 import { add, axisBetween, direction, scale3 } from '../model/iso';
 import { DN_LIST, componentTakeout, sizeLabel, valveFlangeKind } from '../model/pipe-data';
@@ -23,7 +23,7 @@ interface ToolGroup {
 
 const GROUPS: ToolGroup[] = [
   { label: 'Flanges', kinds: ['FLG_WN', 'FLG_SW', 'FLG_THD', 'FLG_BLIND'] },
-  { label: 'Fittings', kinds: ['RED_CONC', 'RED_ECC', 'CAP', 'TRANSITION', 'COUPLING_SW', 'COUPLING_THD'] },
+  { label: 'Fittings', kinds: ['RED_CONC', 'RED_ECC', 'CAP', 'TRANSITION', 'COUPLING_SW', 'COUPLING_THD', 'UNION'] },
   { label: 'Valves', kinds: ['BALL', 'BALL_ACT', { valve: 'BALL', ends: 'SW' }, { valve: 'BALL', ends: 'THD' }, 'REGULATOR', 'FILTER', 'RELIEF'] },
   { label: 'Branch', kinds: [{ branch: 'TEE' }, { olet: 'BW' }, { olet: 'SW' }, { olet: 'THD' }] },
   { label: 'Marks', kinds: ['SUPPORT', 'SUPPORT_L', 'GROUND', { equipment: true }, { measure: true }, { area: true }] },
@@ -49,6 +49,7 @@ const SHORT: Partial<Record<ComponentKind, string>> = {
   TRANSITION: 'PE/CS',
   COUPLING_SW: 'Cplg SW',
   COUPLING_THD: 'Cplg NPT',
+  UNION: 'Union NPT',
   SUPPORT: 'Support',
   SUPPORT_L: 'L50',
   GROUND: 'AG/UG',
@@ -97,11 +98,11 @@ function icon(kind: ComponentKind): string {
     s: 5.2,
   };
   // A coupling wears its joint marks on its ends, as on the line.
-  if (isCoupling(kind)) {
+  if (isCoupling(kind) || kind === 'UNION') {
     const ends = kind === 'COUPLING_SW' ? 'SW' : 'THD';
-    const r = f.s * COUPLING_REACH;
+    const r = f.s * (kind === 'UNION' ? UNION_REACH : COUPLING_REACH);
     const at = (by: number, dx: number, dy: number): Frame => ({ ...f, cx: f.cx + EAST.x * by, cy: f.cy + EAST.y * by, dx, dy, s: 4.2 });
-    return iconSvg(stub(EAST) + componentSymbol(kind, f) + jointMark(at(-r, EAST.x, EAST.y), ends) + jointMark(at(r, -EAST.x, -EAST.y), ends));
+    return iconSvg(stub(EAST) + componentSymbol(kind, f, r) + jointMark(at(-r, EAST.x, EAST.y), ends) + jointMark(at(r, -EAST.x, -EAST.y), ends));
   }
   return iconSvg(stub(EAST) + componentSymbol(kind, f));
 }
@@ -325,7 +326,7 @@ function place(host: Host, kind: ComponentKind, ends?: 'SW' | 'THD'): void {
     void placeReducer(host, kind);
     return;
   }
-  if (isCoupling(kind)) {
+  if (isCoupling(kind) || kind === 'UNION') {
     placeCouplingTool(host, kind);
     return;
   }
@@ -681,16 +682,19 @@ function oletSpot(host: Host, run: Run): number | null {
  * through, it goes on that point.
  */
 function placeCouplingTool(host: Host, kind: ComponentKind): void {
-  const joint = kind === 'COUPLING_THD' ? 'THD' : 'SW';
+  const joint = kind === 'COUPLING_SW' ? 'SW' : 'THD';
+  // A threaded union goes in the same way (his ask, 2026-09-30).
+  const union = kind === 'UNION';
+  const noun = union ? 'union' : 'coupling';
   const { selection, drawing } = host.state;
   let where: { runId: string; at: number } | { nodeId: string };
   if (selection?.kind === 'node') {
     if (isCouplingPoint(drawing, selection.id)) {
-      host.notify('That point already has a coupling.');
+      host.notify(`That point already has a ${drawing.nodes.find((n) => n.id === selection.id)?.union ? 'union' : 'coupling'}.`);
       return;
     }
     if (!isPlainPoint(drawing, selection.id)) {
-      host.notify('A coupling joins two pipes on one line — pick the pipe, or a point the line runs straight through.');
+      host.notify(`A ${noun} joins two pipes on one line — pick the pipe, or a point the line runs straight through.`);
       return;
     }
     where = { nodeId: selection.id };
@@ -702,14 +706,14 @@ function placeCouplingTool(host: Host, kind: ComponentKind): void {
     }
     const at = oletSpot(host, run);
     if (at === null) {
-      host.notify('No pipe left on that run for a coupling.');
+      host.notify(`No pipe left on that run for a ${noun}.`);
       return;
     }
     where = { runId: run.id, at };
   }
   let nodeId: string | null = null;
-  host.edit(`Add ${COMPONENT_LABEL[kind]}`, (d) => {
-    nodeId = placeCoupling(d, joint, where);
+  host.edit(`Add ${union ? 'union' : COMPONENT_LABEL[kind]}`, (d) => {
+    nodeId = placeCoupling(d, joint, where, union);
   });
   if (!nodeId) {
     host.notify('The pipe is too short to cut there.');

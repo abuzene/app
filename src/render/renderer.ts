@@ -1,6 +1,6 @@
 import type { Analysis } from '../model/drawing';
 import type { Axis, DimOverride, Drawing, FlangeKind, Run, Vec3 } from '../model/types';
-import { headerTakenOff, COMPONENT_LABEL, COUPLING_REACH, SYMBOL_MM, couplingKindAt, isCoupling, TERMINAL_LABEL, chainStops, dimensionStops, drawnShare, trueAtShare, fittingLabel, runGroupIds, isMark, isReducer, isSupport, isValve, itemAtEnd, oletEntries, oletLegs, resolveEnds, valveOpenSide } from '../model/drawing';
+import { headerTakenOff, COMPONENT_LABEL, COUPLING_REACH, UNION_REACH, SYMBOL_MM, couplingKindAt, isCoupling, TERMINAL_LABEL, chainStops, dimensionStops, drawnShare, trueAtShare, fittingLabel, runGroupIds, isMark, isReducer, isSupport, isValve, itemAtEnd, oletEntries, oletLegs, resolveEnds, valveOpenSide } from '../model/drawing';
 import { componentTakeout, sizeLabel, valveFlangeKind } from '../model/pipe-data';
 import { AXIS_VECTOR, axisBetween, axisScreenDir, equals3, northArrowDir, project, scale3, add, sub } from '../model/iso';
 import { LETTER_BESIDE, weldTagSize, type LayoutSpecs } from './tidy';
@@ -766,7 +766,7 @@ export function renderDrawing(state: RenderState): string {
       if (q && other) {
         const plane = symbolPlane(drawing, node.pos, other.pos);
         const f = frameFor(p.x, p.y, q.x, q.y, 0, size, plane?.across, plane?.up);
-        nodes += componentSymbol(couplingKindAt(node), f, size * COUPLING_REACH);
+        nodes += componentSymbol(couplingKindAt(node), f, size * (node.union ? UNION_REACH : COUPLING_REACH));
       }
     }
 
@@ -926,7 +926,7 @@ export function renderDrawing(state: RenderState): string {
           r.kind === 'fitting'
             ? FITTING_REACH
             : r.kind === 'coupling'
-              ? size * COUPLING_REACH
+              ? size * (r.body ?? COUPLING_REACH)
               : r.kind === 'olet'
               ? size * 0.9
               : r.kind === 'transition'
