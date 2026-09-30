@@ -169,6 +169,12 @@ export interface IsoNode {
   olet?: { dir: Axis; dn: string };
   /** Several olets on one point, each with its own way and size. Read through `oletMarks`. */
   olets?: { dir: Axis; dn: string }[];
+  /**
+   * The olets on this point are half couplings (his ask, 2026-09-30: "a
+   * half coupling that behaves exactly like a threadolet"): set on the
+   * header, the branch screwed (or socketed) into it.
+   */
+  halfCoupling?: boolean;
 }
 
 /** A dimension put in by hand between two points of the drawing. */

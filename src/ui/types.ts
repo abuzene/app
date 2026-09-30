@@ -125,6 +125,8 @@ export interface OletAsk {
   /** An olet (the default), or a tee: a tee's branch way is where it is drawn, so only its size is asked. */
   kind?: 'olet' | 'tee';
   joint: JointType;
+  /** A half coupling rather than an olet (asked the same way). */
+  half?: boolean;
   /** The header's size. */
   header: string;
   /** The header's direction, which the branch cannot share. */

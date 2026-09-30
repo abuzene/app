@@ -336,6 +336,16 @@ export function oletSymbol(f: Frame): string {
 }
 
 /**
+ * A half coupling set on the header: a short sleeve standing on it, the
+ * branch's thread mark on its top (his ask, 2026-09-30).
+ */
+export function halfCouplingSymbol(f: Frame): string {
+  const s = f.s;
+  const w = s * 0.42;
+  return poly([pt(f, s * 0.1, 0, -w), pt(f, s * 0.9, 0, -w), pt(f, s * 0.9, 0, w), pt(f, s * 0.1, 0, w)], 'sym-fill');
+}
+
+/**
  * A PE to steel transition joint: the coupling body across the line, the
  * plastic side lettered PE and the steel side CS. `csSide` says which way the
  * steel end faces along the frame; the weld sits on that end only.

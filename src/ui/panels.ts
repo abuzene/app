@@ -119,7 +119,7 @@ function autoJointLabel(host: Host, nodeId: string): string {
   const inherited = host.state.analysis.inheritedJoint.get(nodeId);
   if (inherited) {
     const olet = host.state.analysis.nodeInfo.get(inherited.from)?.node;
-    return `Automatic — ${JOINT_LABEL[inherited.joint] ?? inherited.joint}, as its line from the ${olet ? oletLabel(olet.joint ?? inherited.joint).toLowerCase() : 'olet'}`;
+    return `Automatic — ${JOINT_LABEL[inherited.joint] ?? inherited.joint}, as its line from the ${olet ? oletLabel(olet.joint ?? inherited.joint, !!olet.halfCoupling).toLowerCase() : 'olet'}`;
   }
   return `Drawing default (${JOINT_LABEL[host.state.drawing.options.joint] ?? 'butt weld'})`;
 }
@@ -185,7 +185,7 @@ function nodeProperties(host: Host, nodeId: string): string {
   const straight = fitting === 'NONE' && (info?.degree ?? 0) === 2;
   const flanged = straight && !!node.flange;
   const heading = isOlet
-    ? oletLabel(nodeJoint)
+    ? oletLabel(nodeJoint, !!node.halfCoupling)
     : flanged
       ? `flanged joint — ${COMPONENT_LABEL[node.flange!] ?? node.flange}`
       : fitting === 'NONE'
@@ -222,7 +222,9 @@ function nodeProperties(host: Host, nodeId: string): string {
     .join('')}
   ${
     isOlet
-      ? `<div class="row"><label>Olet type</label><select data-f="joint">${options(JOINTS, nodeJoint, { BW: 'Weldolet', SW: 'Sockolet', THD: 'Threadolet' })}</select></div>`
+      ? node.halfCoupling
+        ? `<div class="row"><label>Ends</label><select data-f="joint">${options(['THD', 'SW'], nodeJoint, { THD: 'Threaded (NPT)', SW: 'Socket weld' })}</select></div>`
+        : `<div class="row"><label>Olet type</label><select data-f="joint">${options(JOINTS, nodeJoint, { BW: 'Weldolet', SW: 'Sockolet', THD: 'Threadolet' })}</select></div>`
       : flanged
         ? ''
         : `<div class="row"><label>Joint</label><select data-f="joint">${options(['auto', ...JOINTS], node.joint ?? 'auto', { ...JOINT_LABEL, auto: autoJointLabel(host, nodeId) })}</select></div>`
@@ -244,7 +246,7 @@ function nodeProperties(host: Host, nodeId: string): string {
     ${node.flange ? '<button class="btn-line danger" data-a="remove-flanges">Remove both flanges — join the pipe straight</button>' : ''}
     <button class="btn-line" data-a="measure-from">Dimension from here</button>
     ${isEnd && (info?.degree ?? 0) === 1 ? '<button class="btn-line" data-a="join-from">Join to another end</button>' : ''}
-    ${oletAlone ? '<button class="btn-line danger" data-a="remove-olet">Remove olet — the header runs on whole</button>' : isCouplingPoint(drawing, nodeId) ? `<button class="btn-line danger" data-a="delete-node">Remove ${drawing.nodes.find((n) => n.id === nodeId)?.union ? 'union' : 'coupling'} — the pipe runs straight through</button>` : isPlainPoint(drawing, nodeId) ? '<button class="btn-line danger" data-a="delete-node">Remove point — the pipe runs straight through</button>' : '<button class="btn-line danger" data-a="delete-node">Delete point and its runs</button>'}
+    ${oletAlone ? `<button class="btn-line danger" data-a="remove-olet">Remove ${node.halfCoupling ? 'half coupling' : 'olet'} — the header runs on whole</button>` : isCouplingPoint(drawing, nodeId) ? `<button class="btn-line danger" data-a="delete-node">Remove ${drawing.nodes.find((n) => n.id === nodeId)?.union ? 'union' : 'coupling'} — the pipe runs straight through</button>` : isPlainPoint(drawing, nodeId) ? '<button class="btn-line danger" data-a="delete-node">Remove point — the pipe runs straight through</button>' : '<button class="btn-line danger" data-a="delete-node">Delete point and its runs</button>'}
   </div>
 </div>`;
 }
@@ -1021,7 +1023,8 @@ function wire(body: HTMLElement, host: Host): void {
       const value = (e.target as HTMLInputElement).value;
       host.edit('Edit end note', (d) => {
         const node = d.nodes.find((n) => n.id === id);
-        if (node) node.terminal = { kind: node.terminal?.kind ?? 'OPEN', note: value || undefined };
+        // The rest of the end (a continuation's size) stays as it was.
+        if (node) node.terminal = { ...node.terminal, kind: node.terminal?.kind ?? 'OPEN', note: value || undefined };
       }, { keepPanel: true });
     });
     field('joint')?.addEventListener('change', (e) => {

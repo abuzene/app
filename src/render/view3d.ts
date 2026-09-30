@@ -24,7 +24,7 @@ import {
   valveOpenSide,
   nodeFittingTakeout,
 } from '../model/drawing';
-import { componentTakeout, flangeLength, reducerLength, sizeOf, valveFlangeKind } from '../model/pipe-data';
+import { halfCouplingLength, componentTakeout, flangeLength, reducerLength, sizeOf, valveFlangeKind } from '../model/pipe-data';
 import { AXIS_VECTOR, direction, length3, scale3, sub } from '../model/iso';
 
 type RGB = [number, number, number];
@@ -488,6 +488,11 @@ export function buildModel(drawing: Drawing, analysis: Analysis): Model3D {
       for (const entry of legs ? oletEntries(legs) : []) {
         const out = v3(AXIS_VECTOR[entry.dir as Axis]);
         const br = od(entry.dn) / 2;
+        if (node.halfCoupling) {
+          // A half coupling: a straight sleeve set on the header.
+          g.tube(vadd(p, vmul(out, hr * 0.6)), vadd(p, vmul(out, hr + halfCouplingLength(entry.dn))), br * 1.3 + 3, br * 1.3 + 3, COUPLING, [false, !entry.run]);
+          continue;
+        }
         const top = hr + Math.max(22, Math.round(od(entry.dn) * 0.55));
         g.tube(vadd(p, vmul(out, hr * 0.6)), vadd(p, vmul(out, top)), br * 1.55 + 4, br * 1.05 + 2, FITTING, [false, !entry.run]);
       }
@@ -592,6 +597,7 @@ function oletFoot(analysis: Analysis, key: string): { at: V; out: V; r: number }
   const out = v3(AXIS_VECTOR[entry.dir as Axis]);
   const hr = od(legs.header[0]?.dn ?? entry.dn) / 2;
   const br = od(entry.dn) / 2;
+  if (info.node.halfCoupling) return { at: vadd(v3(info.node.pos), vmul(out, hr)), out, r: br * 1.3 + 3 };
   // The olet's body: from 0.6 of the header's radius out, wide at its foot.
   const top = hr + Math.max(22, Math.round(od(entry.dn) * 0.55));
   const r0 = br * 1.55 + 4;

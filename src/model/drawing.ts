@@ -364,7 +364,8 @@ export function endDn(drawing: Drawing, run: Run, atStart: boolean): string {
 }
 
 /** What an olet is called, which follows how its branch is joined. */
-export function oletLabel(joint: JointType): string {
+export function oletLabel(joint: JointType, half = false): string {
+  if (half) return `HALF COUPLING ${joint === 'SW' ? 'SW' : 'NPT'} 3000#`;
   if (joint === 'SW') return 'SOCKOLET';
   if (joint === 'THD') return 'THREADOLET';
   return 'WELDOLET';
@@ -902,7 +903,7 @@ function endTakeout(info: NodeInfo | undefined, run: Run, dn = run.dn): number {
   const legs = oletLegs(info);
   if (!legs) return 0;
   if (!legs.branches.some((b) => b.run.id === run.id)) return 0;
-  return oletTakeout(legs.header[0]?.dn ?? run.dn, run.dn);
+  return oletTakeout(legs.header[0]?.dn ?? run.dn, run.dn, !!info.node.halfCoupling);
 }
 
 /**
@@ -1293,14 +1294,14 @@ export function analyse(drawing: Drawing): Analysis {
             // threadolet, so it follows the node's joint type. A second olet
             // on the point keys its welds by the way its branch leaves.
             const distance2 = atStart
-              ? oletTakeout(legs.header[0]?.dn ?? run.dn, run.dn)
-              : total - oletTakeout(legs.header[0]?.dn ?? run.dn, run.dn);
+              ? oletTakeout(legs.header[0]?.dn ?? run.dn, run.dn, !!node.halfCoupling)
+              : total - oletTakeout(legs.header[0]?.dn ?? run.dn, run.dn, !!node.halfCoupling);
             pushJoint(
               branchIndex === 0 ? `n:${node.id}:branch` : `n:${node.id}:branch:${legs.branches[branchIndex].dir}`,
               nodeJoint,
               run.dn,
               run.schedule,
-              `BRANCH / ${oletLabel(nodeJoint)}`,
+              `BRANCH / ${oletLabel(nodeJoint, !!node.halfCoupling)}`,
               add(a.pos, scale3(dir, distance2)),
               facing,
               idx,
@@ -1315,7 +1316,7 @@ export function analyse(drawing: Drawing): Analysis {
                 'BW',
                 legs.header[0]?.dn ?? run.dn,
                 run.schedule,
-                `HEADER / ${oletLabel(nodeJoint)}`,
+                `HEADER / ${oletLabel(nodeJoint, !!node.halfCoupling)}`,
                 node.pos,
                 facing,
                 idx,
@@ -1671,8 +1672,9 @@ export function analyse(drawing: Drawing): Analysis {
             key: k === 0 ? `node:${info.node.id}` : `node:${info.node.id}:${entry.dir}`,
             bomKey: tally({
               category: 'FITTING',
-              description: `${oletLabel(joint)} ${sizeLabel(legs.header[0].dn)} x ${sizeLabel(entry.dn)}`,
-              dn: legs.header[0].dn,
+              // A half coupling goes by its own (the branch's) size.
+              description: info.node.halfCoupling ? oletLabel(joint, true) : `${oletLabel(joint)} ${sizeLabel(legs.header[0].dn)} x ${sizeLabel(entry.dn)}`,
+              dn: info.node.halfCoupling ? entry.dn : legs.header[0].dn,
               schedule: fittingThickness,
               unit: 'off',
             }),

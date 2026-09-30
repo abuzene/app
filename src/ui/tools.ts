@@ -6,10 +6,10 @@ import { add, axisBetween, direction, scale3 } from '../model/iso';
 import { DN_LIST, componentTakeout, sizeLabel, valveFlangeKind } from '../model/pipe-data';
 import { isFlange } from '../render/symbols';
 import { runOffsetAtPaper } from '../render/renderer';
-import { componentSymbol, jointMark, oletSymbol, type Frame } from '../render/symbols';
+import { componentSymbol, halfCouplingSymbol, jointMark, oletSymbol, type Frame } from '../render/symbols';
 
 /** Branch fittings act on the header, they do not sit in the line. */
-type BranchTool = { branch: 'TEE' } | { olet: JointType } | { weld: 'BW' } | { equipment: true } | { measure: true } | { area: true } | { valve: ComponentKind; ends: 'SW' | 'THD' };
+type BranchTool = { branch: 'TEE' } | { olet: JointType; half?: true } | { weld: 'BW' } | { equipment: true } | { measure: true } | { area: true } | { valve: ComponentKind; ends: 'SW' | 'THD' };
 type Tool = ComponentKind | BranchTool;
 
 function isBranch(tool: Tool): tool is BranchTool {
@@ -25,7 +25,7 @@ const GROUPS: ToolGroup[] = [
   { label: 'Flanges', kinds: ['FLG_WN', 'FLG_SW', 'FLG_THD', 'FLG_BLIND'] },
   { label: 'Fittings', kinds: ['RED_CONC', 'RED_ECC', 'CAP', 'TRANSITION', 'COUPLING_SW', 'COUPLING_THD', 'UNION'] },
   { label: 'Valves', kinds: ['BALL', 'BALL_ACT', { valve: 'BALL', ends: 'SW' }, { valve: 'BALL', ends: 'THD' }, 'REGULATOR', 'FILTER', 'RELIEF'] },
-  { label: 'Branch', kinds: [{ branch: 'TEE' }, { olet: 'BW' }, { olet: 'SW' }, { olet: 'THD' }] },
+  { label: 'Branch', kinds: [{ branch: 'TEE' }, { olet: 'BW' }, { olet: 'SW' }, { olet: 'THD' }, { olet: 'THD', half: true }] },
   { label: 'Marks', kinds: ['SUPPORT', 'SUPPORT_L', 'GROUND', { equipment: true }, { measure: true }, { area: true }] },
   { label: 'Joints', kinds: [{ weld: 'BW' }] },
 ];
@@ -151,8 +151,8 @@ function equipmentIcon(): string {
   );
 }
 
-/** An olet on a length of header, branch going up. */
-function oletIcon(): string {
+/** An olet (or a half coupling) on a length of header, branch going up. */
+function oletIcon(half = false): string {
   const f: Frame = {
     cx: ICON_CX,
     cy: ICON_CY + 5,
@@ -167,7 +167,7 @@ function oletIcon(): string {
   return iconSvg(
     `<line class="icon-pipe" x1="${(ICON_CX - EAST.x * 20).toFixed(1)}" y1="${(ICON_CY + 5 - EAST.y * 20).toFixed(1)}" x2="${(ICON_CX + EAST.x * 20).toFixed(1)}" y2="${(ICON_CY + 5 + EAST.y * 20).toFixed(1)}"/>` +
       `<line class="sym-line" x1="${ICON_CX}" y1="${ICON_CY + 5}" x2="${ICON_CX}" y2="${ICON_CY - 13}"/>` +
-      oletSymbol(f),
+      (half ? halfCouplingSymbol(f) : oletSymbol(f)),
   );
 }
 
@@ -551,7 +551,7 @@ function placeFlangeOnRun(host: Host, run: Run, kind: FlangeKind, where: 'start'
  */
 function placeBranch(host: Host, tool: BranchTool): void {
   if ('olet' in tool) {
-    void placeOlet(host, tool.olet);
+    void placeOlet(host, tool.olet, !!tool.half);
     return;
   }
   const run = targetRun(host);
@@ -606,11 +606,17 @@ async function placeTee(host: Host, run: Run): Promise<void> {
  * olet itself; a run picked is marked at its middle, and the dimension up to
  * it opens for typing.
  */
-async function placeOlet(host: Host, joint: JointType): Promise<void> {
+async function placeOlet(host: Host, joint: JointType, half = false): Promise<void> {
   const { selection, analysis, drawing } = host.state;
   const info = selection?.kind === 'node' ? analysis.nodeInfo.get(selection.id) : undefined;
   // A second olet on a point that already has one leaves another way.
   const onOlet = info && info.fitting === 'OLET' ? oletLegs(info) : null;
+  // A half coupling behaves as a threadolet (his ask, 2026-09-30); one point
+  // carries one kind.
+  if (onOlet && !!info!.node.halfCoupling !== half) {
+    host.notify(`That point has ${info!.node.halfCoupling ? 'a half coupling' : 'an olet'}; another one on it must be the same kind.`);
+    return;
+  }
   const onNode = onOlet ? info!.node : info && info.degree === 2 && info.fitting === 'NONE' && !info.node.flange ? info.node : null;
   const run = onOlet ? onOlet.header[0] : onNode ? info!.runs[0] : targetRun(host);
   if (!run) {
@@ -620,7 +626,7 @@ async function placeOlet(host: Host, joint: JointType): Promise<void> {
   const a = drawing.nodes.find((n) => n.id === run.from);
   const b = drawing.nodes.find((n) => n.id === run.to);
   const taken = onOlet ? oletEntries(onOlet).map((entry) => entry.dir) : [];
-  const choice = await host.oletDialog({ joint, header: run.dn, along: a && b ? axisBetween(a.pos, b.pos) : null, taken });
+  const choice = await host.oletDialog({ joint, half, header: run.dn, along: a && b ? axisBetween(a.pos, b.pos) : null, taken });
   if (!choice) return;
   let nodeId: string | null = onNode?.id ?? null;
   const at = nodeId ? 0 : oletSpot(host, run);
@@ -628,12 +634,14 @@ async function placeOlet(host: Host, joint: JointType): Promise<void> {
     host.notify('No pipe left on that run for an olet: it is all fittings.');
     return;
   }
-  host.edit(`Add ${OLET_SHORT[joint].toLowerCase()}`, (d) => {
+  host.edit(`Add ${half ? 'half coupling' : OLET_SHORT[joint].toLowerCase()}`, (d) => {
     if (!nodeId) nodeId = splitRun(d, run.id, at);
     const node = nodeId ? d.nodes.find((n) => n.id === nodeId) : undefined;
     if (!node) return;
     node.fittingOverride = 'OLET';
     node.joint = joint;
+    if (half) node.halfCoupling = true;
+    else delete node.halfCoupling;
     node.olets = [...oletMarks(node), { dir: choice.dir, dn: choice.dn }];
     node.olet = undefined;
   });
@@ -645,7 +653,7 @@ async function placeOlet(host: Host, joint: JointType): Promise<void> {
   // pipe; its place is set whenever wanted by its dimension (his ask,
   // 2026-09-23).
   host.select({ kind: 'node', id: nodeId });
-  host.notify('Olet on the header. Place it later by its dimension, or a hand dimension from it.');
+  host.notify(`${half ? 'Half coupling' : 'Olet'} on the header. Place it later by its dimension, or a hand dimension from it.`);
 }
 
 /**
@@ -838,11 +846,12 @@ export function renderTools(container: HTMLElement, host: Host): void {
               );
             }
             const olet = 'olet' in tool;
-            const name = olet ? OLET_SHORT[tool.olet] : 'Tee';
-            const attr = olet ? `data-olet="${tool.olet}"` : 'data-branch="TEE"';
+            const half = olet && !!tool.half;
+            const name = half ? 'Half cplg' : olet ? OLET_SHORT[tool.olet] : 'Tee';
+            const attr = olet ? `data-olet="${tool.olet}"${half ? ' data-half="1"' : ''}` : 'data-branch="TEE"';
             return (
-              `<button class="tool" ${attr} title="${name}"${enabled ? '' : ' disabled'}>` +
-              (olet ? oletIcon() : teeIcon()) +
+              `<button class="tool" ${attr} title="${half ? 'Half coupling NPT' : name}"${enabled ? '' : ' disabled'}>` +
+              (olet ? oletIcon(half) : teeIcon()) +
               `<span class="tool-name">${name}</span>` +
               `</button>`
             );
@@ -876,7 +885,7 @@ export function renderTools(container: HTMLElement, host: Host): void {
         if (sel?.kind === 'node') host.measureFrom(sel.id);
         else host.notify('Pick the first point, then Dimension, then tap the other point.');
       }
-      else if (olet) placeBranch(host, { olet });
+      else if (olet) placeBranch(host, button.dataset.half ? { olet, half: true } : { olet });
       else if (button.dataset.branch === 'TEE') placeBranch(host, { branch: 'TEE' });
       else if (button.dataset.valve) place(host, button.dataset.valve as ComponentKind, button.dataset.ends as 'SW' | 'THD');
       else place(host, button.dataset.kind as ComponentKind);

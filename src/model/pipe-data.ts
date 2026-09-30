@@ -280,9 +280,17 @@ export function reducerLength(large: string, small: string): number {
  * The header itself loses nothing — an olet is welded to its wall, not cut into
  * it — which is the whole reason to use one.
  */
-export function oletTakeout(headerDn: string, branchDn: string): number {
+/** A half coupling's length (class 3000 NPT): half a full coupling's, in mm. */
+export function halfCouplingLength(dn: string): number {
+  return (lookup(COUPLING_THD_W, dn) ?? 108) / 2;
+}
+
+export function oletTakeout(headerDn: string, branchDn: string, half = false): number {
   const header = sizeOf(headerDn);
   const branch = sizeOf(branchDn);
+  // A half coupling set on the header: the branch pipe ends where its
+  // thread is made up inside it.
+  if (half) return Math.round(header.od / 2 + Math.max(3, halfCouplingLength(branchDn) - (lookup(THREAD_ENGAGEMENT, branchDn) ?? 13.6)));
   // Olet height runs roughly with the branch size; this tracks the
   // manufacturers' tables closely enough for a cut length.
   const height = Math.max(22, Math.round(branch.od * 0.55));

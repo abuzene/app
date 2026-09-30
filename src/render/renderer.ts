@@ -4,7 +4,7 @@ import { headerTakenOff, COMPONENT_LABEL, COUPLING_REACH, UNION_REACH, SYMBOL_MM
 import { componentTakeout, sizeLabel, valveFlangeKind } from '../model/pipe-data';
 import { AXIS_VECTOR, axisBetween, axisScreenDir, equals3, northArrowDir, project, scale3, add, sub } from '../model/iso';
 import { LETTER_BESIDE, weldTagSize, type LayoutSpecs } from './tidy';
-import { componentSymbol, counterFlange, flangeHub, flangeSymbol, frameFor, gasketLine, groundSymbol, isFlange, jointMark, oletSymbol, supportCallout, supportSymbol, terminalSymbol, transitionSymbol, type Facing, type Frame } from './symbols';
+import { componentSymbol, counterFlange, flangeHub, flangeSymbol, frameFor, gasketLine, groundSymbol, isFlange, jointMark, oletSymbol, halfCouplingSymbol, supportCallout, supportSymbol, terminalSymbol, transitionSymbol, type Facing, type Frame } from './symbols';
 
 export interface ViewBox {
   x: number;
@@ -1164,7 +1164,7 @@ export function renderDrawing(state: RenderState): string {
       }
       if (!out) continue;
       const f = frameFor(here.x, here.y, out.x, out.y, 0, size, branchPlane?.across, branchPlane?.up);
-      olets += `<g class="olet">${oletSymbol(f)}${stub}</g>`;
+      olets += `<g class="olet">${info.node.halfCoupling ? halfCouplingSymbol(f) : oletSymbol(f)}${stub}</g>`;
     }
   }
 

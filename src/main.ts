@@ -1004,6 +1004,40 @@ const canvas = new Canvas(svg, {
       ],
     );
   },
+  onEditEndNote(nodeId, clientX, clientY) {
+    // The note on a line's end ("CONT. FROM SH.2") typed over on the touch
+    // (his ask, 2026-09-30: "let me change this text").
+    const node = state.drawing.nodes.find((n) => n.id === nodeId);
+    if (!node?.terminal) return;
+    const current = node.terminal.note ?? '';
+    openInlineEditor(
+      current,
+      'text',
+      clientX,
+      clientY,
+      (text) => {
+        const note = text.trim().toUpperCase();
+        if (note === current) return;
+        host.edit('Edit end note', (d) => {
+          const target = d.nodes.find((n) => n.id === nodeId);
+          if (target?.terminal) target.terminal = { ...target.terminal, note: note || undefined };
+        });
+      },
+      [
+        {
+          label: 'Remove this text',
+          act: () => {
+            host.edit('Remove end note', (d) => {
+              const target = d.nodes.find((n) => n.id === nodeId);
+              if (target?.terminal) target.terminal = { ...target.terminal, note: undefined };
+              if (d.itemOverrides) delete d.itemOverrides[`en:${nodeId}`];
+            });
+            host.notify('Text removed. The point\'s panel (End note) can write it again.');
+          },
+        },
+      ],
+    );
+  },
   onStopDrawing() {
     stopDrawing();
   },
@@ -1120,7 +1154,7 @@ const canvas = new Canvas(svg, {
     const balloon = key.startsWith('item:') ? key.slice(5) : null;
     // A support's name opened for typing on the touch; a drag means it was
     // being moved, not typed, so the box goes away.
-    if (balloon?.startsWith('sup:') || balloon?.startsWith('rn:')) closeDimensionEditor();
+    if (balloon?.startsWith('sup:') || balloon?.startsWith('rn:') || balloon?.startsWith('en:')) closeDimensionEditor();
     const apply = (d: Drawing) => {
       if (balloon) {
         d.itemOverrides = { ...d.itemOverrides, [balloon]: { dx: offset.dx, dy: offset.dy } };
@@ -1685,7 +1719,8 @@ function renderHud(): void {
     const coupling = sel.kind === 'node' && isCouplingPoint(state.drawing, sel.id);
     const what = sel.kind === 'run' ? 'pipe' : sel.kind === 'node' ? (flanged ? 'flanges' : 'point') : sel.kind === 'equipment' ? 'equipment' : 'item';
     const union = coupling && !!state.drawing.nodes.find((n) => n.id === sel.id)?.union;
-    parts.push(`<button class="hud-stop hud-delete" id="hud-delete" type="button">${flanged ? 'Remove flanges' : olet ? 'Remove olet' : union ? 'Remove union' : coupling ? 'Remove coupling' : plain ? 'Remove point' : `Delete ${what}`}</button>`);
+    const half = olet && !!state.drawing.nodes.find((n) => n.id === sel.id)?.halfCoupling;
+    parts.push(`<button class="hud-stop hud-delete" id="hud-delete" type="button">${flanged ? 'Remove flanges' : half ? 'Remove half coupling' : olet ? 'Remove olet' : union ? 'Remove union' : coupling ? 'Remove coupling' : plain ? 'Remove point' : `Delete ${what}`}</button>`);
   }
   parts.push(`<span>snap ${state.drawing.options.snap} mm</span>`);
   if (state.drawing.options.schematic) parts.push('<span>not to scale</span>');
@@ -2763,7 +2798,7 @@ function oletDialog(ask: OletAsk): Promise<OletChoice | null> {
     // A tee is equal unless a smaller branch is picked; an olet's branch is
     // a size down unless said otherwise.
     const small = tee ? ask.header : DN_LIST[Math.max(0, at - 1)] ?? ask.header;
-    const name = tee ? 'Tee' : ask.joint === 'SW' ? 'Sockolet' : ask.joint === 'THD' ? 'Threadolet' : 'Weldolet';
+    const name = tee ? 'Tee' : ask.half ? 'Half coupling' : ask.joint === 'SW' ? 'Sockolet' : ask.joint === 'THD' ? 'Threadolet' : 'Weldolet';
     const sizes = tee ? DN_LIST.filter((dn) => DN_LIST.indexOf(dn) <= at) : DN_LIST;
     backdrop.innerHTML = `
 <div class="dialog" role="dialog" aria-label="${tee ? 'Tee' : 'Olet'}" data-editor="${tee ? 'tee' : 'olet'}">
@@ -2776,7 +2811,7 @@ function oletDialog(ask: OletAsk): Promise<OletChoice | null> {
       : 'The olet rides on the header, which keeps its full length. Type the dimension up to it to place it; draw the branch from it whenever you like, at the branch size.'
   }</p>
   <div class="btn-row">
-    <button class="btn-line solid" data-confirm>${tee ? 'Place tee' : 'Place olet'}</button>
+    <button class="btn-line solid" data-confirm>${tee ? 'Place tee' : ask.half ? 'Place half coupling' : 'Place olet'}</button>
     <button class="btn-line" data-cancel>Cancel</button>
   </div>
 </div>`;
@@ -3197,7 +3232,8 @@ function deleteSelection(): void {
   // A coupling goes, and the pipe runs on through as one.
   const coupling = sel.kind === 'node' && isCouplingPoint(state.drawing, sel.id);
   const union = coupling && !!state.drawing.nodes.find((n) => n.id === sel.id)?.union;
-  host.edit(flanged ? 'Remove flanges' : olet ? 'Remove olet' : union ? 'Remove union' : coupling ? 'Remove coupling' : plain ? 'Remove point' : 'Delete', (d) => {
+  const half = olet && !!state.drawing.nodes.find((n) => n.id === sel.id)?.halfCoupling;
+  host.edit(flanged ? 'Remove flanges' : half ? 'Remove half coupling' : olet ? 'Remove olet' : union ? 'Remove union' : coupling ? 'Remove coupling' : plain ? 'Remove point' : 'Delete', (d) => {
     if (sel.kind === 'run') deleteRunGroup(d, state.analysis, sel.id);
     else if (sel.kind === 'equipment') removeEquipment(d, sel.id);
     else if (sel.kind === 'node' && flanged) removeFlangeJoint(d, sel.id);

@@ -1840,6 +1840,7 @@ export function removeOlet(drawing: Drawing, nodeId: string): void {
   if (!node) return;
   node.olet = undefined;
   node.olets = undefined;
+  delete node.halfCoupling;
   if (node.fittingOverride === 'OLET') node.fittingOverride = undefined;
   node.joint = undefined;
   if (drawing.runs.filter((r) => r.from === nodeId || r.to === nodeId).length === 2) removeFlangeJoint(drawing, nodeId);

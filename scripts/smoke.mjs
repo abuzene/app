@@ -149,7 +149,7 @@ check('a length can be typed', await page.locator('#tab-body .run-list input[dat
 // Palette.
 await page.locator('#tab-body .run-list tbody tr').first().click();
 await page.waitForTimeout(200);
-check('the palette carries the fittings, couplings (SW, NPT), the threaded union, ball valves (flanged, air, SW, threaded), regulator, filter, relief, tee, olets, marks, equipment, move area and a weld', await page.locator('.tool').count(), (v) => v === 29, '29');
+check('the palette carries the fittings, couplings (SW, NPT), the threaded union, ball valves (flanged, air, SW, threaded), regulator, filter, relief, tee, olets, the half coupling, marks, equipment, move area and a weld', await page.locator('.tool').count(), (v) => v === 30, '30');
 check('and no slip-on or lap joint flange, which are not used here', await page.locator('.tool[data-kind="FLG_SO"], .tool[data-kind="FLG_LAP"]').count(), (v) => v === 0, '0');
 check('a tee can be placed on a header', await page.locator('.tool[data-branch="TEE"]').count(), (v) => v === 1, '1');
 check('the actuated ball valve is there', await page.locator('.tool[data-kind="BALL_ACT"]').count(), (v) => v === 1, '1');
@@ -4541,6 +4541,72 @@ const couplingsNow = async () => (await drawingNow()).nodes.filter((n) => n.fitt
   // Typed as a command it goes on a point too.
   await routeLine('1"\nSCH80\nORIGIN 0 0 0\nE 1000\n+UNION 600\nN 800');
   check('+UNION in the Command tab puts a union on a point', await unions(), (v) => v === 'THD@600,0', 'THD@600,0');
+  await page.selectOption('#joint', 'BW');
+}
+
+/* ------------------------------ a half coupling, and the end note typed */
+
+// "Add a half coupling that behaves exactly like a threadolet, and let me
+// change this text" (2026-09-30, the "CONT. FROM SH.2" on his sheet).
+{
+  await page.selectOption('#joint', 'THD');
+  await routeLine('2"\nSCH80\nORIGIN 0 0 0\nE 1200\nEND CONT');
+  const header = (await drawingNow()).runs[0].id;
+  const headerEl = page.locator(`#canvas [data-run="${header}"]`).first();
+  await headerEl.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await headerEl.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await page.waitForTimeout(250);
+  check('the palette has Half cplg among the branches', await page.locator('.tool[data-half]').innerText(), (v) => v.trim() === 'Half cplg', 'Half cplg');
+  await page.click('.tool[data-half]');
+  await page.waitForTimeout(300);
+  check('it asks like an olet: branch size and way', `${await page.locator('.dialog h3').innerText()} ${await page.locator('.dialog [data-f="olet-dir"]').count()}`, (v) => v === 'Half coupling on 2" 1', 'Half coupling on 2" 1');
+  await page.selectOption('.dialog [data-f="olet-dn"]', 'DN15');
+  await page.click('.dialog [data-confirm]');
+  await page.waitForTimeout(400);
+  const half = (await drawingNow()).nodes.find((n) => n.halfCoupling);
+  check('it rides on the header, threaded, the header one pipe', `${half?.fittingOverride} ${half?.joint} ${(await drawingNow()).runs.length}`, (v) => v === 'OLET THD 2', 'OLET THD 2 runs');
+  check('drawn as a sleeve standing on the header', await page.locator('#canvas .olet polygon.sym-fill').count(), (v) => v === 1, '1');
+  await page.click('#tabs button:has-text("Items")');
+  await page.waitForTimeout(200);
+  const halfLine = (await page.locator('#tab-body').innerText()).split('\n').find((l) => /HALF COUPLING/.test(l)) ?? '';
+  check('on the list as HALF COUPLING NPT 3000#, by the branch size', halfLine.split('\t').slice(1, 3).join(' '), (v) => v === 'HALF COUPLING NPT 3000# 1/2"', 'HALF COUPLING NPT 3000# 1/2"');
+  await page.click('#tabs button:has-text("Welds")');
+  await page.waitForTimeout(200);
+  check('welded to the header like an olet', (await page.locator('#tab-body table tbody tr').allInnerTexts()).some((r) => /BW\tHEADER \/ HALF COUPLING NPT 3000#/.test(r)), (v) => v === true, 'BW HEADER / HALF COUPLING NPT 3000#');
+  await page.click('#tabs button:has-text("Route")');
+  await page.waitForTimeout(150);
+  const hdot = page.locator(`#canvas circle.hit-dot[data-node="${half.id}"]`).first();
+  await hdot.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await hdot.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await page.waitForTimeout(250);
+  check('picked, it offers Remove half coupling', await page.locator('#hud-delete').innerText(), (v) => v === 'Remove half coupling', 'Remove half coupling');
+  await page.click('#hud-delete');
+  await page.waitForTimeout(300);
+  check('removed, the header is whole again', `${(await drawingNow()).runs.length} ${(await drawingNow()).nodes.some((n) => n.halfCoupling)}`, (v) => v === '1 false', '1 false');
+
+  // The end note, typed over on the touch; the size kept on the end stays.
+  await page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem('iso-draw.drawing.v1'));
+    const n = d.nodes.find((x) => x.terminal?.kind === 'CONTINUATION');
+    n.terminal.note = 'CONT. FROM SH.2';
+    n.terminal.dn = 'DN50';
+    // A sheet of no project: opening again renumbers a project's sheets
+    // and their CONT. notes with them.
+    d.meta.project = '';
+    localStorage.setItem('iso-draw.drawing.v1', JSON.stringify(d));
+  });
+  await page.reload();
+  await page.waitForTimeout(600);
+  await page.click('#fit');
+  await page.waitForTimeout(300);
+  const noteBox = await page.locator('#canvas [data-balloon^="en:"]').boundingBox();
+  await penTap(noteBox.x + noteBox.width / 2, noteBox.y + noteBox.height / 2);
+  check('a touch on the end note opens it for typing, as it reads', await page.locator('.dim-editor').inputValue(), (v) => v === 'CONT. FROM SH.2', 'CONT. FROM SH.2');
+  for (let i = 0; i < 20; i += 1) await page.locator('.dim-keypad [data-key="⌫"]').dispatchEvent('pointerdown', { bubbles: true });
+  for (const k of 'TO V-101') await page.locator(`.dim-keypad [data-key="${k}"]`).dispatchEvent('pointerdown', { bubbles: true });
+  await page.locator('.dim-keypad [data-key="OK"]').dispatchEvent('pointerdown', { bubbles: true });
+  await page.waitForTimeout(300);
+  check('typed, the note reads so and the end keeps its size', await page.evaluate(() => { const t = JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).nodes.find((x) => x.terminal?.kind === 'CONTINUATION').terminal; return `${t.note} ${t.dn}`; }), (v) => v === 'TO V-101 DN50', 'TO V-101 DN50');
   await page.selectOption('#joint', 'BW');
 }
 

@@ -450,6 +450,23 @@ ships, and the decisions already taken, so they are not re-litigated.
   (`.sym-gap`, a paper fill with no stroke) and the nut's double line
   across the middle, ±1.05 symbols, longer than the threads (his three
   corrections). HUD/panel **Remove union**; 3D: the ends and a wider nut.
+  **Half coupling** (his ask, same day: "a half cplng that behaves exactly
+  like a threadolet"): an olet point with `node.halfCoupling` (palette
+  Branch `Half cplg`, `.tool[data-half]`, `{ olet: 'THD', half: true }` →
+  `placeOlet(…, half)`, the olet dialog titled "Half coupling on …").
+  Everything olets do (rides on the header, branch drawn from it, header
+  weld BW, branch thread) with its own name `HALF COUPLING NPT 3000#`
+  (`oletLabel(joint, half)`, on the list by the branch size), take-out
+  `oletTakeout(…, half)` = header OD/2 + `halfCouplingLength` (half the
+  coupling's W) less the thread made up, drawn as a sleeve standing on
+  the header (`halfCouplingSymbol`), a straight sleeve in 3D, **Remove
+  half coupling**; its panel's Ends select is Threaded / Socket weld. One
+  point carries one kind (an olet and a half coupling do not share it).
+  **An end note is typed over on the touch** (same day, his "CONT. FROM
+  SH.2": "let me change this text"): `data-balloon="en:<node>"` →
+  `onEditEndNote` (letter keypad, "Remove this text"), as a run note; the
+  panel's End note field no longer drops the rest of the end (a
+  continuation's `dn`/`schedule`).
   Branch (tee, olets), Marks
   (Support, L50 support, AG/UG), Joints (a BW weld: `placeWeld` splits the
   run at a plain point, welded pipe to pipe, dimension opened). Two columns

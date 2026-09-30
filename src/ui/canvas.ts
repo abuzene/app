@@ -26,6 +26,8 @@ export interface CanvasCallbacks {
   onEditSupport(componentId: string, clientX: number, clientY: number): void;
   /** A run's note was tapped, to be typed over. */
   onEditRunNote(runId: string, clientX: number, clientY: number): void;
+  /** The note on a line's end, typed over on the touch. */
+  onEditEndNote(nodeId: string, clientX: number, clientY: number): void;
   /** The right mouse button while drawing: the pencil is put down. */
   onStopDrawing(): void;
   /** Drags one end of a run along the run's own line. */
@@ -461,6 +463,10 @@ export class Canvas {
         this.capture(event.pointerId);
         this.drag.opened = true;
         this.cb.onEditRunNote(key.slice(3), event.clientX, event.clientY);
+      } else if (key.startsWith('en:')) {
+        this.capture(event.pointerId);
+        this.drag.opened = true;
+        this.cb.onEditEndNote(key.slice(3), event.clientX, event.clientY);
       }
       return;
     }
