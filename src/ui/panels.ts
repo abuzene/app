@@ -217,7 +217,8 @@ function nodeProperties(host: Host, nodeId: string): string {
   ${pendingOlets
     .map(
       (mark, k) => `<div class="row"><label>${pendingOlets.length > 1 ? `Olet ${k + 1} size` : 'Branch size'}</label><select data-olet-dn="${mark.markIndex}">${options(DN_LIST, mark.dn, SIZE_LABELS)}</select></div>
-         <div class="row"><label>${pendingOlets.length > 1 ? `Olet ${k + 1} goes` : 'Branch goes'}</label><select data-olet-dir="${mark.markIndex}">${options(AXES.filter((axis) => !axisAlong(host, nodeId, axis)), mark.dir, AXIS_NAMES)}</select></div>`,
+         <div class="row"><label>${pendingOlets.length > 1 ? `Olet ${k + 1} goes` : 'Branch goes'}</label><select data-olet-dir="${mark.markIndex}">${options(AXES.filter((axis) => !axisAlong(host, nodeId, axis)), mark.dir, AXIS_NAMES)}</select></div>
+         <div class="row"><label>${pendingOlets.length > 1 ? `Olet ${k + 1} goes on, sheet` : 'Goes on, sheet'}</label><input type="number" inputmode="numeric" min="1" data-olet-sheet="${mark.markIndex}" value="${mark.note?.match(/SH\.?\s*(\d+)/i)?.[1] ?? ''}" placeholder="none" /></div>`,
     )
     .join('')}
   ${
@@ -1074,6 +1075,28 @@ function wire(body: HTMLElement, host: Host): void {
       }
       host.edit('Move olet', (d) => {
         applyChainDimension(d, host.state.analysis, `olet:${id}`, value);
+      });
+    });
+    // "CONT. ON SH.n" written at the olet's line (his ask, 2026-10-01); the
+    // number his to change, cleared to take it off.
+    nodeEditor.querySelectorAll<HTMLInputElement>('[data-olet-sheet]').forEach((input) => {
+      input.addEventListener('change', () => {
+        const at = Number(input.dataset.oletSheet);
+        const n = Math.round(Number(input.value));
+        host.edit('Olet goes on', (d) => {
+          const node = d.nodes.find((x) => x.id === id);
+          if (!node) return;
+          const marks = oletMarks(node).map((m) => ({ ...m }));
+          const mark = marks[at];
+          if (!mark) return;
+          if (!input.value.trim() || !(n > 0)) {
+            mark.note = undefined;
+            if (d.itemOverrides) delete d.itemOverrides[`on:${id}:${mark.dir}`];
+          } else if (mark.note && /SH\.?\s*\d+/i.test(mark.note)) mark.note = mark.note.replace(/(SH\.?\s*)\d+/i, `$1${n}`);
+          else mark.note = `CONT. ON SH.${n}`;
+          node.olets = marks;
+          node.olet = undefined;
+        });
       });
     });
     nodeEditor.querySelectorAll<HTMLSelectElement>('[data-olet-dn], [data-olet-dir]').forEach((select) => {

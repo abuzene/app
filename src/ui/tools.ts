@@ -9,7 +9,7 @@ import { runOffsetAtPaper } from '../render/renderer';
 import { componentSymbol, halfCouplingSymbol, jointMark, oletSymbol, type Frame } from '../render/symbols';
 
 /** Branch fittings act on the header, they do not sit in the line. */
-type BranchTool = { branch: 'TEE' } | { olet: JointType; half?: true } | { weld: 'BW' } | { equipment: true } | { measure: true } | { area: true } | { valve: ComponentKind; ends: 'SW' | 'THD' };
+type BranchTool = { branch: 'TEE' } | { olet: JointType; half?: true } | { weld: 'BW' } | { equipment: true } | { measure: true } | { area: true } | { circle: true } | { valve: ComponentKind; ends: 'SW' | 'THD' };
 type Tool = ComponentKind | BranchTool;
 
 function isBranch(tool: Tool): tool is BranchTool {
@@ -26,7 +26,7 @@ const GROUPS: ToolGroup[] = [
   { label: 'Fittings', kinds: ['RED_CONC', 'RED_ECC', 'CAP', 'TRANSITION', 'COUPLING_SW', 'COUPLING_THD', 'UNION'] },
   { label: 'Valves', kinds: ['BALL', 'BALL_ACT', { valve: 'BALL', ends: 'SW' }, { valve: 'BALL', ends: 'THD' }, 'REGULATOR', 'FILTER', 'RELIEF'] },
   { label: 'Branch', kinds: [{ branch: 'TEE' }, { olet: 'BW' }, { olet: 'SW' }, { olet: 'THD' }, { olet: 'THD', half: true }] },
-  { label: 'Marks', kinds: ['SUPPORT', 'SUPPORT_L', 'GROUND', { equipment: true }, { measure: true }, { area: true }] },
+  { label: 'Marks', kinds: ['SUPPORT', 'SUPPORT_L', 'GROUND', { equipment: true }, { measure: true }, { area: true }, { circle: true }] },
   { label: 'Joints', kinds: [{ weld: 'BW' }] },
 ];
 
@@ -125,6 +125,17 @@ function areaIcon(): string {
     `<line x1="12" y1="24" x2="30" y2="15" stroke="currentColor" stroke-width="2.2"/>` +
     `<line x1="30" y1="34" x2="42" y2="40" stroke="currentColor" stroke-width="1.6"/>` +
     `<path d="M42 40 L36 40 M42 40 L39.5 35" fill="none" stroke="currentColor" stroke-width="1.6"/>` +
+    `</svg>`
+  );
+}
+
+/** A circle round something, with a note on a leader. */
+function circleIcon(): string {
+  return (
+    `<svg class="tool-icon" viewBox="0 0 48 48" aria-hidden="true">` +
+    `<circle cx="17" cy="28" r="11" fill="none" stroke="currentColor" stroke-width="1.8"/>` +
+    `<line x1="25" y1="20" x2="33" y2="12" stroke="currentColor" stroke-width="1.3"/>` +
+    `<text x="34" y="13" font-size="9" font-family="sans-serif" fill="currentColor">AB</text>` +
     `</svg>`
   );
 }
@@ -813,6 +824,14 @@ export function renderTools(container: HTMLElement, host: Host): void {
                 `</button>`
               );
             }
+            if ('circle' in tool) {
+              return (
+                `<button class="tool" data-circle="1" title="Draw a circle round something with the pen, then write a note on it">` +
+                circleIcon() +
+                `<span class="tool-name">Circle note</span>` +
+                `</button>`
+              );
+            }
             if ('area' in tool) {
               return (
                 `<button class="tool" data-area="1" title="Draw a box round part of the drawing, then drag inside it to move it">` +
@@ -880,6 +899,7 @@ export function renderTools(container: HTMLElement, host: Host): void {
       if (button.dataset.weld) placeWeld(host);
       else if (button.dataset.equipment) placeEquipment(host);
       else if (button.dataset.area) host.startArea();
+      else if (button.dataset.circle) host.startCircle();
       else if (button.dataset.measure) {
         const sel = host.state.selection;
         if (sel?.kind === 'node') host.measureFrom(sel.id);

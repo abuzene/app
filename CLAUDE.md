@@ -880,6 +880,28 @@ ships, and the decisions already taken, so they are not re-litigated.
   clear the pipe (it was set beside the point and ran across the line);
   draggable (`itemOverrides['tn:<node>']`, leader once moved), in
   `figures` so weld tags keep off it, and a fixed text for Tidy.
+- **An olet's line goes on to another sheet** (his ask, 2026-10-01: "add
+  at the olets line 'continue on sheet no.', the number mine to change"):
+  each olet mark waiting for its branch carries `note` (`node.olets[i].note`,
+  `OletMark.note`), written past its dashed stub (`leaderNote` in the
+  renderer, key `on:<node>:<dir>`, dragged with a leader back once moved,
+  placed by Tidy as a note). Its panel's **Goes on, sheet**
+  (`[data-olet-sheet]` = mark index) writes `CONT. ON SH.n` (or changes the
+  number in the text there), cleared to take it off; a touch on the note
+  opens the letter keypad (`editNote` in main.ts, "Remove this text").
+  `renumberSheets` and `sheetNumberingOrder` read these notes as they do
+  the line ends'. A branch drawn from the olet uses its end's End note.
+- **Circle notes** (his ask, same day: "a circle round an object, and a
+  comment with a line connected to the circle"): Marks palette **Circle
+  note** (`.tool[data-circle]` → `host.startCircle`, `canvas.circleMode`):
+  the next pen drag draws a circle from its middle out (`onCircleDrawn`),
+  then the letter keypad asks for the note. Kept in `drawing.circles`
+  (`CircleNote`: the nearest point `node` with the centre `dx`/`dy` off it
+  on paper, so it stays round what it was drawn round; `x`/`y` if that
+  point goes; `r`; `text`). Drawn on screen and sheet (`.circle-note`), the
+  note on a leader from the circle (`cn:<id>`, dragged via
+  `itemOverrides`, placed by Tidy). A touch on the note opens it, with
+  **Remove the circle**; a circle left with no note goes.
 - **Right click while drawing** puts the pencil down (`onStopDrawing`
   from canvas.ts; the right button still pans when not drawing).
 - Supports and the AG/UG mark are **notes, not material**: no BOM line, no
@@ -1122,7 +1144,12 @@ ships, and the decisions already taken, so they are not re-litigated.
   is **checked against the weld's pipe** (`weldSizeTag`: "1/2", "1-1/2"
   or "1 1/2", "4"): a mismatch (`Weld.sizeMismatch`) moves no count, is
   said when typed, sits in `analysis.warnings` (HUD), is red in the Welds
-  tab and, on screen only, on the drawing. The counts are worked out
+  tab and, on screen only, on the drawing. **An olet's header weld is
+  sized by the olet** (his HYF sheet, same day: "why are the welds marked
+  red" — HYF 1/2.5 on a 1/2" half coupling's header weld read against the
+  4" header): it is counted in the branch's size, and a number naming the
+  header's size is taken too (`altSize` in `analyse`), standing on its own
+  without moving a count. The counts are worked out
   afresh **at start** and after a Drive/folder sync (`recompute`): the
   first analysis used to read the `weldStarts` saved with the sheet, stale
   once an earlier sheet had changed.

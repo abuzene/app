@@ -109,7 +109,7 @@ const weldEndCache = new Map<string, Record<string, WeldCounter>>();
 function sheetNumberingOrder<T extends { id: string; drawing: Drawing }>(sheets: T[]): T[] {
   const byNo = [...sheets].sort((a, b) => sheetNumber(a.drawing.meta.sheet) - sheetNumber(b.drawing.meta.sheet));
   const no = (t: T) => sheetNumber(t.drawing.meta.sheet);
-  const notes = (t: T) => t.drawing.nodes.map((n) => n.terminal?.note ?? '').filter(Boolean);
+  const notes = (t: T) => t.drawing.nodes.flatMap((n) => [n.terminal?.note ?? '', ...(n.olets ?? []).map((m) => m.note ?? '')]).filter(Boolean);
   const parent = new Map<string, T>();
   for (const sheet of byNo) {
     const from = notes(sheet).map((note) => note.match(/CONT\.?\s*FROM\s*SH\.?\s*(\d+)/i)).find(Boolean);
@@ -404,7 +404,18 @@ const host: Host = {
     render();
     host.notify(`Replaced: ${COMPONENT_LABEL[kind] ?? kind}${ends ? (ends === 'SW' ? ', socket weld ends' : ', threaded ends') : ''} in its place.`);
   },
+  startCircle() {
+    canvas.circleMode = true;
+    canvas.areaMode = false;
+    canvas.area = null;
+    canvas.setAnchor(null);
+    state.preview = null;
+    state.selection = null;
+    render();
+    host.notify('Draw the circle with the pen: from its middle out.');
+  },
   startArea() {
+    canvas.circleMode = false;
     canvas.areaMode = true;
     canvas.area = null;
     canvas.setAnchor(null);
@@ -774,6 +785,78 @@ function closeDimensionEditor(): void {
  * the centre of the elbow to the pipe", 2026-09-26).
  */
 let measureDoneAt = 0;
+/**
+ * An olet's line note (`on:<node>:<dir>`, "CONT. ON SH.2") or a circle's
+ * note (`cn:<id>`) typed over on the letter keypad (his ask, 2026-10-01).
+ */
+function editNote(key: string, clientX: number, clientY: number): void {
+  const [kind, id, dir] = [key.slice(0, 2), key.slice(3).split(':')[0], key.slice(3).split(':')[1]];
+  if (kind === 'on') {
+    const node = state.drawing.nodes.find((n) => n.id === id);
+    const current = node ? oletMarks(node).find((m) => m.dir === dir)?.note ?? '' : '';
+    const write = (d: Drawing, note: string | undefined) => {
+      const target = d.nodes.find((n) => n.id === id);
+      if (!target) return;
+      target.olets = oletMarks(target).map((m) => (m.dir === dir ? { ...m, note } : { ...m }));
+      target.olet = undefined;
+      if (!note && d.itemOverrides) delete d.itemOverrides[key];
+    };
+    openInlineEditor(
+      current,
+      'text',
+      clientX,
+      clientY,
+      (text) => {
+        const note = text.trim().toUpperCase();
+        if (note === current) return;
+        host.edit('Edit olet note', (d) => write(d, note || undefined));
+      },
+      [
+        {
+          label: 'Remove this text',
+          act: () => {
+            host.edit('Remove olet note', (d) => write(d, undefined));
+            host.notify('Text removed. The olet\'s panel (Goes on, sheet) can write it again.');
+          },
+        },
+      ],
+    );
+    return;
+  }
+  const ring = state.drawing.circles?.find((c) => c.id === id);
+  if (!ring) return;
+  const remove = (d: Drawing) => {
+    d.circles = (d.circles ?? []).filter((c) => c.id !== id);
+    if (d.circles.length === 0) d.circles = undefined;
+    if (d.itemOverrides) delete d.itemOverrides[key];
+  };
+  openInlineEditor(
+    ring.text,
+    'text',
+    clientX,
+    clientY,
+    (text) => {
+      const note = text.trim().toUpperCase();
+      if (note === ring.text) return;
+      host.edit(note ? 'Circle note' : 'Remove circle', (d) => {
+        // A circle with nothing written on it goes.
+        if (!note) return remove(d);
+        const target = d.circles?.find((c) => c.id === id);
+        if (target) target.text = note;
+      });
+    },
+    [
+      {
+        label: 'Remove the circle',
+        act: () => {
+          host.edit('Remove circle', remove);
+          host.notify('Circle and its note removed.');
+        },
+      },
+    ],
+  );
+}
+
 function finishMeasure(selection: Selection): void {
   const from = state.measureFrom;
   state.measureFrom = null;
@@ -812,6 +895,39 @@ function finishMeasure(selection: Selection): void {
 /* ----------------------------------------------------------------- canvas */
 
 const canvas = new Canvas(svg, {
+  onCircleDrawn(ring) {
+    canvas.circleMode = false;
+    if (!ring) {
+      render();
+      return;
+    }
+    // It goes with the point nearest its middle, so it stays round what it
+    // was drawn round when the drawing is laid out again.
+    let near: { id: string; x: number; y: number } | null = null;
+    let best = Infinity;
+    for (const n of state.drawing.nodes) {
+      const p = paperOf(state.analysis, state.drawing, n.id);
+      if (!p) continue;
+      const dist = Math.hypot(p.x - ring.cx, p.y - ring.cy);
+      if (dist < best) {
+        best = dist;
+        near = { id: n.id, x: p.x, y: p.y };
+      }
+    }
+    const id = uid('c');
+    host.edit('Circle note', (d) => {
+      d.circles = [
+        ...(d.circles ?? []),
+        { id, node: near?.id, dx: near ? ring.cx - near.x : 0, dy: near ? ring.cy - near.y : 0, x: ring.cx, y: ring.cy, r: ring.r, text: '' },
+      ];
+    });
+    const at = canvas.toClient({ x: ring.cx + ring.r * Math.SQRT1_2, y: ring.cy - ring.r * Math.SQRT1_2 });
+    host.notify('Write the note for the circle.');
+    editNote(`cn:${id}`, at.x, at.y);
+  },
+  onEditNote(key, clientX, clientY) {
+    editNote(key, clientX, clientY);
+  },
   onAreaSelect(box) {
     canvas.areaMode = false;
     const ids = box
@@ -1218,7 +1334,7 @@ const canvas = new Canvas(svg, {
     const balloon = key.startsWith('item:') ? key.slice(5) : null;
     // A support's name opened for typing on the touch; a drag means it was
     // being moved, not typed, so the box goes away.
-    if (balloon?.startsWith('sup:') || balloon?.startsWith('rn:') || balloon?.startsWith('en:')) closeDimensionEditor();
+    if (balloon?.startsWith('sup:') || balloon?.startsWith('rn:') || balloon?.startsWith('en:') || balloon?.startsWith('on:') || balloon?.startsWith('cn:')) closeDimensionEditor();
     const apply = (d: Drawing) => {
       if (balloon) {
         // A support's name Tidy set centred stays centred under the pen.
@@ -1803,6 +1919,7 @@ function renderHud(): void {
   }
   if (state.joinFrom) parts.push('<span>join — tap the other open end</span>');
   else if (sel?.kind === 'node' && state.analysis.nodeInfo.get(sel.id)?.degree === 1) parts.push('<button class="hud-stop" id="hud-join" type="button">Join to another end</button>');
+  if (canvas.circleMode) parts.push('<span>circle — draw it with the pen, from its middle out</span><button class="hud-stop" id="hud-area-done" type="button">Cancel</button>');
   if (canvas.areaMode) parts.push('<span>box — draw it round what to move</span><button class="hud-stop" id="hud-area-done" type="button">Cancel</button>');
   else if (canvas.area) parts.push(`<span>${canvas.area.length} point${canvas.area.length === 1 ? '' : 's'} held — drag inside the box to move</span><button class="hud-stop" id="hud-area-done" type="button">Done</button>`);
   if (state.measureFrom) parts.push('<span>dimension — tap the other point</span>');
@@ -1875,6 +1992,7 @@ function renderHud(): void {
     host.notify('Pick the new item in the palette: a valve, regulator, filter or relief valve (or the other reducer).');
   });
   hudEl.querySelector('#hud-area-done')?.addEventListener('click', () => {
+    canvas.circleMode = false;
     canvas.areaMode = false;
     canvas.area = null;
     render();
@@ -3309,6 +3427,7 @@ window.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') {
     state.measureFrom = null;
     state.joinFrom = null;
+    canvas.circleMode = false;
     canvas.areaMode = false;
     canvas.area = null;
     state.replacing = null;

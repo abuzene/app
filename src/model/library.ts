@@ -155,13 +155,19 @@ export function renumberSheets(only?: string): string[] {
         drawing.meta.sheet = sheet;
         dirty = true;
       }
+      const renumber = (note: string) => note.replace(/(CONT\. (?:ON|FROM) SH\.)(\d+)/, (all, head: string, k: string) => (next.has(Number(k)) ? `${head}${next.get(Number(k))}` : all));
       for (const node of drawing.nodes) {
         const note = node.terminal?.note;
-        if (!note) continue;
-        const renamed = note.replace(/(CONT\. (?:ON|FROM) SH\.)(\d+)/, (all, head: string, k: string) => (next.has(Number(k)) ? `${head}${next.get(Number(k))}` : all));
-        if (renamed !== note) {
-          node.terminal!.note = renamed;
+        if (note && renumber(note) !== note) {
+          node.terminal!.note = renumber(note);
           dirty = true;
+        }
+        // An olet's "CONT. ON SH.n" too.
+        for (const mark of node.olets ?? []) {
+          if (mark.note && renumber(mark.note) !== mark.note) {
+            mark.note = renumber(mark.note);
+            dirty = true;
+          }
         }
       }
       if (!dirty) return;

@@ -168,7 +168,7 @@ export interface IsoNode {
    */
   olet?: { dir: Axis; dn: string };
   /** Several olets on one point, each with its own way and size. Read through `oletMarks`. */
-  olets?: { dir: Axis; dn: string }[];
+  olets?: { dir: Axis; dn: string; note?: string }[];
   /**
    * The olets on this point are half couplings (his ask, 2026-09-30: "a
    * half coupling that behaves exactly like a threadolet"): set on the
@@ -182,6 +182,24 @@ export interface Measure {
   id: string;
   a: string;
   b: string;
+}
+
+/**
+ * A circle drawn round something with a note on a leader (his ask,
+ * 2026-10-01: "I put a circle round an object and add a comment with a line
+ * to the circle"). It goes with the point it was drawn nearest (`node`, its
+ * centre `dx`/`dy` off that point on paper), else stays at `x`/`y`; `r` on
+ * paper. The note's own drag is `itemOverrides['cn:<id>']`, off the centre.
+ */
+export interface CircleNote {
+  id: string;
+  node?: string;
+  dx: number;
+  dy: number;
+  x: number;
+  y: number;
+  r: number;
+  text: string;
 }
 
 /**
@@ -413,6 +431,8 @@ export interface Drawing {
   equipment?: Equipment[];
   /** Dimensions put in by hand between two points. */
   measures?: Measure[];
+  /** Circles round things, each with a note. */
+  circles?: CircleNote[];
   /**
    * Where each item balloon is, by list line key: on a chosen one of the
    * item's places on the drawing, or taken off altogether. Unset, it goes

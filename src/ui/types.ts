@@ -103,6 +103,8 @@ export interface Host {
   replaceItem(compId: string, kind: ComponentKind, ends?: 'SW' | 'THD'): void;
   /** The next pen drag draws a box round part of the drawing, to move what it holds. */
   startArea(): void;
+  /** The next pen drag draws a circle, then a note is written on it. */
+  startCircle(): void;
   /** Starts a dimension by hand from a point; the next point tapped ends it. */
   measureFrom(nodeId: string): void;
   /** Starts joining an open end to another; the next end tapped is joined to it. */

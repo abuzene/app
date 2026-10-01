@@ -28,6 +28,8 @@ export interface CanvasCallbacks {
   onEditRunNote(runId: string, clientX: number, clientY: number): void;
   /** The note on a line's end, typed over on the touch. */
   onEditEndNote(nodeId: string, clientX: number, clientY: number): void;
+  /** An olet's line note (`on:<node>:<dir>`) or a circle's note (`cn:<id>`) touched. */
+  onEditNote(key: string, clientX: number, clientY: number): void;
   /** The right mouse button while drawing: the pencil is put down. */
   onStopDrawing(): void;
   /** Drags one end of a run along the run's own line. */
@@ -40,6 +42,8 @@ export interface CanvasCallbacks {
   onAreaSelect(box: { minX: number; minY: number; maxX: number; maxY: number } | null): void;
   /** What the box holds is being dragged: the drag so far, in paper units. */
   onAreaMove(delta: { dx: number; dy: number }, commit: boolean): void;
+  /** A circle drawn with the pen for a note (null: put away with no circle). */
+  onCircleDrawn(ring: { cx: number; cy: number; r: number } | null): void;
 }
 
 /** How a dimension lies, as its figure's target carries it. */
@@ -54,7 +58,7 @@ export interface DimFrame {
 }
 
 interface DragState {
-  kind: 'pan' | 'route' | 'slide-component' | 'slide-node' | 'stretch' | 'slide-tag' | 'slide-dim' | 'area' | 'move-area';
+  kind: 'pan' | 'route' | 'slide-component' | 'slide-node' | 'stretch' | 'slide-tag' | 'slide-dim' | 'area' | 'move-area' | 'circle';
   /** The dimension being moved. */
   dim?: DimFrame;
   /** Which end of the run a stretch moves. */
@@ -112,6 +116,12 @@ export class Canvas {
   areaMode = false;
   area: string[] | null = null;
   private band: { x0: number; y0: number; x1: number; y1: number } | null = null;
+  /**
+   * A circle round something with a note on a leader (his ask, 2026-10-01):
+   * the next pen drag draws it, from its centre out, while `circleMode` is on.
+   */
+  circleMode = false;
+  private ring: { cx: number; cy: number; r: number } | null = null;
 
   constructor(svg: SVGSVGElement, callbacks: CanvasCallbacks) {
     this.svg = svg;
@@ -212,6 +222,7 @@ export class Canvas {
     const rect = (b: { minX: number; minY: number; maxX: number; maxY: number }, cls: string) =>
       `<rect class="${cls}" x="${b.minX.toFixed(2)}" y="${b.minY.toFixed(2)}" width="${(b.maxX - b.minX).toFixed(2)}" height="${(b.maxY - b.minY).toFixed(2)}"/>`;
     let out = '';
+    if (this.ring) out += `<circle class="area-band" cx="${this.ring.cx.toFixed(2)}" cy="${this.ring.cy.toFixed(2)}" r="${this.ring.r.toFixed(2)}"/>`;
     if (this.band) {
       const { x0, y0, x1, y1 } = this.band;
       out += rect({ minX: Math.min(x0, x1), minY: Math.min(y0, y1), maxX: Math.max(x0, x1), maxY: Math.max(y0, y1) }, 'area-band');
@@ -264,6 +275,12 @@ export class Canvas {
     this.view.x += before.x - after.x;
     this.view.y += before.y - after.y;
     this.render();
+  }
+
+  /** Where a point of the paper is on the screen. */
+  toClient(p: { x: number; y: number }): { x: number; y: number } {
+    const rect = this.svg.getBoundingClientRect();
+    return { x: rect.left + ((p.x - this.view.x) / Math.max(this.view.w, 1e-9)) * rect.width, y: rect.top + ((p.y - this.view.y) / Math.max(this.view.h, 1e-9)) * rect.height };
   }
 
   private toPaper(clientX: number, clientY: number): { x: number; y: number } {
@@ -359,6 +376,14 @@ export class Canvas {
       event.preventDefault();
       this.capture(event.pointerId);
       this.drag = { kind: 'move-area', pointerId: event.pointerId, startClientX: event.clientX, startClientY: event.clientY, startView, moved: false };
+      return;
+    }
+    if (!panRequested && this.circleMode) {
+      event.preventDefault();
+      this.capture(event.pointerId);
+      this.ring = { cx: here.x, cy: here.y, r: 0 };
+      this.drag = { kind: 'circle', pointerId: event.pointerId, startClientX: event.clientX, startClientY: event.clientY, startView, moved: false };
+      this.render();
       return;
     }
     if (!panRequested && this.areaMode) {
@@ -467,6 +492,10 @@ export class Canvas {
         this.capture(event.pointerId);
         this.drag.opened = true;
         this.cb.onEditEndNote(key.slice(3), event.clientX, event.clientY);
+      } else if (key.startsWith('on:') || key.startsWith('cn:')) {
+        this.capture(event.pointerId);
+        this.drag.opened = true;
+        this.cb.onEditNote(key, event.clientX, event.clientY);
       }
       return;
     }
@@ -680,6 +709,12 @@ export class Canvas {
       this.render();
       return;
     }
+    if (drag.kind === 'circle') {
+      const here = this.toPaper(event.clientX, event.clientY);
+      if (this.ring) this.ring.r = Math.hypot(here.x - this.ring.cx, here.y - this.ring.cy);
+      this.render();
+      return;
+    }
     if (drag.kind === 'move-area') {
       if (!drag.moved) return;
       const here = this.toPaper(event.clientX, event.clientY);
@@ -843,6 +878,12 @@ export class Canvas {
     this.svg.classList.remove('panning');
     if (this.svg.hasPointerCapture(event.pointerId)) this.svg.releasePointerCapture(event.pointerId);
 
+    if (drag.kind === 'circle') {
+      const ring = this.ring;
+      this.ring = null;
+      this.cb.onCircleDrawn(ring && drag.moved && ring.r > 0 ? ring : null);
+      return;
+    }
     if (drag.kind === 'area') {
       const band = this.band;
       this.band = null;

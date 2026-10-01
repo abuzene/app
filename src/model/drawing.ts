@@ -378,6 +378,8 @@ export function oletLabel(joint: JointType, half = false): string {
 export interface OletMark {
   dir: Axis;
   dn: string;
+  /** Where its line goes on ("CONT. ON SH.2"), written at its stub's end. */
+  note?: string;
 }
 
 /** The olets marked on a point, however they were stored. */
@@ -393,7 +395,7 @@ export interface OletLegs {
   /** The first branch, for what only ever wants one. */
   branch: Run | null;
   /** Olets marked but not yet drawn from, with their place in the marks. */
-  pending: { dir: Axis; dn: string; markIndex: number }[];
+  pending: { dir: Axis; dn: string; note?: string; markIndex: number }[];
 }
 
 /**
@@ -1159,6 +1161,8 @@ export function analyse(drawing: Drawing): Analysis {
   const runIndex = new Map(drawing.runs.map((r, i) => [r.id, i]));
   const defaultJoint = drawing.options.joint ?? 'BW';
 
+  /** A second size a weld's number may name: an olet's header weld, the header's. */
+  const altSize = new Map<string, string>();
   const pushJoint = (
     key: string,
     joint: JointType,
@@ -1311,10 +1315,15 @@ export function analyse(drawing: Drawing): Analysis {
           } else {
             // Each olet is welded to the header wall whatever its branch is.
             oletEntries(legs).forEach((entry, k) => {
+              // Sized, and so numbered, by the olet (his HYF sheet,
+              // 2026-10-01: "HYF 1/2.5" is the 1/2" threadolet's weld on the
+              // 4" header); the header's size is taken too when typed.
+              const headerKey = k === 0 ? `n:${node.id}:header` : `n:${node.id}:header:${entry.dir}`;
+              altSize.set(headerKey, legs.header[0]?.dn ?? run.dn);
               pushJoint(
-                k === 0 ? `n:${node.id}:header` : `n:${node.id}:header:${entry.dir}`,
+                headerKey,
                 'BW',
-                legs.header[0]?.dn ?? run.dn,
+                entry.dn,
                 run.schedule,
                 `HEADER / ${oletLabel(nodeJoint, !!node.halfCoupling)}`,
                 node.pos,
@@ -1493,11 +1502,14 @@ export function analyse(drawing: Drawing): Analysis {
       const size = typedSize(tail ? tail[1] : typed.replace(/\d+$/, ''));
       // Checked against the weld's own size (his ask, same day: "make sure
       // the number before the point is the pipe's size").
-      if (size && size !== weldSizeTag(j.dn)) {
+      const alt = altSize.get(j.key);
+      if (size && size !== weldSizeTag(j.dn) && !(alt && size === weldSizeTag(alt))) {
         sizeMismatch = size;
         warnings.push(`Weld ${typed} reads ${size.replace('-', ' ')}" but its pipe is ${sizeLabel(j.dn)}.`);
       }
-      if (override?.alone || sizeMismatch) {
+      // A number naming the other size it may (an olet's header) is its own.
+      const otherSize = !!size && !sizeMismatch && size !== weldSizeTag(j.dn);
+      if (override?.alone || sizeMismatch || otherSize) {
         // This one alone, or a number for another size: it keeps its place
         // in its own size's count, and the welds after it keep theirs.
         nextNumber(j.dn);

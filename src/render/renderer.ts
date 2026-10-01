@@ -1175,6 +1175,7 @@ export function renderDrawing(state: RenderState): string {
     if (!legs) continue;
     const here = paper(nodeId);
     if (!here) continue;
+    const waiting = [...legs.pending];
     for (const entry of oletEntries(legs)) {
       let out: Pt | null = null;
       let branchPlane: { across: Pt; up: Pt } | null = null;
@@ -1191,6 +1192,16 @@ export function renderDrawing(state: RenderState): string {
         out = { x: here.x + d.x * 10, y: here.y + d.y * 10 };
         branchPlane = symbolPlane(drawing, info.node.pos, add(info.node.pos, AXIS_VECTOR[entry.dir]));
         stub = `<line class="sym-dashed" x1="${(here.x + d.x * size * 0.9).toFixed(2)}" y1="${(here.y + d.y * size * 0.9).toFixed(2)}" x2="${(here.x + d.x * size * 2.6).toFixed(2)}" y2="${(here.y + d.y * size * 2.6).toFixed(2)}"/>`;
+        // Where its line goes on, at the stub's end (his ask, 2026-10-01:
+        // "continue on sheet no." on the olet's line, the number his to change).
+        const at = waiting.findIndex((m) => m.dir === entry.dir);
+        const mark = at >= 0 ? waiting.splice(at, 1)[0] : undefined;
+        if (mark?.note) {
+          const end = { x: here.x + d.x * size * 2.6, y: here.y + d.y * size * 2.6 };
+          const note = leaderNote(`on:${nodeId}:${entry.dir}`, mark.note, end, d, size, hitR, drawing, collect);
+          stub += note.svg;
+          weldHits += note.hit;
+        }
       }
       if (!out) continue;
       const f = frameFor(here.x, here.y, out.x, out.y, 0, size, branchPlane?.across, branchPlane?.up);
@@ -1253,7 +1264,29 @@ export function renderDrawing(state: RenderState): string {
     equipmentHits += `<polygon class="hit-box" data-equipment="${box.id}" data-ax="${at.x.toFixed(2)}" data-ay="${at.y.toFixed(2)}" points="${points}"/>`;
   }
 
-  welds = olets + tees + equipment + welds + balloons + callouts;
+  // Circles drawn round things, each with its note on a leader from the
+  // circle (his ask, 2026-10-01).
+  let circles = '';
+  for (const ring of drawing.circles ?? []) {
+    const base = ring.node ? paper(ring.node) : null;
+    const c = base ? { x: base.x + ring.dx, y: base.y + ring.dy } : { x: ring.x, y: ring.y };
+    const d = { x: Math.SQRT1_2, y: -Math.SQRT1_2 };
+    const edge = { x: c.x + d.x * ring.r, y: c.y + d.y * ring.r };
+    circles += `<circle class="circle-note" cx="${c.x.toFixed(2)}" cy="${c.y.toFixed(2)}" r="${ring.r.toFixed(2)}"/>`;
+    if (ring.text) {
+      const onRing = (to: Pt) => {
+        const len = Math.hypot(to.x - c.x, to.y - c.y) || 1;
+        return { x: c.x + ((to.x - c.x) / len) * ring.r, y: c.y + ((to.y - c.y) / len) * ring.r };
+      };
+      const note = leaderNote(`cn:${ring.id}`, ring.text, edge, d, size, hitR, drawing, collect, onRing, 1.6);
+      circles += note.svg;
+      weldHits += note.hit;
+    } else {
+      weldHits += `<circle class="hit-dot" data-balloon="cn:${ring.id}" data-ax="${edge.x.toFixed(2)}" data-ay="${edge.y.toFixed(2)}" cx="${edge.x.toFixed(2)}" cy="${edge.y.toFixed(2)}" r="${(hitR * 0.6).toFixed(2)}"/>`;
+    }
+  }
+
+  welds = olets + tees + equipment + circles + welds + balloons + callouts;
 
   // Drag preview.
   let preview = '';
@@ -1383,3 +1416,40 @@ export function northArrow(drawing: Drawing, size = 58): string {
 }
 
 export { COMPONENT_LABEL, TERMINAL_LABEL, fittingLabel };
+
+/**
+ * A line of lettering off a point (an olet's "CONT. ON SH.2", a circle's
+ * note): set just past `at` the way `d` points, dragged wherever it reads
+ * best (`itemOverrides[key]`, off `at`) with a leader back once moved, and
+ * handed to Tidy.
+ */
+function leaderNote(
+  key: string,
+  text: string,
+  at: Pt,
+  d: Pt,
+  size: number,
+  hitR: number,
+  drawing: Drawing,
+  collect: RenderState['collect'],
+  leaderFrom?: (to: Pt) => Pt,
+  gap = 0.4,
+): { svg: string; hit: string } {
+  const w = text.length * size * 0.5 + size * 0.4;
+  const h = size * 1.1;
+  const clear = Math.min(Math.abs(d.x) > 1e-6 ? w / 2 / Math.abs(d.x) : Infinity, Math.abs(d.y) > 1e-6 ? h / 2 / Math.abs(d.y) : Infinity);
+  const home = { x: at.x + d.x * (clear + size * gap), y: at.y + d.y * (clear + size * gap) };
+  const moved = drawing.itemOverrides?.[key];
+  const cx = moved ? at.x + moved.dx : home.x;
+  const cy = moved ? at.y + moved.dy : home.y;
+  let svg = '';
+  const from = leaderFrom ? leaderFrom({ x: cx, y: cy }) : at;
+  const ddx = from.x - cx;
+  const ddy = from.y - cy;
+  const reach = Math.min(Math.abs(ddx) > 1e-6 ? w / 2 / Math.abs(ddx) : Infinity, Math.abs(ddy) > 1e-6 ? h / 2 / Math.abs(ddy) : Infinity);
+  if ((moved || leaderFrom) && reach < 1) svg += `<line class="balloon-leader" x1="${from.x.toFixed(2)}" y1="${from.y.toFixed(2)}" x2="${(cx + ddx * reach).toFixed(2)}" y2="${(cy + ddy * reach).toFixed(2)}"/>`;
+  svg += `<text class="note" x="${cx.toFixed(2)}" y="${cy.toFixed(2)}" text-anchor="middle" dominant-baseline="middle">${escapeText(text)}</text>`;
+  collect?.notes.push({ key, at, n: d, w, h, dflt: home });
+  const hit = `<circle class="hit-dot" data-balloon="${key}" data-ax="${at.x.toFixed(2)}" data-ay="${at.y.toFixed(2)}" cx="${cx.toFixed(2)}" cy="${cy.toFixed(2)}" r="${Math.max(h, hitR * 0.5).toFixed(2)}"/>`;
+  return { svg, hit };
+}

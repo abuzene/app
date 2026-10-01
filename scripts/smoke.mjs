@@ -149,7 +149,7 @@ check('a length can be typed', await page.locator('#tab-body .run-list input[dat
 // Palette.
 await page.locator('#tab-body .run-list tbody tr').first().click();
 await page.waitForTimeout(200);
-check('the palette carries the fittings, couplings (SW, NPT), the threaded union, ball valves (flanged, air, SW, threaded), regulator, filter, relief, tee, olets, the half coupling, marks, equipment, move area and a weld', await page.locator('.tool').count(), (v) => v === 30, '30');
+check('the palette carries the fittings, couplings (SW, NPT), the threaded union, ball valves (flanged, air, SW, threaded), regulator, filter, relief, tee, olets, the half coupling, marks, equipment, move area, circle note and a weld', await page.locator('.tool').count(), (v) => v === 31, '31');
 check('and no slip-on or lap joint flange, which are not used here', await page.locator('.tool[data-kind="FLG_SO"], .tool[data-kind="FLG_LAP"]').count(), (v) => v === 0, '0');
 check('a tee can be placed on a header', await page.locator('.tool[data-branch="TEE"]').count(), (v) => v === 1, '1');
 check('the actuated ball valve is there', await page.locator('.tool[data-kind="BALL_ACT"]').count(), (v) => v === 1, '1');
@@ -5999,6 +5999,83 @@ await page.waitForTimeout(250);
     const [each, dim] = v.split(' ').map(Number);
     return each === 0 && dim <= 1;
   }, '0 and at most 1');
+}
+
+/* ------------- an olet's weld by its size; its line's sheet; circle notes */
+
+// His HYF sheet, 2026-10-01: "why are the welds marked red" — HYF 1/2.5 on
+// a 1/2" threadolet's header weld read as the wrong size for the 4" header.
+// "Add at the olet's line 'continue on sheet no.', the number mine to
+// change", and "a circle round an object, with a comment on a line to it".
+{
+  await routeLine('4"\nSTD\nORIGIN 0 0 0\nE 4000');
+  await placeSmallOlet();
+  await page.click('#tabs button:has-text("Welds")');
+  await page.waitForTimeout(200);
+  const headerRow = page.locator('#tab-body table tbody tr', { hasText: 'HEADER' }).first();
+  const headerNo = headerRow.locator('[data-weld-no]');
+  await headerNo.fill('HYF 1/2.5');
+  await headerNo.dispatchEvent('change');
+  await page.waitForTimeout(400);
+  check('HYF 1/2.5 on a 1/2" olet\'s header weld (4" header) is not marked as a wrong size', `${await page.locator('#tab-body table tbody tr', { hasText: 'HEADER' }).first().locator('[data-weld-no]').evaluate((e) => e.classList.contains('size-mismatch'))} ${/reads/.test(await page.locator('#hud').innerText())}`, (v) => v === 'false false', 'false false');
+  check('nor red on the drawing', await page.locator('#canvas .weld.size-mismatch').count(), (v) => v === 0, '0');
+  // The olet's line goes on to another sheet: its panel's sheet number.
+  await page.click('#tabs button:has-text("Route")');
+  await page.waitForTimeout(150);
+  const oletId = (await drawingNow()).nodes.find((n) => n.olets?.length).id;
+  await tapNode(oletId);
+  check('the olet\'s panel offers the sheet its line goes on to', await page.locator('#tab-body [data-olet-sheet]').count(), (v) => v === 1, '1');
+  await page.fill('#tab-body [data-olet-sheet]', '2');
+  await page.locator('#tab-body [data-olet-sheet]').dispatchEvent('change');
+  await page.waitForTimeout(300);
+  const oletNote = async () => (await drawingNow()).nodes.find((n) => n.id === oletId).olets[0].note ?? '';
+  check('it writes CONT. ON SH.2 at the olet\'s line', `${await oletNote()} ${await page.locator('#canvas text.note', { hasText: 'CONT. ON SH.2' }).count()}`, (v) => v === 'CONT. ON SH.2 1', 'CONT. ON SH.2, drawn');
+  await page.fill('#tab-body [data-olet-sheet]', '3');
+  await page.locator('#tab-body [data-olet-sheet]').dispatchEvent('change');
+  await page.waitForTimeout(300);
+  check('the sheet number changed, the note follows', await oletNote(), (v) => v === 'CONT. ON SH.3', 'CONT. ON SH.3');
+  const onBox = await page.locator('#canvas [data-balloon^="on:"]').boundingBox();
+  await penTap(onBox.x + onBox.width / 2, onBox.y + onBox.height / 2);
+  check('a touch on it opens it for typing, as it reads', await page.locator('.dim-editor').inputValue(), (v) => v === 'CONT. ON SH.3', 'CONT. ON SH.3');
+  for (let i = 0; i < 20; i += 1) await page.locator('.dim-keypad [data-key="⌫"]').dispatchEvent('pointerdown', { bubbles: true });
+  for (const k of 'TO SH.4') await page.locator(`.dim-keypad [data-key="${k}"]`).dispatchEvent('pointerdown', { bubbles: true });
+  await page.locator('.dim-keypad [data-key="OK"]').dispatchEvent('pointerdown', { bubbles: true });
+  await page.waitForTimeout(300);
+  check('typed over on the drawing', await oletNote(), (v) => v === 'TO SH.4', 'TO SH.4');
+  // A circle round something, with its note.
+  await page.keyboard.press('Escape');
+  await page.click('.tool[data-circle]');
+  await page.waitForTimeout(200);
+  check('Circle note asks for the circle', await page.locator('#hud').innerText(), (v) => /circle/i.test(v), 'circle — draw it');
+  const oletAt = await page.locator(`#canvas circle.hit-dot[data-node="${oletId}"]`).boundingBox();
+  const cx = oletAt.x + oletAt.width / 2;
+  const cy = oletAt.y + oletAt.height / 2;
+  await pen('mousePressed', cx, cy);
+  for (let i = 1; i <= 6; i += 1) {
+    await pen('mouseMoved', cx + i * 8, cy);
+    await page.waitForTimeout(40);
+  }
+  await pen('mouseReleased', cx + 48, cy);
+  await page.waitForTimeout(400);
+  check('drawn, it asks for the note at once', await page.locator('.dim-keypad').count(), (v) => v === 1, '1');
+  for (const k of 'CHECK') await page.locator(`.dim-keypad [data-key="${k}"]`).dispatchEvent('pointerdown', { bubbles: true });
+  await page.locator('.dim-keypad [data-key="OK"]').dispatchEvent('pointerdown', { bubbles: true });
+  await page.waitForTimeout(300);
+  const ring = (await drawingNow()).circles?.[0];
+  check('the circle is kept round the olet, with its note', `${ring?.node} ${ring?.text} ${await page.locator('#canvas .circle-note').count()} ${await page.locator('#canvas text.note', { hasText: 'CHECK' }).count()}`, (v) => v === `${oletId} CHECK 1 1`, `${oletId} CHECK 1 1`);
+  check('its note is on a leader from the circle', await page.evaluate(() => {
+    const c = document.querySelector('#canvas .circle-note');
+    const cx = Number(c.getAttribute('cx'));
+    const cy = Number(c.getAttribute('cy'));
+    const r = Number(c.getAttribute('r'));
+    return [...document.querySelectorAll('#canvas .balloon-leader')].some((l) => Math.abs(Math.hypot(Number(l.getAttribute('x1')) - cx, Number(l.getAttribute('y1')) - cy) - r) < 0.01);
+  }), (v) => v === true, 'a leader starting on the circle');
+  const cnBox = await page.locator('#canvas [data-balloon^="cn:"]').boundingBox();
+  await penTap(cnBox.x + cnBox.width / 2, cnBox.y + cnBox.height / 2);
+  check('a touch on the note opens it, with Remove the circle', `${await page.locator('.dim-editor').inputValue()} ${await page.locator('.dim-keypad button:has-text("Remove the circle")').count()}`, (v) => v === 'CHECK 1', 'CHECK 1');
+  await page.locator('.dim-keypad button:has-text("Remove the circle")').dispatchEvent('pointerdown', { bubbles: true });
+  await page.waitForTimeout(300);
+  check('removed, the circle goes with its note', `${(await drawingNow()).circles?.length ?? 0} ${await page.locator('#canvas .circle-note').count()}`, (v) => v === '0 0', '0 0');
 }
 
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
