@@ -100,19 +100,60 @@ function recompute(): void {
 const weldEndCache = new Map<string, Record<string, WeldCounter>>();
 
 /**
+ * The order a project's sheets are numbered in: each sheet right after the
+ * one it carries on from (his ask, 2026-10-01: "the next sheet starts where
+ * the sheet before it, that points to it, ended") — its "CONT. FROM SH.k",
+ * else another sheet's "CONT. ON SH.n" pointing to it — and otherwise by
+ * sheet number.
+ */
+function sheetNumberingOrder<T extends { id: string; drawing: Drawing }>(sheets: T[]): T[] {
+  const byNo = [...sheets].sort((a, b) => sheetNumber(a.drawing.meta.sheet) - sheetNumber(b.drawing.meta.sheet));
+  const no = (t: T) => sheetNumber(t.drawing.meta.sheet);
+  const notes = (t: T) => t.drawing.nodes.map((n) => n.terminal?.note ?? '').filter(Boolean);
+  const parent = new Map<string, T>();
+  for (const sheet of byNo) {
+    const from = notes(sheet).map((note) => note.match(/CONT\.?\s*FROM\s*SH\.?\s*(\d+)/i)).find(Boolean);
+    const p = from ? byNo.find((t) => no(t) === Number(from[1]) && t !== sheet) : undefined;
+    if (p) parent.set(sheet.id, p);
+  }
+  for (const sheet of byNo) {
+    for (const note of notes(sheet)) {
+      const on = note.match(/CONT\.?\s*ON\s*SH\.?\s*(\d+)/i);
+      const child = on ? byNo.find((t) => no(t) === Number(on[1]) && t !== sheet) : undefined;
+      if (child && !parent.has(child.id)) parent.set(child.id, sheet);
+    }
+  }
+  const out: T[] = [];
+  const seen = new Set<string>();
+  const visit = (sheet: T) => {
+    if (seen.has(sheet.id)) return;
+    seen.add(sheet.id);
+    out.push(sheet);
+    for (const child of byNo) if (parent.get(child.id) === sheet) visit(child);
+  };
+  // From the sheets that carry on from none, then any left in a loop.
+  for (const sheet of byNo) if (!parent.has(sheet.id)) visit(sheet);
+  for (const sheet of byNo) visit(sheet);
+  return out;
+}
+
+/**
  * Numbered across the project: where each size's count stands after the
- * project's sheets before this one, taken in sheet order, each running on
- * from the one before (a number typed by hand on one sets the count for the
- * rest). Undefined when the project is not numbered so.
+ * project's sheets before this one, taken in numbering order (each right
+ * after the sheet it carries on from), each running on from the one before
+ * (a number typed by hand on one sets its size's count for the rest).
+ * Undefined when the project is not numbered so.
  */
 function projectWeldStarts(drawing: Drawing): Record<string, WeldCounter> | undefined {
   const code = drawing.meta.weldCode?.trim();
   const project = drawing.meta.project || '';
   if (!code || !project) return undefined;
-  const here = sheetNumber(drawing.meta.sheet);
-  const before = loadLibrary()
-    .filter((e) => e.id !== drawing.id && (e.drawing.meta.project || '') === project && sheetNumber(e.drawing.meta.sheet) < here)
-    .sort((a, b) => sheetNumber(a.drawing.meta.sheet) - sheetNumber(b.drawing.meta.sheet) || a.savedAt - b.savedAt);
+  const sheets = [
+    ...loadLibrary().filter((e) => e.id !== drawing.id && (e.drawing.meta.project || '') === project),
+    { id: drawing.id ?? '', savedAt: 0, drawing },
+  ];
+  const order = sheetNumberingOrder(sheets);
+  const before = order.slice(0, order.findIndex((e) => e.drawing === drawing));
   let state: Record<string, WeldCounter> = {};
   for (const entry of before) {
     const key = `${entry.id}:${entry.savedAt}:${code}:${JSON.stringify(state)}`;
@@ -526,6 +567,30 @@ function openDimensionEditor(key: string, clientX: number, clientY: number, plac
 }
 
 /** A weld number, typed over right on the drawing. */
+/**
+ * A weld number typed: the welds of its size after it run on from it, or,
+ * this one only, they keep their numbers. A number naming another size
+ * than the weld's own is said so.
+ */
+function renumberWeld(key: string, text: string, alone: boolean): void {
+  const weld = state.analysis.joints.find((j) => j.key === key);
+  if (!weld) return;
+  const number = text.trim().toUpperCase();
+  if (number === weld.number && !alone) return;
+  host.edit(alone ? 'Renumber this weld only' : 'Renumber weld', (d) => {
+    // A number typed on a joint marked as not welded makes it a weld again.
+    const was = d.weldOverrides[key] ?? {};
+    if (number) d.weldOverrides[key] = { ...was, number, skip: undefined, alone: alone || undefined };
+    else if (d.weldOverrides[key]) {
+      delete d.weldOverrides[key].number;
+      delete d.weldOverrides[key].alone;
+    }
+  });
+  const now = state.analysis.joints.find((j) => j.key === key);
+  if (now?.sizeMismatch) host.notify(`${number} reads ${now.sizeMismatch.replace('-', ' ')}", but this weld is on ${sizeLabel(now.dn)} pipe. The ${sizeLabel(now.dn)} welds after it keep their numbers.`);
+  else if (alone) host.notify(`${number} on this weld only; the others keep their numbers.`);
+}
+
 function openWeldEditor(key: string, clientX: number, clientY: number): void {
   const weld = state.analysis.joints.find((j) => j.key === key);
   if (!weld) return;
@@ -534,15 +599,7 @@ function openWeldEditor(key: string, clientX: number, clientY: number): void {
     'text',
     clientX,
     clientY,
-    (text) => {
-      const number = text.trim();
-      if (number === weld.number) return;
-      host.edit('Renumber weld', (d) => {
-        // A number typed on a joint marked as not welded makes it a weld again.
-        if (number) d.weldOverrides[key] = { ...d.weldOverrides[key], number, skip: undefined };
-        else if (d.weldOverrides[key]) delete d.weldOverrides[key].number;
-      });
-    },
+    (text) => renumberWeld(key, text, false),
     weld.skipped
       ? [
           {
@@ -564,6 +621,12 @@ function openWeldEditor(key: string, clientX: number, clientY: number): void {
               host.notify('Marked as not welded: no number, not on the list. Tap it again to weld it after all.');
             },
           },
+          {
+            // His ask, 2026-10-01: "a change of one, without changing all
+            // the other numbers".
+            label: 'Change this one only',
+            act: (text) => renumberWeld(key, text, true),
+          },
         ],
   );
 }
@@ -578,7 +641,7 @@ function openInlineEditor(
   clientX: number,
   clientY: number,
   onCommit: (text: string) => void,
-  extras: { label: string; act: () => void }[] = [],
+  extras: { label: string; act: (text: string) => void }[] = [],
 ): void {
   closeDimensionEditor();
   const wrap = svg.parentElement as HTMLElement;
@@ -631,8 +694,9 @@ function openInlineEditor(
     const extra = (event.target as HTMLElement).closest<HTMLElement>('[data-extra]')?.dataset.extra;
     if (extra !== undefined) {
       done = true;
+      const text = input.value;
       closeDimensionEditor();
-      extras[Number(extra)]?.act();
+      extras[Number(extra)]?.act(text);
       return;
     }
     const key = (event.target as HTMLElement).closest<HTMLElement>('[data-key]')?.dataset.key;
@@ -3012,6 +3076,8 @@ async function runDriveSync(): Promise<void> {
     }
     // A sheet removed on the other device leaves no gap here either.
     renumberKept();
+    // A sheet before this one may have come down changed: count on from it.
+    recompute();
   } catch (err) {
     host.notify(err instanceof Error ? err.message : 'Google Drive could not be reached.');
   } finally {
@@ -3067,7 +3133,10 @@ async function runFolderSync(quiet = false): Promise<void> {
         takeUp(entry.drawing);
       }
     }
-    if (downloaded || result.removed) renumberKept();
+    if (downloaded || result.removed) {
+      renumberKept();
+      recompute();
+    }
   } catch (err) {
     host.notify(`The folder could not be reached (${err instanceof Error ? err.message : 'unknown'}).`);
   } finally {
@@ -3334,6 +3403,9 @@ if (signedIn) state.tab = 'projects';
 // Sheets kept with a gap in their numbers (one removed before this was
 // done) are numbered again.
 renumberKept();
+// The weld counts run on from the project's sheets as they are now, not
+// as they were when this sheet was last saved.
+recompute();
 render();
 fitView();
 if (signedIn || driveStatus().connected) void runDriveSync();

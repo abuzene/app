@@ -93,6 +93,8 @@ export function contentCss({ k, u, symbol = 4, dark = false }: ContentStyleOptio
 }
 .weld-no { fill: ${ink}; font-size: ${t(1.0)}px; font-family: inherit; font-weight: 600; }
 .weld-box { fill: ${dark ? '#0d1117' : '#ffffff'}; stroke: ${dim}; stroke-width: ${w(0.7)}; }
+.weld.size-mismatch .weld-box { stroke: #d92d20; stroke-width: ${w(1.4)}; }
+.weld.size-mismatch .weld-no { fill: #d92d20; }
 .weld.selected .weld-box { stroke: ${accent}; stroke-width: ${w(1.4)}; }
 .weld.selected .weld-no { fill: ${accent}; font-weight: 700; }
 .weld.selected .joint-bw { fill: ${accent}; stroke: ${accent}; }

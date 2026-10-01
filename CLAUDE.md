@@ -1098,6 +1098,26 @@ ships, and the decisions already taken, so they are not re-litigated.
   this sheet and on the sheets after it; other sizes and earlier welds
   are untouched; the typed text before the digits becomes that size's
   prefix. A typed number with no digits takes nothing from the count.
+  **His four asks, 2026-10-01** (`nextNumber`/`typedSize` in `analyse`,
+  `sheetNumberingOrder` in main.ts): (1) the project's sheets are counted
+  in the order they **carry on** — each right after the sheet its
+  "CONT. FROM SH.k" names (else another sheet's "CONT. ON SH.n" pointing
+  to it), otherwise by sheet number — so a sheet starts where the one it
+  continues from ended; (2) **each size has its own count on a sheet of
+  its own too**: a typed number with a size before its point ("TAR 4.8")
+  sets that size's count only (it used to set the prefix and count for
+  every weld after it, any size); a typed number with no size ("W12")
+  still sets the sheet's W-count; (3) **Change this one only** on the weld
+  keypad (`weldOverrides[k].alone`, `renumberWeld` in main.ts): the number
+  shows, the weld keeps its place in its size's count and every other
+  number stays (the Welds tab marks it "1"); (4) the size before the point
+  is **checked against the weld's pipe** (`weldSizeTag`: "1/2", "1-1/2"
+  or "1 1/2", "4"): a mismatch (`Weld.sizeMismatch`) moves no count, is
+  said when typed, sits in `analysis.warnings` (HUD), is red in the Welds
+  tab and, on screen only, on the drawing. The counts are worked out
+  afresh **at start** and after a Drive/folder sync (`recompute`): the
+  first analysis used to read the `weldStarts` saved with the sheet, stale
+  once an earlier sheet had changed.
 - **Flange, reducer, flange with no pipe** (same day, HILLEL YAFEH sheet
   after the FILTER): "No pipe — fittings touch" on a run holding a reducer
   goes to `closeUpOnItem` in edit.ts (from `setRunDirect`): the end

@@ -1456,6 +1456,27 @@ export function analyse(drawing: Drawing): Analysis {
   // follow, by size; the ones before stay").
   const weldEnds: Record<string, WeldCounter> = {};
   for (const [dn, v] of Object.entries(drawing.weldStarts ?? {})) weldEnds[dn] = typeof v === 'number' ? { n: v } : { ...v };
+  // The size a typed number names before its point: "TAR 5.1" a 5" weld,
+  // "ST 1/2.6" a 1/2" one, "HYF 1-1/2.3" (or "1 1/2") a 1 1/2" one. A
+  // number with no size in it ("W12", "FW") names none.
+  const typedSize = (head: string): string | null => {
+    const m = head.match(/(?:^|[^\d/-])(\d+[ -]\d+\/\d+|\d+\/\d+|\d+)\.$/);
+    return m ? m[1].replace(' ', '-') : null;
+  };
+  // Each size has its own count (his ask, 2026-10-01: "the running number
+  // holds for the size that was changed; the welds of another size keep
+  // their numbers"): across the project always, on a sheet of its own once
+  // a number with a size in it is typed for that size.
+  const nextNumber = (dn: string): string => {
+    const counter = code ? (weldEnds[dn] ??= { n: 0 }) : weldEnds[dn];
+    if (counter) {
+      counter.n += 1;
+      return `${counter.prefix ?? `${code} ${weldSizeTag(dn)}.`}${counter.n}`;
+    }
+    const out = `${prefix}${next}`;
+    next += 1;
+    return out;
+  };
   const joints: Weld[] = ordered.map((j) => {
     const override = drawing.weldOverrides[j.key];
     // A joint marked as not welded after all keeps its mark, and the numbers
@@ -1465,22 +1486,29 @@ export function analyse(drawing: Drawing): Analysis {
     // Weld numbers are in capitals, however they were typed (2026-09-28).
     const typed = override?.number?.trim().toUpperCase();
     let number = '';
+    let sizeMismatch: string | undefined;
     if (welded && typed) {
       number = typed;
       const tail = typed.match(/^(.*?)(\d+)$/);
-      if (tail && code) {
+      const size = typedSize(tail ? tail[1] : typed.replace(/\d+$/, ''));
+      // Checked against the weld's own size (his ask, same day: "make sure
+      // the number before the point is the pipe's size").
+      if (size && size !== weldSizeTag(j.dn)) {
+        sizeMismatch = size;
+        warnings.push(`Weld ${typed} reads ${size.replace('-', ' ')}" but its pipe is ${sizeLabel(j.dn)}.`);
+      }
+      if (override?.alone || sizeMismatch) {
+        // This one alone, or a number for another size: it keeps its place
+        // in its own size's count, and the welds after it keep theirs.
+        nextNumber(j.dn);
+      } else if (tail && (code || size)) {
         weldEnds[j.dn] = { n: Number(tail[2]), prefix: tail[1] };
       } else if (tail) {
         prefix = tail[1];
         next = Number(tail[2]) + 1;
       }
-    } else if (welded && code) {
-      const counter = (weldEnds[j.dn] ??= { n: 0 });
-      counter.n += 1;
-      number = `${counter.prefix ?? `${code} ${weldSizeTag(j.dn)}.`}${counter.n}`;
     } else if (welded) {
-      number = `${prefix}${next}`;
-      next += 1;
+      number = nextNumber(j.dn);
     }
     return {
       key: j.key,
@@ -1492,6 +1520,7 @@ export function analyse(drawing: Drawing): Analysis {
       pos: j.pos,
       facing: j.facing,
       skipped: skipped || undefined,
+      sizeMismatch,
       anchor: j.anchor,
       reach: j.reach,
     };

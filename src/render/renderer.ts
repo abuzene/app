@@ -903,7 +903,7 @@ export function renderDrawing(state: RenderState): string {
 
   let weldHits = calloutHits + teeHits + noteHits;
   const jointPoints = new Map<string, Pt>();
-  const weldLabels: { x: number; y: number; text: string; fromX: number; fromY: number; key: string; placed: boolean }[] = [];
+  const weldLabels: { x: number; y: number; text: string; fromX: number; fromY: number; key: string; placed: boolean; mismatch?: boolean }[] = [];
 
   analysis.joints.forEach((joint, index) => {
     const place = weldPlacement(drawing, analysis, joint.pos);
@@ -965,6 +965,7 @@ export function renderDrawing(state: RenderState): string {
         x: placed ? f.cx + placed.dx : f.cx + f.nx * size * 3.4 * side,
         y: placed ? f.cy + placed.dy : f.cy + f.ny * size * 3.4 * side,
         text: joint.number,
+        mismatch: !!joint.sizeMismatch,
         fromX: f.cx,
         fromY: f.cy,
         key: joint.key,
@@ -988,7 +989,9 @@ export function renderDrawing(state: RenderState): string {
     const ex = label.x - ddx / stopAt;
     const ey = label.y - ddy / stopAt;
     welds +=
-      `<g class="weld${selectedWeld ? ' selected' : ''}">` +
+      // A number naming another size than its pipe's: red on the screen
+      // only, so he sees it to put right; the sheet prints as typed.
+      `<g class="weld${selectedWeld ? ' selected' : ''}${state.hitSize !== undefined && label.mismatch ? ' size-mismatch' : ''}">` +
       `<line class="weld-leader" x1="${label.fromX.toFixed(2)}" y1="${label.fromY.toFixed(2)}" x2="${ex.toFixed(2)}" y2="${ey.toFixed(2)}"/>` +
       `<rect class="weld-box" x="${(label.x - boxW / 2).toFixed(2)}" y="${(label.y - boxH / 2).toFixed(2)}" width="${boxW.toFixed(2)}" height="${boxH.toFixed(2)}" rx="${(size * 0.25).toFixed(2)}"/>` +
       `<text class="weld-no" x="${label.x.toFixed(2)}" y="${(label.y + size * 0.35).toFixed(2)}" text-anchor="middle">${escapeText(label.text)}</text></g>`;

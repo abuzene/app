@@ -544,7 +544,7 @@ function weldsTab(host: Host): string {
   const rows = welds
     .map(
       (w) => `<tr class="clickable${sel?.kind === 'weld' && sel.key === w.key ? ' is-selected' : ''}" data-weld-row="${esc(w.key)}">
-  <td><input class="cell" type="text" data-weld-no="${esc(w.key)}" value="${esc(w.number)}" /></td>
+  <td><input class="cell${w.sizeMismatch ? ' size-mismatch' : ''}" type="text" data-weld-no="${esc(w.key)}" value="${esc(w.number)}"${w.sizeMismatch ? ` title="Reads ${esc(w.sizeMismatch.replace('-', ' '))}&quot;, but this weld is on ${esc(sizeLabel(w.dn))} pipe"` : host.state.drawing.weldOverrides[w.key]?.alone ? ' title="This one only: the others keep their numbers"' : ''} />${host.state.drawing.weldOverrides[w.key]?.alone ? '<span class="weld-alone" title="This one only">1</span>' : ''}</td>
   <td>${esc(sizeLabel(w.dn))}</td>
   <td>${esc(w.joint)}</td>
   <td>${esc(w.joins)}</td>
@@ -1342,10 +1342,15 @@ function wire(body: HTMLElement, host: Host): void {
     }, { keepPanel: true });
     // The numbers after it run on from it: show them without rebuilding
     // the list under the field being typed in.
-    const numberOf = new Map(host.state.analysis.joints.map((j) => [j.key, j.number]));
+    const jointOf = new Map(host.state.analysis.joints.map((j) => [j.key, j]));
     body.querySelectorAll<HTMLInputElement>('[data-weld-no]').forEach((other) => {
-      if (other !== document.activeElement) other.value = numberOf.get(other.dataset.weldNo!) ?? other.value;
+      const joint = jointOf.get(other.dataset.weldNo!);
+      if (other !== document.activeElement) other.value = joint?.number ?? other.value;
+      // A number naming another size than the weld's pipe is shown so.
+      other.classList.toggle('size-mismatch', !!joint?.sizeMismatch);
     });
+    const typed = jointOf.get(key);
+    if (typed?.sizeMismatch) host.notify(`${typed.number} reads ${typed.sizeMismatch.replace('-', ' ')}", but this weld is on ${sizeLabel(typed.dn)} pipe. The ${sizeLabel(typed.dn)} welds after it keep their numbers.`);
   };
   body.querySelectorAll<HTMLInputElement>('[data-weld-no]').forEach((input) => {
     input.addEventListener('change', () => renumber(input.dataset.weldNo!, input.value));

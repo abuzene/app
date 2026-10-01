@@ -281,6 +281,8 @@ export interface Weld {
   facing: 1 | -1;
   /** Marked as not welded after all: drawn hollow, not numbered or counted. */
   skipped?: boolean;
+  /** Its number, typed by hand, names another pipe size than the weld's own ("HYF 3.4" on a 4" weld). */
+  sizeMismatch?: string;
   /**
    * What the weld belongs to, and how far out from it the mark is drawn. A
    * weld mark is part of the fitting's symbol: it sits on the symbol's end,
@@ -308,6 +310,12 @@ export interface WeldOverride {
   number?: string;
   /** No weld here after all: the joint is marked but not numbered or counted. */
   skip?: boolean;
+  /**
+   * The number typed here is this weld's alone (his ask, 2026-10-01: "a
+   * change of one, without changing all the others"): it keeps its place
+   * in the count, and the welds after it keep theirs.
+   */
+  alone?: boolean;
   /** Where the number tag was dragged to, in paper units from the weld. */
   tag?: { dx: number; dy: number };
 }

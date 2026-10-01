@@ -5056,8 +5056,9 @@ const couplingsNow = async () => (await drawingNow()).nodes.filter((n) => n.fitt
   const closed = await drawingNow();
   check('the start stays, the run is the two flanges and the reducer', closed.nodes.map((n) => Math.round(n.pos.e)).sort((a, b) => a - b)[0], (v) => v === 0, '0');
 
-  // Weld numbers run on from the one typed over.
-  await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 1000\nN 1000\nE 1000\nN 1000\nEND FLG');
+  // Weld numbers run on from the one typed over (a 4" line: since
+  // 2026-10-01 a number naming another size than its weld's is checked).
+  await routeLine('4"\nSTD\nORIGIN 0 0 0\nE 1000\nN 1000\nE 1000\nN 1000\nEND FLG');
   await page.click('#tabs button:has-text("Welds")');
   await page.waitForTimeout(200);
   const numbers = () => page.locator('#tab-body [data-weld-no]').evaluateAll((els) => els.map((e) => e.value).join(' '));
@@ -5071,6 +5072,89 @@ const couplingsNow = async () => (await drawingNow()).nodes.filter((n) => n.fitt
   await third.dispatchEvent('change');
   await page.waitForTimeout(300);
   check('a weld named without a number takes none: the others stay consecutive', await numbers(), (v) => v.startsWith('W1 TAR 4.8 - TAR 4.9'), 'W1 TAR 4.8 - TAR 4.9 …');
+  await page.click('#tabs button:has-text("Route")');
+  await page.waitForTimeout(150);
+}
+
+/* ---------------------- weld numbers: by size, one alone, size checked */
+
+// His four asks, 2026-10-01: the next sheet starts where the sheet it
+// carries on from ended; the running number is the size's own, the other
+// sizes' numbers untouched; a change of one without changing the rest; and
+// the size before the point checked against the weld's pipe ("TAR 5.1" is
+// the first weld on 5" pipe, "ST 1/2.6" the sixth on 1/2").
+{
+  await routeLine('4"\nSTD\nORIGIN 0 0 0\nE 1000\nN 1000\nE 1000\n1/2"\nSCH80\nORIGIN 5000 0 0\nE 1000\nN 1000');
+  await page.click('#tabs button:has-text("Welds")');
+  await page.waitForTimeout(200);
+  const nums = () => page.locator('#tab-body [data-weld-no]').evaluateAll((els) => els.map((e) => e.value).join(' '));
+  check('a 4" line and a 1/2" one, numbered W1…', await nums(), (v) => v === 'W1 W2 W3 W4 W5 W6', 'W1 … W6');
+  // One alone, from the keypad on the drawing: the second weld on the list.
+  const secondKey = await page.locator('#tab-body [data-weld-no]').nth(1).getAttribute('data-weld-no');
+  await page.click('#tabs button:has-text("Route")');
+  await page.waitForTimeout(150);
+  const tagBox = await page.locator(`#canvas [data-weld-tag][data-weld="${secondKey}"]`).boundingBox();
+  await penTap(tagBox.x + tagBox.width / 2, tagBox.y + tagBox.height / 2);
+  for (let i = 0; i < 8; i += 1) await page.locator('.dim-keypad [data-key="⌫"]').dispatchEvent('pointerdown', { bubbles: true });
+  for (const k of 'TAR 4.40') await page.locator(`.dim-keypad [data-key="${k}"]`).dispatchEvent('pointerdown', { bubbles: true });
+  check('the weld keypad offers Change this one only', await page.locator('.dim-keypad button:has-text("Change this one only")').count(), (v) => v === 1, '1');
+  await page.locator('.dim-keypad button:has-text("Change this one only")').dispatchEvent('pointerdown', { bubbles: true });
+  await page.waitForTimeout(400);
+  await page.click('#tabs button:has-text("Welds")');
+  await page.waitForTimeout(200);
+  const order = await page.evaluate(() => [...document.querySelectorAll('#tab-body [data-weld-no]')].map((e) => e.getAttribute('data-weld-no')));
+  const at = order.indexOf(secondKey);
+  const listed = await page.locator('#tab-body [data-weld-no]').evaluateAll((els) => els.map((e) => e.value));
+  check('changed alone: it reads so, and every other weld keeps its number', `${listed[at]} ${listed.filter((_, i) => i !== at).join(' ')}`, (v) => v === 'TAR 4.40 W1 W3 W4 W5 W6', 'TAR 4.40, the rest W1 W3 W4 W5 W6');
+  // Typed to run on: the 4" welds after it follow, the 1/2" ones do not.
+  const third = page.locator('#tab-body [data-weld-no]').nth(2);
+  await third.fill('TAR 4.8');
+  await third.dispatchEvent('change');
+  await page.waitForTimeout(400);
+  check('typed TAR 4.8 on a 4" weld: the 4" after it run on, the 1/2" keep theirs', await nums(), (v) => v === 'W1 TAR 4.40 TAR 4.8 TAR 4.9 W3 W4', 'W1 TAR 4.40 TAR 4.8 TAR 4.9 W3 W4');
+  // A number naming another size: said so, and it moves no count.
+  const fourth = page.locator('#tab-body [data-weld-no]').nth(3);
+  await fourth.fill('TAR 3.5');
+  await fourth.dispatchEvent('change');
+  await page.waitForTimeout(400);
+  check('TAR 3.5 typed on a 4" weld is marked as the wrong size, and moves no count', `${await nums()} ${await page.locator('#tab-body [data-weld-no]').nth(3).evaluate((e) => e.classList.contains('size-mismatch'))}`, (v) => v === 'W1 TAR 4.40 TAR 4.8 TAR 3.5 W3 W4 true', 'W1 TAR 4.40 TAR 4.8 TAR 3.5 W3 W4, marked');
+  check('and the HUD says which size it reads', await page.locator('#hud').innerText(), (v) => /TAR 3\.5 reads 3" but its pipe is 4"/.test(v), 'Weld TAR 3.5 reads 3" but its pipe is 4"');
+  await page.click('#tabs button:has-text("Route")');
+  await page.waitForTimeout(150);
+
+  // The sheets taken in the order they carry on: sheet 3 from sheet 1,
+  // sheet 2 from sheet 3 — so sheet 2 starts where sheet 3 ended.
+  await page.evaluate(() => {
+    const sheet = (id, no, note) => ({
+      version: 1,
+      id,
+      meta: { project: 'ORDER TEST', lineNumber: '', drawingNo: '', sheet: `${no} of 3`, revision: '0', date: '', drawnBy: '', weldCode: 'ORD' },
+      options: { snap: 10, scale: 0.06, schematic: false, schematicLength: 1500, showDimensions: true, showWelds: true, showItems: true, showNodeLabels: true, showGrid: true, northRotation: 0, joint: 'BW', pipeSchedule: 'SCH40', fittingThickness: 'STD' },
+      nodes: [
+        { id: `${id}a`, pos: { e: 0, n: 0, u: 0 }, ...(note ? { terminal: { kind: 'CONTINUATION', note } } : {}) },
+        { id: `${id}b`, pos: { e: 1000, n: 0, u: 0 } },
+        { id: `${id}c`, pos: { e: 1000, n: 1000, u: 0 } },
+      ],
+      runs: [
+        { id: `${id}r1`, from: `${id}a`, to: `${id}b`, dn: 'DN50', schedule: 'SCH40', inline: [] },
+        { id: `${id}r2`, from: `${id}b`, to: `${id}c`, dn: 'DN50', schedule: 'SCH40', inline: [] },
+      ],
+      weldOverrides: {},
+    });
+    const s1 = sheet('ot1', 1, null);
+    const s2 = sheet('ot2', 2, 'CONT. FROM SH.3');
+    const s3 = sheet('ot3', 3, 'CONT. FROM SH.1');
+    const lib = JSON.parse(localStorage.getItem('iso-draw.library.v1') || '[]').filter((e) => e.drawing.meta.project !== 'ORDER TEST');
+    const now = Date.now();
+    lib.unshift({ id: 'ot1', savedAt: now - 3000, drawing: s1 }, { id: 'ot3', savedAt: now - 2000, drawing: s3 }, { id: 'ot2', savedAt: now - 1000, drawing: s2 });
+    localStorage.setItem('iso-draw.library.v1', JSON.stringify(lib));
+    localStorage.setItem('iso-draw.drawing.v1', JSON.stringify(s2));
+  });
+  await page.reload();
+  await page.waitForTimeout(800);
+  await page.click('#tabs button:has-text("Welds")');
+  await page.waitForTimeout(300);
+  check('sheet 2, carrying on from sheet 3 (itself from sheet 1), starts where sheet 3 ended', await nums(), (v) => v === 'ORD 2.5 ORD 2.6', 'ORD 2.5 ORD 2.6');
   await page.click('#tabs button:has-text("Route")');
   await page.waitForTimeout(150);
 }
