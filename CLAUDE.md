@@ -127,7 +127,11 @@ ships, and the decisions already taken, so they are not re-litigated.
   numbers"): 1–0, QWERTYUIOP, ASDFGHJKL., ZXCVBNM-/⌫, SPACE and OK, ten
   to a row; what a keyboard types there is set in capitals too, and a
   weld number typed anywhere in small letters (his "St 1/2" from the
-  Welds tab) is read in capitals by `analyse`.
+  Welds tab) is read in capitals by `analyse`. **The mark opens at the end of the text** (his
+  ask, 2026-10-01: "the mark right at the end, not over the whole name"):
+  in text mode nothing is selected and a key adds to what is there
+  (`fresh` only in numeric mode, where the first key still types over the
+  figure).
 - Weld numbers are editable (typed on the drawing or in the Welds tab). A
   joint can be marked **not welded** (`weldOverrides[key].skip`: hollow
   mark, no number, numbering runs on, off the list; "No weld here" on the

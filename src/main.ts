@@ -678,8 +678,16 @@ function openInlineEditor(
   // A keypad beside the box: on a tablet the pencil never brings the keyboard
   // up on its own, and a number is quicker to tap in anyway. Its keys keep
   // the box focused, so the keyboard, if there is one, stays too.
-  // The first key typed replaces the old value, as typing over a selection would.
-  let fresh = true;
+  // A figure: the first key typed replaces the old value, as typing over a
+  // selection would. Text (names, weld numbers, notes) opens with the mark
+  // at its end, and keys add to it (his ask, 2026-10-01: "the mark right at
+  // the end, not over the whole name").
+  let fresh = mode === 'numeric';
+  const toEnd = () => {
+    const end = input.value.length;
+    input.setSelectionRange(end, end);
+    input.scrollLeft = input.scrollWidth;
+  };
   const keypad = document.createElement('div');
   keypad.className = `dim-keypad ${mode}`;
   // Typed text is every capital letter, the figures, a point, a space and
@@ -721,6 +729,7 @@ function openInlineEditor(
     else input.value += key;
     fresh = false;
     input.focus();
+    if (mode === 'text') toEnd();
   });
   input.addEventListener('input', () => {
     fresh = false;
@@ -757,7 +766,8 @@ function openInlineEditor(
   });
   input.addEventListener('blur', commit);
   input.focus();
-  input.select();
+  if (mode === 'numeric') input.select();
+  else toEnd();
 }
 
 let keypadEl: HTMLElement | null = null;

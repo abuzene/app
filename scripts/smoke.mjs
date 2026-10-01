@@ -1653,6 +1653,14 @@ check('a weld number opens for typing on the touch', await page.locator('.dim-ed
 check('with letters on its keypad', await page.locator('.dim-keypad [data-key="W"]').count(), (v) => v === 1, '1');
 // "All the English letters, capitals, with a point and numbers" (2026-09-28).
 check('every capital letter, the figures, a point and a space on it', await page.evaluate(() => [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789. -/'].filter((k) => !document.querySelector(`.dim-keypad [data-key="${k}"]`)).join('')), (v) => v === '', 'none missing');
+// "The mark right at the end, not over the whole name" (2026-10-01): the
+// text opens with nothing selected, the mark after its last letter, and a
+// key adds to it.
+check('the name opens with the mark at its end, nothing selected', await page.locator('.dim-editor').evaluate((e) => `${e.selectionStart === e.value.length && e.selectionEnd === e.value.length} ${e.value.length > 0}`), (v) => v === 'true true', 'true true');
+const weldWas = await page.locator('.dim-editor').inputValue();
+await page.locator('.dim-keypad [data-key="A"]').dispatchEvent('pointerdown', { bubbles: true });
+check('a key adds to the name rather than replacing it', await page.locator('.dim-editor').inputValue(), (v) => v === `${weldWas}A`, `${weldWas}A`);
+for (let i = 0; i <= weldWas.length; i += 1) await page.locator('.dim-keypad [data-key="⌫"]').dispatchEvent('pointerdown', { bubbles: true });
 for (const k of ['H', 'Y', 'F', ' ', '1', '/', '2', '.', '1']) await page.locator(`.dim-keypad [data-key="${k}"]`).dispatchEvent('pointerdown', { bubbles: true });
 check('and "HYF 1/2.1" typed on it', await page.locator('.dim-editor').inputValue(), (v) => v === 'HYF 1/2.1', 'HYF 1/2.1');
 await page.locator('.dim-editor').press('End');
