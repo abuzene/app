@@ -6070,6 +6070,50 @@ await page.waitForTimeout(250);
     const r = Number(c.getAttribute('r'));
     return [...document.querySelectorAll('#canvas .balloon-leader')].some((l) => Math.abs(Math.hypot(Number(l.getAttribute('x1')) - cx, Number(l.getAttribute('y1')) - cy) - r) < 0.01);
   }), (v) => v === true, 'a leader starting on the circle');
+  // "I still want to edit the circle, its size and place, after putting it
+  // in" (same day): its ring picks it and drags it; the handle on its edge
+  // sizes it; the panel has Bigger / Smaller.
+  const ringNow = async () => (await drawingNow()).circles[0];
+  const ringAt = async (fx, fy) =>
+    page.evaluate(([fx, fy]) => {
+      const c = document.querySelector('#canvas .circle-note');
+      const m = c.getScreenCTM();
+      const x = Number(c.getAttribute('cx')) + fx * Number(c.getAttribute('r'));
+      const y = Number(c.getAttribute('cy')) + fy * Number(c.getAttribute('r'));
+      return { x: m.a * x + m.c * y + m.e, y: m.b * x + m.d * y + m.f };
+    }, [fx, fy]);
+  const top = await ringAt(0, -1);
+  await penTap(top.x, top.y);
+  check('a touch on the ring picks the circle, its panel and a size handle with it', `${await page.locator('#tab-body [data-editor="circle"]').count()} ${await page.locator('#canvas [data-circle-size]').count()}`, (v) => v === '1 1', '1 1');
+  const r0 = (await ringNow()).r;
+  await page.click('#tab-body [data-a="circle-bigger"]');
+  await page.waitForTimeout(250);
+  check('Bigger makes it a quarter bigger', (await ringNow()).r / r0, (v) => Math.abs(v - 1.25) < 1e-6, '1.25');
+  const before = await ringNow();
+  const from = await ringAt(0, -1);
+  await pen('mousePressed', from.x, from.y);
+  for (let i = 1; i <= 6; i += 1) {
+    await pen('mouseMoved', from.x + i * 10, from.y + i * 5);
+    await page.waitForTimeout(40);
+  }
+  await pen('mouseReleased', from.x + 60, from.y + 30);
+  await page.waitForTimeout(400);
+  const after = await ringNow();
+  check('dragged by its ring, it moves and keeps its size and note', `${Math.hypot(after.x - before.x, after.y - before.y) > 1} ${Math.abs(after.r - before.r) < 1e-6} ${after.text}`, (v) => v === 'true true CHECK', 'true true CHECK');
+  const handle = await page.locator('#canvas [data-circle-size]').boundingBox();
+  const hx = handle.x + handle.width / 2;
+  const hy = handle.y + handle.height / 2;
+  await pen('mousePressed', hx, hy);
+  for (let i = 1; i <= 6; i += 1) {
+    await pen('mouseMoved', hx + i * 8, hy);
+    await page.waitForTimeout(40);
+  }
+  await pen('mouseReleased', hx + 48, hy);
+  await page.waitForTimeout(400);
+  const sized = await ringNow();
+  check('its edge handle dragged out makes it bigger, the middle staying', `${sized.r > after.r * 1.2} ${Math.abs(sized.x - after.x) < 1e-6}`, (v) => v === 'true true', 'true true');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(150);
   const cnBox = await page.locator('#canvas [data-balloon^="cn:"]').boundingBox();
   await penTap(cnBox.x + cnBox.width / 2, cnBox.y + cnBox.height / 2);
   check('a touch on the note opens it, with Remove the circle', `${await page.locator('.dim-editor').inputValue()} ${await page.locator('.dim-keypad button:has-text("Remove the circle")').count()}`, (v) => v === 'CHECK 1', 'CHECK 1');

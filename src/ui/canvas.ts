@@ -44,6 +44,8 @@ export interface CanvasCallbacks {
   onAreaMove(delta: { dx: number; dy: number }, commit: boolean): void;
   /** A circle drawn with the pen for a note (null: put away with no circle). */
   onCircleDrawn(ring: { cx: number; cy: number; r: number } | null): void;
+  /** A circle note moved (by `move`, from where it was) or sized (`r`, its new radius). */
+  onCircleEdit(id: string, change: { move: { dx: number; dy: number } } | { r: number }, commit: boolean): void;
 }
 
 /** How a dimension lies, as its figure's target carries it. */
@@ -58,7 +60,7 @@ export interface DimFrame {
 }
 
 interface DragState {
-  kind: 'pan' | 'route' | 'slide-component' | 'slide-node' | 'stretch' | 'slide-tag' | 'slide-dim' | 'area' | 'move-area' | 'circle';
+  kind: 'pan' | 'route' | 'slide-component' | 'slide-node' | 'stretch' | 'slide-tag' | 'slide-dim' | 'area' | 'move-area' | 'circle' | 'circle-move' | 'circle-size';
   /** The dimension being moved. */
   dim?: DimFrame;
   /** Which end of the run a stretch moves. */
@@ -277,6 +279,14 @@ export class Canvas {
     this.render();
   }
 
+  /** What a drag on a circle note does: moves it from where it was, or sizes it round its middle. */
+  private circleChange(drag: DragState, event: PointerEvent): { move: { dx: number; dy: number } } | { r: number } {
+    const here = this.toPaper(event.clientX, event.clientY);
+    if (drag.kind === 'circle-size') return { r: Math.hypot(here.x - drag.anchor!.x, here.y - drag.anchor!.y) };
+    const from = this.toPaper(drag.startClientX, drag.startClientY);
+    return { move: { dx: here.x - from.x, dy: here.y - from.y } };
+  }
+
   /** Where a point of the paper is on the screen. */
   toClient(p: { x: number; y: number }): { x: number; y: number } {
     const rect = this.svg.getBoundingClientRect();
@@ -314,6 +324,8 @@ export class Canvas {
     const tagEl = target?.closest('[data-weld-tag]');
     const balloonEl = target?.closest('[data-balloon]');
     const equipmentEl = target?.closest('[data-equipment]');
+    const circleEl = target?.closest('[data-circle]');
+    const circleSizeEl = target?.closest('[data-circle-size]');
     // Only a tag, balloon, mark or box lying over a figure gives way to it;
     // the pipe and its points keep their taps.
     const overFigure = !!(tagEl || balloonEl || equipmentEl || weldEl) && !nodeEl;
@@ -435,6 +447,28 @@ export class Canvas {
         startView,
         targetId: key,
         anchor: { x: Number(tagEl.getAttribute('data-ax')), y: Number(tagEl.getAttribute('data-ay')) },
+        moved: false,
+      };
+      return;
+    }
+
+    // A circle note: its ring picks it and drags it; picked, the handle on
+    // its edge sizes it.
+    if (!panRequested && (circleSizeEl || (circleEl && !nodeEl && !compEl && !handleEl))) {
+      event.preventDefault();
+      this.capture(event.pointerId);
+      const sizing = !!circleSizeEl;
+      const id = (circleSizeEl ?? circleEl)!.getAttribute(sizing ? 'data-circle-size' : 'data-circle')!;
+      if (!sizing) this.cb.onSelect({ kind: 'circle', id });
+      const ring = (circleSizeEl ? this.svg.querySelector(`[data-circle="${id}"]`) : circleEl)!;
+      this.drag = {
+        kind: sizing ? 'circle-size' : 'circle-move',
+        pointerId: event.pointerId,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        startView,
+        targetId: id,
+        anchor: { x: Number(ring.getAttribute('cx')), y: Number(ring.getAttribute('cy')) },
         moved: false,
       };
       return;
@@ -715,6 +749,11 @@ export class Canvas {
       this.render();
       return;
     }
+    if (drag.kind === 'circle-move' || drag.kind === 'circle-size') {
+      if (!drag.moved) return;
+      this.cb.onCircleEdit(drag.targetId!, this.circleChange(drag, event), false);
+      return;
+    }
     if (drag.kind === 'move-area') {
       if (!drag.moved) return;
       const here = this.toPaper(event.clientX, event.clientY);
@@ -878,6 +917,10 @@ export class Canvas {
     this.svg.classList.remove('panning');
     if (this.svg.hasPointerCapture(event.pointerId)) this.svg.releasePointerCapture(event.pointerId);
 
+    if (drag.kind === 'circle-move' || drag.kind === 'circle-size') {
+      if (drag.moved) this.cb.onCircleEdit(drag.targetId!, this.circleChange(drag, event), true);
+      return;
+    }
     if (drag.kind === 'circle') {
       const ring = this.ring;
       this.ring = null;

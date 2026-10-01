@@ -108,6 +108,7 @@ export function contentCss({ k, u, symbol = 4, dark = false }: ContentStyleOptio
    weight for both leaders and the ring, lighter than the pipe. */
 .balloon-leader { stroke: ${dim}; stroke-width: ${w(0.7)}; fill: none; }
 .circle-note { fill: none; stroke: ${ink}; stroke-width: ${w(0.9)}; pointer-events: none; }
+.circle-note.selected { stroke: ${accent}; stroke-width: ${w(1.6)}; }
 .balloon-ring { fill: ${dark ? '#0d1117' : '#ffffff'}; stroke: ${dim}; stroke-width: ${w(0.7)}; }
 .balloon-no { fill: ${ink}; font-size: ${t(0.72)}px; font-weight: 600; }
 .pipe-letter { pointer-events: none; }

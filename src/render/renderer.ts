@@ -20,6 +20,7 @@ export type Selection =
   | { kind: 'component'; id: string }
   | { kind: 'weld'; key: string }
   | { kind: 'equipment'; id: string }
+  | { kind: 'circle'; id: string }
   | null;
 
 /**
@@ -1272,7 +1273,17 @@ export function renderDrawing(state: RenderState): string {
     const c = base ? { x: base.x + ring.dx, y: base.y + ring.dy } : { x: ring.x, y: ring.y };
     const d = { x: Math.SQRT1_2, y: -Math.SQRT1_2 };
     const edge = { x: c.x + d.x * ring.r, y: c.y + d.y * ring.r };
-    circles += `<circle class="circle-note" cx="${c.x.toFixed(2)}" cy="${c.y.toFixed(2)}" r="${ring.r.toFixed(2)}"/>`;
+    const picked = sel?.kind === 'circle' && sel.id === ring.id;
+    circles += `<circle class="circle-note${picked ? ' selected' : ''}" cx="${c.x.toFixed(2)}" cy="${c.y.toFixed(2)}" r="${ring.r.toFixed(2)}"/>`;
+    // Picked by its ring and dragged to move it; picked, a handle on its
+    // right edge makes it bigger or smaller (his ask, 2026-10-01).
+    equipmentHits += `<circle class="hit" data-circle="${ring.id}" cx="${c.x.toFixed(2)}" cy="${c.y.toFixed(2)}" r="${ring.r.toFixed(2)}"/>`;
+    if (picked && state.hitSize !== undefined) {
+      const hx = c.x + ring.r;
+      weldHits +=
+        `<circle class="run-handle" cx="${hx.toFixed(2)}" cy="${c.y.toFixed(2)}" r="${(hitR * 0.55).toFixed(2)}"/>` +
+        `<circle class="hit-dot" data-circle-size="${ring.id}" cx="${hx.toFixed(2)}" cy="${c.y.toFixed(2)}" r="${(hitR * 1.3).toFixed(2)}"/>`;
+    }
     if (ring.text) {
       const onRing = (to: Pt) => {
         const len = Math.hypot(to.x - c.x, to.y - c.y) || 1;

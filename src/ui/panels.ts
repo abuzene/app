@@ -1,4 +1,4 @@
-import type { Axis, ComponentKind, EndType, Equipment, FittingKind, FlangeKind, JointType, TerminalKind } from '../model/types';
+import type { Axis, CircleNote, ComponentKind, EndType, Equipment, FittingKind, FlangeKind, JointType, TerminalKind } from '../model/types';
 import type { Host, TabId } from './types';
 import { headerTakenOff, COMPONENT_LABEL, DEFAULT_LOGO, ROOT_GAP, TERMINAL_LABEL, fittingLabel, fmtMm, isCoupling, isMark, isReducer, isSupport, isValve, oletLabel, oletLegs, oletMarks, pipeNetAt, reducerName, resolveEnds, suggestWeldCode, runGroupIds, valveOpenSide } from '../model/drawing';
 import { COMMAND_HELP } from '../model/commands';
@@ -384,6 +384,20 @@ function axisAlong(host: Host, nodeId: string, axis: Axis): boolean {
   return info.legs.some((leg) => Math.abs(leg.e * v.e + leg.n * v.n + leg.u * v.u) > 0.999);
 }
 
+/** A circle note picked: its note, its size, and away with it (his ask, 2026-10-01). */
+function circleProperties(host: Host, id: string): string {
+  const ring = host.state.drawing.circles?.find((c) => c.id === id);
+  if (!ring) return '';
+  return `
+<div class="section" data-editor="circle" data-id="${ring.id}">
+  <h3>Circle note</h3>
+  <div class="row"><label>Note</label><input type="text" data-f="text" value="${esc(ring.text)}" placeholder="e.g. CHECK FIT-UP" /></div>
+  <div class="row"><label>Size</label><span><button type="button" data-a="circle-smaller">Smaller</button> <button type="button" data-a="circle-bigger">Bigger</button></span></div>
+  <p class="empty-note">Drag the ring to move it; drag the handle on its edge to make it bigger or smaller.</p>
+  <div class="row"><button type="button" class="danger" data-a="circle-remove">Remove the circle</button></div>
+</div>`;
+}
+
 function equipmentProperties(host: Host, id: string): string {
   const box = host.state.drawing.equipment?.find((q) => q.id === id);
   if (!box) return '';
@@ -414,6 +428,7 @@ function routeTab(host: Host): string {
   else if (sel?.kind === 'component') props = componentProperties(host, sel.id);
   else if (sel?.kind === 'weld') props = weldProperties(host, sel.key);
   else if (sel?.kind === 'equipment') props = equipmentProperties(host, sel.id);
+  else if (sel?.kind === 'circle') props = circleProperties(host, sel.id);
   else
     props = `<div class="section"><h3>Nothing selected</h3><p class="empty-note">Click a run, a point or a component on the drawing to edit it.</p></div>`;
   return props + runList(host);
@@ -1130,6 +1145,27 @@ function wire(body: HTMLElement, host: Host): void {
     });
     nodeEditor.querySelector('[data-a="delete-node"]')?.addEventListener('click', () => {
       host.edit('Delete point', (d) => deletePoint(d, id));
+      host.select(null);
+    });
+  }
+
+  const circleEditor = body.querySelector<HTMLElement>('[data-editor="circle"]');
+  if (circleEditor) {
+    const id = circleEditor.dataset.id!;
+    const withRing = (label: string, fn: (c: CircleNote) => void) =>
+      host.edit(label, (d) => {
+        const ring = d.circles?.find((c) => c.id === id);
+        if (ring) fn(ring);
+      }, { keepPanel: true });
+    circleEditor.querySelector<HTMLInputElement>('[data-f="text"]')?.addEventListener('change', (e) => withRing('Circle note', (c) => { c.text = (e.target as HTMLInputElement).value.trim().toUpperCase(); }));
+    circleEditor.querySelector('[data-a="circle-smaller"]')?.addEventListener('click', () => withRing('Circle smaller', (c) => { c.r = Math.max(c.r * 0.8, 1); }));
+    circleEditor.querySelector('[data-a="circle-bigger"]')?.addEventListener('click', () => withRing('Circle bigger', (c) => { c.r *= 1.25; }));
+    circleEditor.querySelector('[data-a="circle-remove"]')?.addEventListener('click', () => {
+      host.edit('Remove circle', (d) => {
+        d.circles = (d.circles ?? []).filter((c) => c.id !== id);
+        if (d.circles.length === 0) d.circles = undefined;
+        if (d.itemOverrides) delete d.itemOverrides[`cn:${id}`];
+      });
       host.select(null);
     });
   }

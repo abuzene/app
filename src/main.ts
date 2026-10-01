@@ -1,5 +1,5 @@
 import './styles.css';
-import type { Axis, Drawing, InlineComponent, Run, Vec3, WeldCounter } from './model/types';
+import type { Axis, CircleNote, Drawing, InlineComponent, Run, Vec3, WeldCounter } from './model/types';
 import type { Preview, Selection } from './render/renderer';
 import type { AppState, Host, OletAsk, OletChoice, ReducerAsk, ReducerChoice } from './ui/types';
 import { reducerPreview } from './ui/reducer-preview';
@@ -928,6 +928,57 @@ const canvas = new Canvas(svg, {
   onEditNote(key, clientX, clientY) {
     editNote(key, clientX, clientY);
   },
+  onCircleEdit(id, change, commit) {
+    if (!circleFrom) {
+      const ring = state.drawing.circles?.find((c) => c.id === id);
+      if (!ring) return;
+      circleFrom = { snap: snapshot(), ring: { ...ring } };
+    }
+    const start = circleFrom.ring;
+    const least = symbolSizeFor(state.drawing, state.analysis) * 0.8;
+    const apply = (d: Drawing) => {
+      const target = d.circles?.find((c) => c.id === id);
+      if (!target) return;
+      if ('r' in change) {
+        target.r = Math.max(change.r, least);
+        return;
+      }
+      target.x = start.x + change.move.dx;
+      target.y = start.y + change.move.dy;
+      target.dx = start.dx + change.move.dx;
+      target.dy = start.dy + change.move.dy;
+    };
+    if (commit) {
+      replaceDrawing(JSON.parse(circleFrom.snap) as Drawing);
+      circleFrom = null;
+      host.edit('r' in change ? 'Size circle' : 'Move circle', (d) => {
+        apply(d);
+        // Let go somewhere else, it goes with the point now nearest it.
+        const target = d.circles?.find((c) => c.id === id);
+        if (!target || 'r' in change) return;
+        const base = target.node ? paperOf(state.analysis, d, target.node) : null;
+        const centre = base ? { x: base.x + target.dx, y: base.y + target.dy } : { x: target.x, y: target.y };
+        let best = Infinity;
+        for (const n of d.nodes) {
+          const p = paperOf(state.analysis, d, n.id);
+          if (!p) continue;
+          const dist = Math.hypot(p.x - centre.x, p.y - centre.y);
+          if (dist < best) {
+            best = dist;
+            target.node = n.id;
+            target.dx = centre.x - p.x;
+            target.dy = centre.y - p.y;
+          }
+        }
+        target.x = centre.x;
+        target.y = centre.y;
+      }, { keepPanel: true });
+      return;
+    }
+    apply(state.drawing);
+    recompute();
+    renderCanvasOnly();
+  },
   onAreaSelect(box) {
     canvas.areaMode = false;
     const ids = box
@@ -1515,6 +1566,7 @@ let stretchFrom: {
   shift: Record<string, Vec3>;
 } | null = null;
 let tagFrom: string | null = null;
+let circleFrom: { snap: string; ring: CircleNote } | null = null;
 
 /**
  * The length a run would have with one end dragged to a point: the point is
@@ -1944,7 +1996,7 @@ function renderHud(): void {
     const olet = sel.kind === 'node' && oletAlone(sel.id);
     const plain = sel.kind === 'node' && isPlainPoint(state.drawing, sel.id);
     const coupling = sel.kind === 'node' && isCouplingPoint(state.drawing, sel.id);
-    const what = sel.kind === 'run' ? 'pipe' : sel.kind === 'node' ? (flanged ? 'flanges' : 'point') : sel.kind === 'equipment' ? 'equipment' : 'item';
+    const what = sel.kind === 'run' ? 'pipe' : sel.kind === 'node' ? (flanged ? 'flanges' : 'point') : sel.kind === 'equipment' ? 'equipment' : sel.kind === 'circle' ? 'circle' : 'item';
     const union = coupling && !!state.drawing.nodes.find((n) => n.id === sel.id)?.union;
     const half = olet && !!state.drawing.nodes.find((n) => n.id === sel.id)?.halfCoupling;
     parts.push(`<button class="hud-stop hud-delete" id="hud-delete" type="button">${flanged ? 'Remove flanges' : half ? 'Remove half coupling' : olet ? 'Remove olet' : union ? 'Remove union' : coupling ? 'Remove coupling' : plain ? 'Remove point' : `Delete ${what}`}</button>`);
@@ -3471,7 +3523,11 @@ function deleteSelection(): void {
   host.edit(flanged ? 'Remove flanges' : half ? 'Remove half coupling' : olet ? 'Remove olet' : union ? 'Remove union' : coupling ? 'Remove coupling' : plain ? 'Remove point' : 'Delete', (d) => {
     if (sel.kind === 'run') deleteRunGroup(d, state.analysis, sel.id);
     else if (sel.kind === 'equipment') removeEquipment(d, sel.id);
-    else if (sel.kind === 'node' && flanged) removeFlangeJoint(d, sel.id);
+    else if (sel.kind === 'circle') {
+      d.circles = (d.circles ?? []).filter((c) => c.id !== sel.id);
+      if (d.circles.length === 0) d.circles = undefined;
+      if (d.itemOverrides) delete d.itemOverrides[`cn:${sel.id}`];
+    } else if (sel.kind === 'node' && flanged) removeFlangeJoint(d, sel.id);
     else if (sel.kind === 'node' && olet) removeOlet(d, sel.id);
     else if (sel.kind === 'node') deletePoint(d, sel.id);
     else removeComponent(d, sel.id);

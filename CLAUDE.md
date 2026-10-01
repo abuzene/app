@@ -901,7 +901,16 @@ ships, and the decisions already taken, so they are not re-litigated.
   point goes; `r`; `text`). Drawn on screen and sheet (`.circle-note`), the
   note on a leader from the circle (`cn:<id>`, dragged via
   `itemOverrides`, placed by Tidy). A touch on the note opens it, with
-  **Remove the circle**; a circle left with no note goes.
+  **Remove the circle**; a circle left with no note goes. **Edited after
+  it is put in** (his ask, same day: "size and place after inserting"):
+  its ring is a hit (`data-circle`, first hits group, under the pipe and
+  points) that picks it (Selection kind `circle`, ring drawn in the
+  accent) and drags it (`canvas` drag `circle-move` → `onCircleEdit`,
+  snapshot per step, one undo; let go, it re-anchors on the nearest
+  point); picked, a handle on its right edge (`data-circle-size`, drag
+  `circle-size`) sizes it round its middle; its panel (`circleProperties`)
+  has Note, **Smaller / Bigger** (×0.8 / ×1.25) and Remove; the HUD's
+  Delete circle removes it.
 - **Right click while drawing** puts the pencil down (`onStopDrawing`
   from canvas.ts; the right button still pans when not drawing).
 - Supports and the AG/UG mark are **notes, not material**: no BOM line, no
