@@ -1718,10 +1718,11 @@ await page.waitForTimeout(300);
 await page.click('#tabs button:has-text("Route")');
 await page.waitForTimeout(150);
 check(
-  'supports are numbered along the line, the angle one saying so',
+  // His ask, 2026-10-01: no "L50" written in unless he types it.
+  'supports are numbered along the line, the angle one with no detail by default',
   await page.evaluate(() => [...document.querySelectorAll('#canvas .callout-text')].map((t) => t.textContent).join(' | ')),
-  (v) => v === 'SUPPORT 1 | SUPPORT 2 L50 | SUPPORT 3',
-  'SUPPORT 1 | SUPPORT 2 L50 | SUPPORT 3',
+  (v) => v === 'SUPPORT 1 | SUPPORT 2 | SUPPORT 3',
+  'SUPPORT 1 | SUPPORT 2 | SUPPORT 3',
 );
 check('the palette carries the L50 support', await page.locator('.tool[data-kind="SUPPORT_L"]').count(), (v) => v === 1, '1');
 // A valve is a set size, whatever its true length: at 2" a ball valve is
@@ -1761,6 +1762,23 @@ await page.locator('.dim-keypad [data-key="B"]').dispatchEvent('pointerdown', { 
 await page.locator('.dim-keypad [data-key="OK"]').dispatchEvent('pointerdown', { bubbles: true });
 await page.waitForTimeout(300);
 check('and what is typed follows the number', await page.evaluate(() => document.querySelector('#canvas .callout-text').textContent), (v) => v === 'SUPPORT 1 B', 'SUPPORT 1 B');
+
+// "Add the supports' names to Tidy" (2026-10-01): laid out with the other
+// labels, clear of weld numbers, figures and balloons.
+{
+  await page.keyboard.press('Escape');
+  await page.click('#tidy');
+  await page.waitForTimeout(1500);
+  const clashes = await page.evaluate(() => {
+    const boxes = (sel) => [...document.querySelectorAll(sel)].map((e) => e.getBoundingClientRect());
+    const names = boxes('#canvas .callout-text');
+    const others = [...boxes('#canvas .weld-box'), ...boxes('#canvas .dim-text'), ...boxes('#canvas .balloon-ring'), ...boxes('#canvas .note')];
+    const hit = (a, b) => a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1;
+    return `${names.length} ${names.filter((n) => others.some((o) => hit(n, o))).length}`;
+  });
+  check('Tidy lays the support names out clear of the other lettering', clashes, (v) => v === '3 0', '3 names, none over another label');
+  check('Tidy writes them as ordinary drags (centred), so they can still be moved', await page.evaluate(() => Object.entries(JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).itemOverrides ?? {}).filter(([k]) => k.startsWith('sup:')).every(([, v]) => v.centred === true)), (v) => v === true, 'true');
+}
 
 // The printed sheet is one page whatever paper the printer has: an iPad
 // ignores the @page size, and a 420 mm sheet once ran on to a second page.

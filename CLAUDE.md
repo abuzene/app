@@ -883,7 +883,15 @@ ships, and the decisions already taken, so they are not re-litigated.
 - **Right click while drawing** puts the pencil down (`onStopDrawing`
   from canvas.ts; the right button still pans when not drawing).
 - Supports and the AG/UG mark are **notes, not material**: no BOM line, no
-  welds. Supports are numbered along the line unless named.
+  welds. Supports are numbered along the line unless named. **No detail by
+  default** (his ask, 2026-10-01): an L support reads "SUPPORT 2", not
+  "SUPPORT 2 L50", unless a detail is typed (`comp.note`). **Tidy lays the
+  support names out** with the other labels (same day): the renderer hands
+  each over as a note (`LayoutSpecs.notes`, key `sup:<id>`, its box from
+  the name's length), and Tidy's place is kept as `itemOverrides['sup:<id>']`
+  with `centred: true` — the name drawn centred there, its leader to the
+  box's edge, as a line-end note; a drag keeps it centred. One dragged by
+  hand before has no `centred` and is drawn from its end as before.
 - Printing happens from the page itself (`#print-root`, `@page` size); a
   hidden iframe printed blank on iPad. On desktop the sheet is **pinned**
   (`position: fixed`, 100%/100%) to the page box. On a tablet

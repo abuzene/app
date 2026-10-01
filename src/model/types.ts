@@ -398,7 +398,7 @@ export interface Drawing {
   runs: Run[];
   weldOverrides: Record<string, WeldOverride>;
   /** Where an item balloon was dragged to, in paper units from the item, by item key. */
-  itemOverrides?: Record<string, { dx: number; dy: number }>;
+  itemOverrides?: Record<string, { dx: number; dy: number; centred?: boolean }>;
   /** Dimensions moved or hidden by hand, by "runId:piece". */
   dimOverrides?: Record<string, DimOverride>;
   /** Names typed over the material list's own, by list line key. */

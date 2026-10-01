@@ -1020,19 +1020,19 @@ const canvas = new Canvas(svg, {
     openDimensionEditor(key, clientX, clientY);
   },
   /**
-   * What a support is — "L50" — typed over right on the drawing. The number
-   * stays; it is the detail after it that is typed.
+   * What a support is — "L50", or nothing — typed over right on the
+   * drawing. The number stays; it is the detail after it that is typed.
    */
   onEditSupport(componentId, clientX, clientY) {
     const comp = state.drawing.runs.flatMap((r) => r.inline).find((c) => c.id === componentId);
     if (!comp) return;
-    const current = comp.note ?? (comp.kind === 'SUPPORT_L' ? 'L50' : '');
+    const current = comp.note ?? '';
     openInlineEditor(current, 'text', clientX, clientY, (text) => {
       const detail = text.trim();
       if (detail === current) return;
       host.edit('Describe support', (d) => {
         const target = d.runs.flatMap((r) => r.inline).find((c) => c.id === componentId);
-        if (target) target.note = detail || (target.kind === 'SUPPORT_L' ? '' : undefined);
+        if (target) target.note = detail || undefined;
       });
     });
   },
@@ -1221,7 +1221,9 @@ const canvas = new Canvas(svg, {
     if (balloon?.startsWith('sup:') || balloon?.startsWith('rn:') || balloon?.startsWith('en:')) closeDimensionEditor();
     const apply = (d: Drawing) => {
       if (balloon) {
-        d.itemOverrides = { ...d.itemOverrides, [balloon]: { dx: offset.dx, dy: offset.dy } };
+        // A support's name Tidy set centred stays centred under the pen.
+        const centred = d.itemOverrides?.[balloon]?.centred;
+        d.itemOverrides = { ...d.itemOverrides, [balloon]: centred ? { dx: offset.dx, dy: offset.dy, centred } : { dx: offset.dx, dy: offset.dy } };
         // An item balloon dragged stays on the place it was dragged from,
         // rather than moving to wherever has most room later.
         const inst = state.analysis.items.find((i) => i.key === balloon);
@@ -2154,16 +2156,17 @@ function tidyDrawing(): void {
       if (moved) items[letter.key] = moved;
       else delete items[letter.key];
     }
-    // Line-end notes: moved, or back where they sit anyway.
+    // Line-end notes and support names: moved, or back where they sit
+    // anyway. A support's name is set centred where Tidy put it.
     for (const note of specs.notes) {
       const moved = result.notes[note.key];
-      if (moved) items[note.key] = moved;
+      if (moved) items[note.key] = note.key.startsWith('sup:') ? { ...moved, centred: true } : moved;
       else delete items[note.key];
     }
     d.itemOverrides = items;
     d.balloons = balloons;
   });
-  host.notify('Tidied: dimensions, weld numbers, balloons and letters laid out clear of each other. Undo puts them back.');
+  host.notify('Tidied: dimensions, weld numbers, balloons, letters and support names laid out clear of each other. Undo puts them back.');
 }
 // The line in 3D, and a picture of it on the sheet (his ask, 2026-09-27).
 $('view3d').addEventListener('click', () => open3dView(host));

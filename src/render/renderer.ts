@@ -619,20 +619,47 @@ export function renderDrawing(state: RenderState): string {
         // best, like a balloon, and kept there with the drawing.
         const { anchor, label } = supportCallout(f, comp.kind as 'SUPPORT' | 'SUPPORT_L');
         const placed = drawing.itemOverrides?.[`sup:${comp.id}`];
-        const lx = placed ? anchor[0] + placed.dx : label[0];
-        const ly = placed ? anchor[1] + placed.dy : label[1];
-        // "SUPPORT 2 L50": the number (or a name), then what the support is,
-        // which is typed over on the drawing — the angle size, or anything.
-        const detail = comp.note ?? (comp.kind === 'SUPPORT_L' ? 'L50' : '');
+        // "SUPPORT 2": the number (or a name), then whatever is typed after
+        // it on the drawing. No detail by default (his ask, 2026-10-01: the
+        // L50 is no longer written in unless typed).
+        const detail = comp.note ?? '';
         const name = `SUPPORT ${comp.tag || supportNo.get(comp.id) || ''} ${detail}`.replace(/\s+/g, ' ').trim();
-        const textAnchor = lx < anchor[0] ? 'end' : 'start';
-        const gap = size * 0.3 * (lx < anchor[0] ? 1 : -1);
-        callouts +=
-          `<g class="callout">` +
-          `<line class="balloon-leader" x1="${anchor[0].toFixed(2)}" y1="${anchor[1].toFixed(2)}" x2="${(lx + gap).toFixed(2)}" y2="${ly.toFixed(2)}"/>` +
-          `<text class="sym-text callout-text" x="${lx.toFixed(2)}" y="${ly.toFixed(2)}" text-anchor="${textAnchor}" dominant-baseline="middle" font-size="${(size * 0.85).toFixed(2)}">${escapeText(name)}</text>` +
-          `</g>`;
-        calloutHits += `<circle class="hit-dot" data-balloon="sup:${comp.id}" data-ax="${anchor[0].toFixed(2)}" data-ay="${anchor[1].toFixed(2)}" cx="${(lx + (textAnchor === 'end' ? -1 : 1) * size * 2).toFixed(2)}" cy="${ly.toFixed(2)}" r="${Math.max(size * 1.4, hitR * 0.6).toFixed(2)}"/>`;
+        const fontSize = size * 0.85;
+        const nameW = name.length * fontSize * 0.6 + size * 0.4;
+        const nameH = size * 1.1;
+        const homeSide = label[0] < anchor[0] ? -1 : 1;
+        const home = { x: label[0] + (homeSide * nameW) / 2, y: label[1] };
+        let text: string;
+        let leader: string;
+        let hitX: number;
+        let hitY: number;
+        if (placed?.centred) {
+          // Set by Tidy: the name centred where it put it, its leader run to
+          // the box's edge, as a line-end note's.
+          const cx = anchor[0] + placed.dx;
+          const cy = anchor[1] + placed.dy;
+          const ddx = anchor[0] - cx;
+          const ddy = anchor[1] - cy;
+          const reach = Math.min(Math.abs(ddx) > 1e-6 ? nameW / 2 / Math.abs(ddx) : Infinity, Math.abs(ddy) > 1e-6 ? nameH / 2 / Math.abs(ddy) : Infinity);
+          leader = reach < 1 ? `<line class="balloon-leader" x1="${anchor[0].toFixed(2)}" y1="${anchor[1].toFixed(2)}" x2="${(cx + ddx * reach).toFixed(2)}" y2="${(cy + ddy * reach).toFixed(2)}"/>` : '';
+          text = `<text class="sym-text callout-text" x="${cx.toFixed(2)}" y="${cy.toFixed(2)}" text-anchor="middle" dominant-baseline="middle" font-size="${fontSize.toFixed(2)}">${escapeText(name)}</text>`;
+          hitX = cx;
+          hitY = cy;
+        } else {
+          const lx = placed ? anchor[0] + placed.dx : label[0];
+          const ly = placed ? anchor[1] + placed.dy : label[1];
+          const textAnchor = lx < anchor[0] ? 'end' : 'start';
+          const gap = size * 0.3 * (lx < anchor[0] ? 1 : -1);
+          leader = `<line class="balloon-leader" x1="${anchor[0].toFixed(2)}" y1="${anchor[1].toFixed(2)}" x2="${(lx + gap).toFixed(2)}" y2="${ly.toFixed(2)}"/>`;
+          text = `<text class="sym-text callout-text" x="${lx.toFixed(2)}" y="${ly.toFixed(2)}" text-anchor="${textAnchor}" dominant-baseline="middle" font-size="${fontSize.toFixed(2)}">${escapeText(name)}</text>`;
+          hitX = lx + (textAnchor === 'end' ? -1 : 1) * size * 2;
+          hitY = ly;
+        }
+        callouts += `<g class="callout">${leader}${text}</g>`;
+        // Tidy lays it out with the other labels (his ask, same day).
+        const out = Math.hypot(home.x - anchor[0], home.y - anchor[1]) || 1;
+        collect?.notes.push({ key: `sup:${comp.id}`, at: { x: anchor[0], y: anchor[1] }, n: { x: (home.x - anchor[0]) / out, y: (home.y - anchor[1]) / out }, w: nameW, h: nameH, dflt: home });
+        calloutHits += `<circle class="hit-dot" data-balloon="sup:${comp.id}" data-ax="${anchor[0].toFixed(2)}" data-ay="${anchor[1].toFixed(2)}" cx="${hitX.toFixed(2)}" cy="${hitY.toFixed(2)}" r="${Math.max(size * 1.4, hitR * 0.6).toFixed(2)}"/>`;
       }
 
       // A flanged component is drawn with the flanges it bolts between, each
