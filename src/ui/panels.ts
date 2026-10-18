@@ -32,7 +32,7 @@ const END_TYPES: EndType[] = ['BW', 'SW', 'THD', 'FLG', 'PLAIN'];
 const COMPONENT_KINDS = (Object.keys(COMPONENT_LABEL) as ComponentKind[]).filter((k) => k !== 'TRANSITION');
 
 /** What a valve can be replaced by (his ask, 2026-09-27): kind, and ends when not its own. */
-const VALVE_CHOICES = ['BALL', 'BALL_ACT', 'BALL|SW', 'BALL|THD', 'GATE', 'GLOBE', 'CHECK', 'BUTTERFLY', 'PLUG', 'REGULATOR', 'FILTER', 'RELIEF'];
+const VALVE_CHOICES = ['BALL', 'BALL_ACT', 'BALL|SW', 'BALL|THD', 'GATE', 'GLOBE', 'CHECK', 'BUTTERFLY', 'PLUG', 'REGULATOR', 'FILTER', 'METER', 'RELIEF'];
 const REDUCER_CHOICES = ['RED_CONC', 'RED_ECC'];
 const choiceLabel = (value: string): string => {
   const [kind, ends] = value.split('|');

@@ -161,6 +161,10 @@ VALVE_FF.BALL_ACT = VALVE_FF.BALL;
 VALVE_FF.REGULATOR = VALVE_FF.GLOBE;
 // An in-line filter: as long as a globe valve until its own length is typed.
 VALVE_FF.FILTER = VALVE_FF.GLOBE;
+// A meter (his ask, 2026-10-18): a turbine meter's three diameters face to
+// face (EN 12261), a rotary one's 171 at the small sizes, until its own
+// length is typed over.
+VALVE_FF.METER = { DN25: 171, DN32: 171, DN40: 171, DN50: 171, DN65: 195, DN80: 240, DN100: 300, DN125: 375, DN150: 450, DN200: 600, DN250: 750, DN300: 900 };
 
 /** Socket weld coupling, 3000#: socket bottom to socket bottom (ASME B16.11 "E"), mm. */
 const COUPLING_SW_E: Record<string, number> = { DN15: 9.5, DN20: 9.5, DN25: 12.5, DN32: 12.5, DN40: 12.5, DN50: 19, DN65: 19, DN80: 19, DN100: 19 };

@@ -70,6 +70,8 @@ const COMPONENT_ALIAS: Record<string, ComponentKind> = {
   PCV: 'REGULATOR',
   FILTER: 'FILTER',
   FLT: 'FILTER',
+  METER: 'METER',
+  FM: 'METER',
   FLG: 'FLG_WN',
   FLANGE: 'FLG_WN',
   FLG_WN: 'FLG_WN',

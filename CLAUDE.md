@@ -408,7 +408,12 @@ ships, and the decisions already taken, so they are not re-litigated.
   PSV) is an angle valve: inlet along the line, outlet to the side with
   its flange and an arrow, spring over the inlet's line — meant for the
   end of a branch. All three in 3D (regulator dome + sensing tube,
-  filter housing in green, relief outlet and bonnet).
+  filter housing in green, relief outlet and bonnet). **Meter** (his ask,
+  2026-10-18: "add a meter"): `METER` (commands METER/FM), in the Valves
+  group after Filter, the same kind of in-line item: a paper-filled box
+  reaching its faces with an M drawn in strokes, `VALVE_FF.METER` (turbine
+  3×DN, 171 at the small rotary sizes; typed over like a valve's), on the
+  list as METER, a yellow box with its register on top in 3D.
   **Couplings** in Fittings (his ask, 2026-09-26: "COUPLING SW, the
   socket one, and COUPLING NPT"). **A coupling is a fitting on a point**
   (same day: "every fitting splits the pipe it goes into in two, except

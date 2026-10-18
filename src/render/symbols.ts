@@ -566,6 +566,18 @@ export function componentSymbol(kind: ComponentKind, f: Frame, reach?: number, f
         line(f, [0, 0, -h * 0.92], [0, 0, h * 0.92], 'sym-dashed')
       );
     }
+    case 'METER': {
+      // A meter in the line (his ask, 2026-10-18): a box reaching its faces,
+      // filled with the paper so the pipe is not seen through it, an M in it.
+      const R = Math.max(s, reach ?? s);
+      const h = Math.min(R * 0.9, s * 1.3);
+      const w = Math.min(R * 0.55, h * 0.75);
+      const m = h * 0.55;
+      const strokes: [number, number][] = [[-w, -m], [-w, m], [0, -m * 0.15], [w, m], [w, -m]];
+      let letter = '';
+      for (let i = 1; i < strokes.length; i += 1) letter += line(f, [strokes[i - 1][0], 0, strokes[i - 1][1]], [strokes[i][0], 0, strokes[i][1]], 'sym-line');
+      return poly([pt(f, -R, 0, -h), pt(f, -R, 0, h), pt(f, R, 0, h), pt(f, R, 0, -h)], 'sym-fill') + letter;
+    }
     case 'RELIEF': {
       // A relief valve is an angle valve (ISA 5.1): in along the line,
       // out to the side with its flange and an arrow, the spring over the

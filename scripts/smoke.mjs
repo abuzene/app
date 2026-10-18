@@ -149,7 +149,7 @@ check('a length can be typed', await page.locator('#tab-body .run-list input[dat
 // Palette.
 await page.locator('#tab-body .run-list tbody tr').first().click();
 await page.waitForTimeout(200);
-check('the palette carries the fittings, couplings (SW, NPT), the threaded union, ball valves (flanged, air, SW, threaded), regulator, filter, relief, tee, olets, the half coupling, marks, equipment, move area, circle note, a 45° elbow and a weld', await page.locator('.tool').count(), (v) => v === 32, '32');
+check('the palette carries the fittings, couplings (SW, NPT), the threaded union, ball valves (flanged, air, SW, threaded), regulator, filter, relief, tee, olets, the half coupling, marks, equipment, move area, circle note, a 45° elbow, a meter and a weld', await page.locator('.tool').count(), (v) => v === 33, '33');
 check('and no slip-on or lap joint flange, which are not used here', await page.locator('.tool[data-kind="FLG_SO"], .tool[data-kind="FLG_LAP"]').count(), (v) => v === 0, '0');
 check('a tee can be placed on a header', await page.locator('.tool[data-branch="TEE"]').count(), (v) => v === 1, '1');
 check('the actuated ball valve is there', await page.locator('.tool[data-kind="BALL_ACT"]').count(), (v) => v === 1, '1');
@@ -6213,6 +6213,32 @@ await page.waitForTimeout(250);
   await page.waitForTimeout(200);
   const turnedWelds = await page.locator('#tab-body table tbody tr').allInnerTexts();
   check('still a 90 and a 45 elbow, two welds each', `${turnedWelds.filter((r) => /90 ELBOW LR/.test(r)).length} ${turnedWelds.filter((r) => /45 ELBOW LR/.test(r)).length}`, (v) => v === '4 2', '4 2');
+  await page.click('#tabs button:has-text("Route")');
+  await page.waitForTimeout(150);
+}
+
+/* ----------------------------------------------------------- a meter */
+
+// "Add a meter to the fittings" (2026-10-18): in the line like the filter,
+// flanged both sides, a box with an M.
+{
+  await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 2000');
+  await page.locator('#canvas [data-run]').first().click({ force: true });
+  await page.waitForTimeout(200);
+  check('the palette has the meter among the valves', await page.locator('.tool[data-kind="METER"]').innerText(), (v) => v.trim() === 'Meter', 'Meter');
+  await page.locator('.tool[data-kind="METER"]').click();
+  await page.waitForTimeout(400);
+  await page.keyboard.press('Escape');
+  const met = (await drawingNow()).runs.flatMap((r) => r.inline).find((c) => c.kind === 'METER');
+  check('a meter goes in the line', !!met, (v) => v === true, 'true');
+  await page.click('#tabs button:has-text("Welds")');
+  await page.waitForTimeout(200);
+  const meterWelds = await page.locator('#tab-body table tbody tr').allInnerTexts();
+  check('welded like a flanged valve: two PIPE / WELD NECK FLANGE welds', meterWelds.filter((r) => /PIPE \/ WELD NECK FLANGE/.test(r)).length, (v) => v === 2, '2');
+  await page.click('#tabs button:has-text("Items")');
+  await page.waitForTimeout(200);
+  const meterList = await page.locator('#tab-body table tbody tr').allInnerTexts();
+  check('on the list as METER, with its two flanges', `${meterList.filter((r) => /^\d+\tMETER\t/.test(r)).length} ${meterList.find((r) => /\tWELD NECK FLANGE\t/.test(r))?.split('\t')[4]}`, (v) => v === '1 2', '1 2');
   await page.click('#tabs button:has-text("Route")');
   await page.waitForTimeout(150);
 }

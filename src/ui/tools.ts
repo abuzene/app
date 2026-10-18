@@ -24,7 +24,7 @@ interface ToolGroup {
 const GROUPS: ToolGroup[] = [
   { label: 'Flanges', kinds: ['FLG_WN', 'FLG_SW', 'FLG_THD', 'FLG_BLIND'] },
   { label: 'Fittings', kinds: ['RED_CONC', 'RED_ECC', 'CAP', 'TRANSITION', 'COUPLING_SW', 'COUPLING_THD', 'UNION', { elbow45: true }] },
-  { label: 'Valves', kinds: ['BALL', 'BALL_ACT', { valve: 'BALL', ends: 'SW' }, { valve: 'BALL', ends: 'THD' }, 'REGULATOR', 'FILTER', 'RELIEF'] },
+  { label: 'Valves', kinds: ['BALL', 'BALL_ACT', { valve: 'BALL', ends: 'SW' }, { valve: 'BALL', ends: 'THD' }, 'REGULATOR', 'FILTER', 'METER', 'RELIEF'] },
   { label: 'Branch', kinds: [{ branch: 'TEE' }, { olet: 'BW' }, { olet: 'SW' }, { olet: 'THD' }, { olet: 'THD', half: true }] },
   { label: 'Marks', kinds: ['SUPPORT', 'SUPPORT_L', 'GROUND', { equipment: true }, { measure: true }, { area: true }, { circle: true }] },
   { label: 'Joints', kinds: [{ weld: 'BW' }] },
@@ -35,6 +35,7 @@ const SHORT: Partial<Record<ComponentKind, string>> = {
   BALL_ACT: 'Ball air',
   REGULATOR: 'Regulator',
   FILTER: 'Filter',
+  METER: 'Meter',
   RELIEF: 'Relief',
   FLG_WN: 'WN',
   FLG_SO: 'SO',

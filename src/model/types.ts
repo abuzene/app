@@ -36,6 +36,8 @@ export type ComponentKind =
   | 'REGULATOR'
   /** An in-line filter: a diamond with a dashed line across (ISO 10628). His ask, 2026-09-27. */
   | 'FILTER'
+  /** A meter in the line (gas or flow): a box with an M, flanged both sides. His ask, 2026-10-18. */
+  | 'METER'
   | 'FLG_WN'
   | 'FLG_SO'
   | 'FLG_SW'

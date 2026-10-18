@@ -41,6 +41,7 @@ const COUPLING: RGB = [0.46, 0.54, 0.64];
 const DASHED: RGB = [0.62, 0.67, 0.73];
 const EQUIPMENT: RGB = [0.7, 0.74, 0.8];
 const FILTER_BODY: RGB = [0.34, 0.52, 0.4];
+const METER_BODY: RGB = [0.78, 0.66, 0.24];
 
 /** Class 150 flange outside diameters (ASME B16.5), mm. */
 const FLANGE_OD: Record<string, number> = {
@@ -295,7 +296,7 @@ function valveAt(g: Builder, drawing: Drawing, run: Run, comp: InlineComponent, 
     g.disc(vadd(faceA, vmul(d, t / 2)), d, F / 2, t, VALVE);
     g.disc(vadd(faceB, vmul(d, -t / 2)), d, F / 2, t, VALVE);
     g.tube(vadd(faceA, vmul(d, t)), vadd(faceB, vmul(d, -t)), pipe * 1.15, pipe * 1.15, VALVE);
-    if (comp.kind !== 'BUTTERFLY' && comp.kind !== 'FILTER') g.sphere(c, Math.min(half - t, F * 0.42), VALVE);
+    if (comp.kind !== 'BUTTERFLY' && comp.kind !== 'FILTER' && comp.kind !== 'METER') g.sphere(c, Math.min(half - t, F * 0.42), VALVE);
     // The flanges it is bolted between, unless left off or bolted to a valve.
     const open = valveOpenSide(drawing, run, comp);
     const kind = valveFlangeKind(joint);
@@ -317,6 +318,13 @@ function valveAt(g: Builder, drawing: Drawing, run: Run, comp: InlineComponent, 
   }
 
   if (comp.kind === 'CHECK') return;
+  if (comp.kind === 'METER') {
+    // The meter's body between its flanges, its register on top.
+    const body = Math.max(pipe * 1.5, F * 0.48);
+    g.box(c, [d, side, up], [Math.max(half * 0.7, pipe), body, body], METER_BODY);
+    g.box(vadd(c, vmul(up, body + body * 0.3)), [d, side, up], [body * 0.55, body * 0.45, body * 0.3], HANDLE);
+    return;
+  }
   if (comp.kind === 'FILTER') {
     // The filter's housing standing on the line, its cover on top.
     const r = Math.max(pipe * 1.6, F * 0.42);
