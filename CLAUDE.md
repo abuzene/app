@@ -1146,7 +1146,13 @@ ships, and the decisions already taken, so they are not re-litigated.
   FLANGE` at a flanged valve (never the valve), `HEADER / THREADOLET`,
   `BRANCH / WELDOLET`, `PIPE / TRANSITION JOINT PE/CS`; a touching run
   names both ends, `90 ELBOW LR / TRANSITION JOINT PE/CS`.
-- Numbered W1… along the route (run order, then distance); THD joints and
+- Numbered W1… **along the route** (`routeOrder` in drawing.ts; his
+  HAM-LET sheets, 2026-10-18: "numbers not in the right order" — they went
+  by the order the runs were kept in and the way each was drawn): walked
+  from the line's start (an end with a "CONT. FROM" note, else the first
+  run's start, else the first end drawn), straight on through each point
+  while it can, the main line to its end, then each branch in the order it
+  was passed; pipe letters follow the same walk. THD joints and
   skipped ones are marked but unnumbered. A transition is welded on its
   CS side only. **Numbers run on from the last one typed** (his ask,
   2026-09-25: "renamed TAR 4.8, the next becomes TAR 4.9"; his sheet read

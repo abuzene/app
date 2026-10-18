@@ -6243,6 +6243,31 @@ await page.waitForTimeout(250);
   await page.waitForTimeout(150);
 }
 
+/* ---------------------------------------- welds numbered along the line */
+
+// His HAM-LET sheets (2026-10-18): "I set numbering across the project and
+// got the numbers in the wrong order" — welds went by the order the pipes
+// were kept in and the way each was drawn, not along the line.
+{
+  await routeLine('3"\nSTD\nORIGIN 0 0 0\nEND FLG\nE 2000\nN 1000\nE 800\nEND FLG');
+  await page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem('iso-draw.drawing.v1'));
+    // Kept last first, and the first pipe drawn from its far end.
+    d.runs.reverse();
+    const first = d.runs[d.runs.length - 1];
+    [first.from, first.to] = [first.to, first.from];
+    localStorage.setItem('iso-draw.drawing.v1', JSON.stringify(d));
+  });
+  await page.reload();
+  await page.waitForTimeout(700);
+  await page.click('#tabs button:has-text("Welds")');
+  await page.waitForTimeout(200);
+  const along = await page.locator('#tab-body table tbody tr').evaluateAll((trs) => trs.map((tr) => `${tr.querySelector('[data-weld-no]')?.value} ${tr.innerText.split('\t').slice(-2).join(' ')}`));
+  check('numbered from the start of the line to its end, the pipes lettered so', along.join(' | '), (v) => /^W1 PIPE \/ WELD NECK FLANGE A [\d.]+ \| W2 PIPE \/ 90 ELBOW LR A [\d.]+ \| W3 PIPE \/ 90 ELBOW LR B [\d.]+ \| W4 PIPE \/ 90 ELBOW LR B [\d.]+ \| W5 PIPE \/ 90 ELBOW LR C [\d.]+ \| W6 PIPE \/ WELD NECK FLANGE C [\d.]+$/.test(v), 'W1 flange A, W2–W5 the elbows, W6 flange C');
+  await page.click('#tabs button:has-text("Route")');
+  await page.waitForTimeout(150);
+}
+
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 
 await browser.close();

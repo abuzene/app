@@ -1159,7 +1159,11 @@ export function analyse(drawing: Drawing): Analysis {
 
   // Joint marks. Keys are stable so that shop/field choices survive edits.
   const jointMap = new Map<string, Weld & { sortRun: number; sortDist: number }>();
-  const runIndex = new Map(drawing.runs.map((r, i) => [r.id, i]));
+  // Numbered along the line as it goes, not in the order the pipes were
+  // drawn (his HAM-LET sheets, 2026-10-18: "the welds came out in the wrong
+  // order" — a pipe split by an item put in later went to the end).
+  const route = routeOrder(drawing);
+  const runIndex = route.rank;
   const defaultJoint = drawing.options.joint ?? 'BW';
 
   /** A second size a weld's number may name: an olet's header weld, the header's. */
@@ -1444,8 +1448,9 @@ export function analyse(drawing: Drawing): Analysis {
     }
   }
 
+  const along = (j: { sortRun: number; sortDist: number }) => (route.reversedRank.has(j.sortRun) ? -j.sortDist : j.sortDist);
   const ordered = [...jointMap.values()].sort(
-    (x, y) => x.sortRun - y.sortRun || x.sortDist - y.sortDist,
+    (x, y) => x.sortRun - y.sortRun || along(x) - along(y),
   );
 
   // Threaded joints are marked on the drawing but are not welds, so the weld
@@ -1565,7 +1570,9 @@ export function analyse(drawing: Drawing): Analysis {
   const pieces: PipePiece[] = [];
   /** Header pieces ending on each olet, with the end that is not on it. */
   const atOlet = new Map<string, { piece: PipePiece; far: PieceEnd }[]>();
-  for (const run of drawing.runs) {
+  /** Where each piece falls along the route, for its letter. */
+  const pieceAlong = new Map<PipePiece, number>();
+  for (const run of [...drawing.runs].sort((x, y) => (runIndex.get(x.id) ?? 0) - (runIndex.get(y.id) ?? 0))) {
     const a = nodeById.get(run.from);
     const b = nodeById.get(run.to);
     if (!a || !b || touching.has(run.id) || run.dashed) continue;
@@ -1598,6 +1605,7 @@ export function analyse(drawing: Drawing): Analysis {
         ends: [first, last],
       };
       pieces.push(piece);
+      pieceAlong.set(piece, idx * 1e7 + (route.reversed.has(run.id) ? total - hi : lo));
       if (lo < 0.5 && headerOf(fromInfo)) atOlet.set(run.from, [...(atOlet.get(run.from) ?? []), { piece, far: last }]);
       if (hi > total - 0.5 && headerOf(toInfo)) atOlet.set(run.to, [...(atOlet.get(run.to) ?? []), { piece, far: first }]);
     });
@@ -1617,6 +1625,7 @@ export function analyse(drawing: Drawing): Analysis {
       net: 0,
       ends: [p.far, q.far],
     };
+    pieceAlong.set(merged, Math.min(pieceAlong.get(p.piece) ?? 0, pieceAlong.get(q.piece) ?? 0));
     pieces.splice(pieces.indexOf(p.piece), 1, merged);
     pieces.splice(pieces.indexOf(q.piece), 1);
     // A header through more than one olet: the pieces waiting at the next
@@ -1641,6 +1650,7 @@ export function analyse(drawing: Drawing): Analysis {
     const at = pieces.flatMap((p) => p.ends.filter((e) => e.key === joint.key));
     if (at.length > 0) at[0].gap = ROOT_GAP;
   }
+  pieces.sort((x, y) => (pieceAlong.get(x) ?? 0) - (pieceAlong.get(y) ?? 0));
   pieces.forEach((piece, i) => {
     piece.net = Math.max(0, piece.length - piece.ends[0].gap - piece.ends[1].gap);
     piece.letter = pieceLetter(i);
@@ -1921,6 +1931,86 @@ function runStations(drawing: Drawing, nodeById: Map<string, IsoNode>): Map<stri
 }
 
 /** A, B, … Z, then AA, AB, … : the letters the pipes are marked with. */
+/**
+ * The order the line is walked in for its weld numbers and pipe letters:
+ * from where it starts (the end it carries on from another sheet, else the
+ * first point drawn), straight on through each point while it can, along
+ * the main line to its end, then each branch in the order it was passed,
+ * and on to the next piece. `rank` gives each run its place, `reversed`
+ * the runs walked from their `to` end (`reversedRank` the same by place).
+ */
+export function routeOrder(drawing: Drawing): { rank: Map<string, number>; reversed: Set<string>; reversedRank: Set<number> } {
+  const pos = new Map(drawing.nodes.map((n) => [n.id, n.pos]));
+  const at = new Map<string, Run[]>();
+  for (const run of drawing.runs) {
+    for (const id of [run.from, run.to]) at.set(id, [...(at.get(id) ?? []), run]);
+  }
+  const rank = new Map<string, number>();
+  const reversed = new Set<string>();
+  const reversedRank = new Set<number>();
+  const way = (from: string, to: string): Vec3 | null => {
+    const a = pos.get(from);
+    const b = pos.get(to);
+    return a && b ? direction(a, b) : null;
+  };
+  const walk = (start: string) => {
+    const queue: { node: string; run?: Run }[] = [{ node: start }];
+    while (queue.length) {
+      const item = queue.shift()!;
+      let node = item.node;
+      let next: Run | undefined = item.run && !rank.has(item.run.id) ? item.run : undefined;
+      let inbound: Vec3 | null = null;
+      for (;;) {
+        const open = (at.get(node) ?? []).filter((r) => !rank.has(r.id));
+        if (!next) {
+          if (open.length === 0) break;
+          // Straight on if the line can, else the first drawn.
+          next =
+            (inbound &&
+              open.find((r) => {
+                const d = way(node, r.from === node ? r.to : r.from);
+                return !!d && d.e * inbound!.e + d.n * inbound!.n + d.u * inbound!.u > 0.999;
+              })) ||
+            open[0];
+        }
+        for (const r of open) if (r !== next) queue.push({ node, run: r });
+        const far = next.from === node ? next.to : next.from;
+        const place = rank.size;
+        rank.set(next.id, place);
+        if (next.from !== node) {
+          reversed.add(next.id);
+          reversedRank.add(place);
+        }
+        inbound = way(node, far);
+        node = far;
+        next = undefined;
+      }
+    }
+  };
+  const degree = (id: string) => (at.get(id) ?? []).length;
+  for (const run of drawing.runs) {
+    if (rank.has(run.id)) continue;
+    // This piece's start: an end carried on from another sheet, else the
+    // first of its points drawn that is an end, else the run's own start.
+    const piece = new Set<string>();
+    const todo = [run.from];
+    while (todo.length) {
+      const id = todo.pop()!;
+      if (piece.has(id)) continue;
+      piece.add(id);
+      for (const r of at.get(id) ?? []) todo.push(r.from === id ? r.to : r.from);
+    }
+    const nodes = drawing.nodes.filter((n) => piece.has(n.id));
+    const start =
+      nodes.find((n) => degree(n.id) === 1 && /FROM/i.test(n.terminal?.note ?? '')) ??
+      nodes.find((n) => degree(n.id) === 1 && n.id === run.from) ??
+      nodes.find((n) => degree(n.id) === 1) ??
+      nodes.find((n) => n.id === run.from);
+    walk(start?.id ?? run.from);
+  }
+  return { rank, reversed, reversedRank };
+}
+
 export function pieceLetter(index: number): string {
   let n = index;
   let out = '';
