@@ -5,7 +5,7 @@ import { COMMAND_HELP } from '../model/commands';
 import { DN_LIST, SIZE_LABELS, defaultValveEnds, schedulesFor, sizeLabel } from '../model/pipe-data';
 import { AXES, AXIS_VECTOR, axisBetween } from '../model/iso';
 import { projectsOf } from '../model/library';
-import { applyChainDimension, applyReducer, freeDimensions, offersAutoCoupling, resetDrawnLength, setAutoCoupling, wantsAutoCoupling, deletePoint, isCouplingPoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, runLength, setGroupLength, setLastFlange, deleteRunGroup, DASHED_NOTE, setLineSize, setRunDashed, setRunDirect, setRunLength, setTerminal, splitRun } from '../model/edit';
+import { applyChainDimension, applyReducer, elbowTurns, turnElbow, freeDimensions, offersAutoCoupling, resetDrawnLength, setAutoCoupling, wantsAutoCoupling, deletePoint, isCouplingPoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, runLength, setGroupLength, setLastFlange, deleteRunGroup, DASHED_NOTE, setLineSize, setRunDashed, setRunDirect, setRunLength, setTerminal, splitRun } from '../model/edit';
 import { setDriveClientId } from '../model/drive';
 import { reducerPreview } from './reducer-preview';
 import { SHEET_STAMPS, sheetStamp } from '../render/sheet';
@@ -168,6 +168,20 @@ function oletAlongHeader(host: Host, nodeId: string): string {
   <p class="empty-note">mm from the header's ${axis ? end[axis] : 'first'} end (${Math.round(chain.total)} long). Type a place past another olet to move this one there, branch and all.</p>`;
 }
 
+/**
+ * An elbow rolled about the leg that stays (his HAM-LET sheet 2,
+ * 2026-10-18): which way the line after it goes, everything beyond turning
+ * with it.
+ */
+function elbowTurnRow(host: Host, nodeId: string, fitting: string): string {
+  if (fitting !== 'ELBOW_90' && fitting !== 'ELBOW_45' && fitting !== 'BEND' && fitting !== 'MITRE') return '';
+  const turns = elbowTurns(host.state.drawing, nodeId);
+  if (!turns) return '';
+  return `<div class="row"><label>Line after it goes</label><select data-f="elbow-turn">${turns
+    .map((t) => `<option value="${t.steps}"${t.steps === 0 ? ' selected' : ''}>${esc(t.label)}${t.steps === 0 ? ' (as now)' : ''}</option>`)
+    .join('')}</select></div>`;
+}
+
 function nodeProperties(host: Host, nodeId: string): string {
   const { drawing, analysis } = host.state;
   const node = drawing.nodes.find((n) => n.id === nodeId);
@@ -207,6 +221,7 @@ function nodeProperties(host: Host, nodeId: string): string {
          <div class="row"><label>End note</label><input type="text" data-f="termnote" value="${esc(node.terminal?.note ?? '')}" placeholder="e.g. TO V-101 N3" /></div>`
       : `<div class="row"><label>Fitting</label><select data-f="fitting">${options(['auto', ...FITTINGS], node.fittingOverride ?? 'auto', { auto: `Automatic (${fittingLabel(fitting) || 'none'})` })}</select></div>`
   }
+  ${elbowTurnRow(host, nodeId, fitting)}
   ${
     straight
       ? `<div class="row"><label>Flange</label><select data-f="flange">${options(['none', ...FLANGE_KINDS], node.flange ?? 'none', { ...COMPONENT_LABEL, none: 'None — welded through' })}</select></div>`
@@ -1094,6 +1109,15 @@ function wire(body: HTMLElement, host: Host): void {
     });
     // "CONT. ON SH.n" written at the olet's line (his ask, 2026-10-01); the
     // number his to change, cleared to take it off.
+    nodeEditor.querySelector<HTMLSelectElement>('[data-f="elbow-turn"]')?.addEventListener('change', (e) => {
+      const steps = Number((e.target as HTMLSelectElement).value);
+      let refused: string | null = null;
+      host.edit('Turn elbow', (d) => {
+        refused = turnElbow(d, id, steps);
+      });
+      if (refused) host.notify(refused);
+      else host.notify('Elbow turned: the line after it goes round with it, every length kept.');
+    });
     nodeEditor.querySelectorAll<HTMLInputElement>('[data-olet-sheet]').forEach((input) => {
       input.addEventListener('change', () => {
         const at = Number(input.dataset.oletSheet);

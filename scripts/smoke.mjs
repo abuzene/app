@@ -6182,6 +6182,41 @@ await page.waitForTimeout(250);
   check('typed 800, the pipe at 45° is 800 and still at 45°', `${Math.round(Math.hypot(pb.e - pa.e, pb.n - pa.n, pb.u - pa.u))} ${Math.round(pb.e - pa.e) === Math.round(pb.n - pa.n)}`, (v) => v === '800 true', '800 true');
 }
 
+/* ------------------------------------------------- an elbow turned */
+
+// His HAM-LET sheet 2 (2026-10-18): "rotate the 90 elbow between W5 and W6
+// to get pipe E pure east" — up a riser, west 330, a 45° to the north-west;
+// the elbow at the riser's top is rolled, everything after it going round.
+{
+  await routeLine('3"\nSTD\nORIGIN 0 0 0\nN 500\nU 1080\nW 330');
+  const top = (await drawingNow()).nodes.find((n) => n.pos.u === 1080 && n.pos.e === 0).id;
+  const westEnd = (await drawingNow()).nodes.find((n) => n.pos.e === -330).id;
+  await tapNode(westEnd);
+  await page.click('.tool[data-elbow45]');
+  await page.waitForTimeout(300);
+  await page.selectOption('.dialog [data-f="e45-turn"]', 'N');
+  await page.click('.dialog [data-confirm]');
+  await page.waitForTimeout(400);
+  await page.keyboard.press('Escape');
+  await tapNode(top);
+  const turns = await page.locator('#tab-body [data-f="elbow-turn"] option').allInnerTexts();
+  check('the elbow offers the ways the line after it can go, and the pipe after that', turns.join(' | '), (v) => v.startsWith('West, then north-west (as now)') && v.includes('North-east, then east') && turns.length === 8, 'West, then north-west (as now) … North-east, then east');
+  const toEast = await page.locator('#tab-body [data-f="elbow-turn"] option', { hasText: 'North-east, then east' }).getAttribute('value');
+  await page.selectOption('#tab-body [data-f="elbow-turn"]', toEast);
+  await page.waitForTimeout(400);
+  const turned = await drawingNow();
+  const at = (id) => turned.nodes.find((n) => n.id === id).pos;
+  const ends = turned.nodes.filter((n) => n.pos.u === 1080 && n.id !== top).map((n) => n.pos).sort((a, b) => a.e - b.e);
+  check('turned: the pipe after it goes north-east, the last pipe pure east, lengths kept', `${Math.round(ends[0].e)} ${Math.round(ends[0].n)} | ${Math.round(ends[1].e - ends[0].e)} ${Math.round(ends[1].n - ends[0].n)}`, (v) => v === '233 733 | 500 0', '233 733 | 500 0');
+  check('the riser stays where it was', `${at(top).e} ${at(top).n} ${at(top).u}`, (v) => v === '0 500 1080', '0 500 1080');
+  await page.click('#tabs button:has-text("Welds")');
+  await page.waitForTimeout(200);
+  const turnedWelds = await page.locator('#tab-body table tbody tr').allInnerTexts();
+  check('still a 90 and a 45 elbow, two welds each', `${turnedWelds.filter((r) => /90 ELBOW LR/.test(r)).length} ${turnedWelds.filter((r) => /45 ELBOW LR/.test(r)).length}`, (v) => v === '4 2', '4 2');
+  await page.click('#tabs button:has-text("Route")');
+  await page.waitForTimeout(150);
+}
+
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 
 await browser.close();

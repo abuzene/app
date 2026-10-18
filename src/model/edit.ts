@@ -47,6 +47,179 @@ export interface RouteResult {
   refused?: string;
 }
 
+/** A compass name for a direction: "East", "North-east", "Up"… */
+export function directionName(v: Vec3): string {
+  const parts: string[] = [];
+  if (v.n > 0.01) parts.push('North');
+  if (v.n < -0.01) parts.push('South');
+  if (v.e > 0.01) parts.push('East');
+  if (v.e < -0.01) parts.push('West');
+  if (v.u > 0.01) parts.push('Up');
+  if (v.u < -0.01) parts.push('Down');
+  return parts.map((p, i) => (i === 0 ? p : p.toLowerCase())).join('-');
+}
+
+/** `v` turned `steps` eighths of a turn (45° each) about the unit axis `k`. */
+function turnAbout(v: Vec3, k: Vec3, steps: number): Vec3 {
+  const q = ((steps % 8) + 8) % 8;
+  const a = (q * Math.PI) / 4;
+  const round = (x: number) => (Math.abs(x) < 1e-12 ? 0 : Math.abs(Math.abs(x) - 1) < 1e-12 ? Math.sign(x) : x);
+  const cos = round(Math.cos(a));
+  const sin = round(Math.sin(a));
+  const kv = k.e * v.e + k.n * v.n + k.u * v.u;
+  const cross = { e: k.n * v.u - k.u * v.n, n: k.u * v.e - k.e * v.u, u: k.e * v.n - k.n * v.e };
+  return {
+    e: v.e * cos + cross.e * sin + k.e * kv * (1 - cos),
+    n: v.n * cos + cross.n * sin + k.n * kv * (1 - cos),
+    u: v.u * cos + cross.u * sin + k.u * kv * (1 - cos),
+  };
+}
+
+/** The points reached from `start` without passing through `block`. */
+function sideFrom(drawing: Drawing, start: string, block: string): Set<string> {
+  const seen = new Set<string>([start]);
+  const todo = [start];
+  while (todo.length) {
+    const at = todo.pop()!;
+    for (const r of drawing.runs) {
+      if (r.from !== at && r.to !== at) continue;
+      const next = r.from === at ? r.to : r.from;
+      if (next === block || seen.has(next)) continue;
+      seen.add(next);
+      todo.push(next);
+    }
+  }
+  return seen;
+}
+
+interface ElbowSides {
+  /** The leg that stays, from the elbow out (an axis). */
+  fixed: Vec3;
+  /** The leg that turns, from the elbow out. */
+  moving: Vec3;
+  /** Every point on the side that turns. */
+  points: Set<string>;
+  /** The elbow's neighbour on the side that turns. */
+  next: string;
+}
+
+/**
+ * The two sides of a corner point: the one with the line's first point on
+ * it stays, the other turns (the smaller, when neither has it). Null when
+ * the point is not a corner of two runs, or the two sides meet again.
+ */
+function elbowSides(drawing: Drawing, nodeId: string): ElbowSides | null {
+  const node = drawing.nodes.find((n) => n.id === nodeId);
+  const runs = drawing.runs.filter((r) => r.from === nodeId || r.to === nodeId);
+  if (!node || runs.length !== 2) return null;
+  const ends = runs.map((r) => drawing.nodes.find((n) => n.id === (r.from === nodeId ? r.to : r.from)));
+  if (!ends[0] || !ends[1]) return null;
+  const legs = ends.map((e) => {
+    const d = sub(e!.pos, node.pos);
+    const len = length3(d);
+    return scale3(d, 1 / len);
+  });
+  if (Math.abs(legs[0].e * legs[1].e + legs[0].n * legs[1].n + legs[0].u * legs[1].u + 1) < 1e-6) return null;
+  const sides = ends.map((e) => sideFrom(drawing, e!.id, nodeId));
+  if ([...sides[0]].some((id) => sides[1].has(id))) return null;
+  const first = drawing.nodes[0]?.id;
+  const stay = sides[0].has(first) ? 0 : sides[1].has(first) ? 1 : sides[0].size >= sides[1].size ? 0 : 1;
+  return { fixed: legs[stay], moving: legs[1 - stay], points: sides[1 - stay], next: ends[1 - stay]!.id };
+}
+
+/**
+ * The ways the line after an elbow can be turned (his HAM-LET sheet 2,
+ * 2026-10-18: "rotate the 90 elbow between W5 and W6 to get pipe E pure
+ * east"): the elbow rolled about the leg that stays, 45° at a time, each
+ * named by where the pipe after it goes and, past a turn, the pipe after
+ * that. Null when it cannot be (not a corner, or the leg that stays is not
+ * along an axis).
+ */
+export function elbowTurns(drawing: Drawing, nodeId: string): { steps: number; way: Vec3; label: string }[] | null {
+  const sides = elbowSides(drawing, nodeId);
+  if (!sides) return null;
+  const k = sides.fixed;
+  if (![k.e, k.n, k.u].every((c) => Math.abs(c) < 1e-6 || Math.abs(Math.abs(c) - 1) < 1e-6)) return null;
+  // The pipe after the next point, when the line turns there.
+  const next = drawing.nodes.find((n) => n.id === sides.next);
+  const onward = drawing.runs.filter((r) => r.from === sides.next || r.to === sides.next);
+  let then: Vec3 | null = null;
+  if (next && onward.length === 2) {
+    const far = drawing.nodes.find((n) => n.id === onward.map((r) => (r.from === sides.next ? r.to : r.from)).find((id) => id !== nodeId));
+    if (far) {
+      const d = sub(far.pos, next.pos);
+      const len = length3(d);
+      if (len > 1e-6) then = scale3(d, 1 / len);
+    }
+  }
+  const out: { steps: number; way: Vec3; label: string }[] = [];
+  for (let steps = 0; steps < 8; steps += 1) {
+    const way = turnAbout(sides.moving, k, steps);
+    // A turn that leaves the line at the same angle to the leg that stays.
+    const after = then ? turnAbout(then, k, steps) : null;
+    const turnsThere = after && length3(sub(after, way)) > 1e-6;
+    out.push({ steps, way, label: directionName(way) + (turnsThere ? `, then ${directionName(after!).toLowerCase()}` : '') });
+  }
+  return out;
+}
+
+/**
+ * Rolls an elbow: everything on its turning side goes round the leg that
+ * stays by `steps` eighths of a turn, keeping every length, item, olet and
+ * equipment box with it. Says why not when it would land on the line, or
+ * when an olet still waiting for its branch or an equipment box would be
+ * left off the axes.
+ */
+export function turnElbow(drawing: Drawing, nodeId: string, steps: number): string | null {
+  const sides = elbowSides(drawing, nodeId);
+  const node = drawing.nodes.find((n) => n.id === nodeId);
+  if (!sides || !node || !elbowTurns(drawing, nodeId)) return 'Only a corner of two pipes whose other side runs along a line can be turned.';
+  if (((steps % 8) + 8) % 8 === 0) return null;
+  const k = sides.fixed;
+  const turn = (p: Vec3): Vec3 => {
+    const r = add(node.pos, turnAbout(sub(p, node.pos), k, steps));
+    return { e: Math.round(r.e * 10) / 10, n: Math.round(r.n * 10) / 10, u: Math.round(r.u * 10) / 10 };
+  };
+  const axisOfVec = (v: Vec3): Axis | null => (['N', 'S', 'E', 'W', 'U', 'D'] as Axis[]).find((a) => equals3(AXIS_VECTOR[a], v, 1e-6)) ?? null;
+  const turnAxis = (a: Axis): Axis | null => axisOfVec(turnAbout(AXIS_VECTOR[a], k, steps));
+  const copy = JSON.parse(JSON.stringify(drawing)) as Drawing;
+  for (const n of copy.nodes) {
+    if (!sides.points.has(n.id)) continue;
+    n.pos = turn(n.pos);
+    const marks = n.olets ?? (n.olet ? [n.olet] : []);
+    if (marks.length) {
+      const turned = marks.map((m) => ({ ...m, dir: turnAxis(m.dir) }));
+      if (turned.some((m) => !m.dir)) return 'An olet beyond the elbow would point off the axes: turn it a quarter turn at a time, or draw its branch first.';
+      n.olets = turned as { dir: Axis; dn: string; note?: string }[];
+      n.olet = undefined;
+    }
+  }
+  for (const box of copy.equipment ?? []) {
+    if (!box.stand || !sides.points.has(box.stand)) continue;
+    const axis = turnAxis(box.axis);
+    const across = turnAxis(box.across);
+    if (!axis || !across) return 'Equipment beyond the elbow would stand off the axes: turn it a quarter turn at a time.';
+    box.at = turn(box.at);
+    if (box.standPos) box.standPos = turn(box.standPos);
+    box.axis = axis;
+    box.across = across;
+  }
+  // Nothing may land on what stays.
+  const still = copy.nodes.filter((n) => !sides.points.has(n.id));
+  for (const n of copy.nodes) {
+    if (sides.points.has(n.id) && still.some((m) => equals3(m.pos, n.pos))) return 'Turned that way the line would run into itself.';
+  }
+  for (const run of copy.runs) {
+    const a = copy.nodes.find((n) => n.id === run.from);
+    const b = copy.nodes.find((n) => n.id === run.to);
+    if (!a || !b || (!sides.points.has(a.id) && !sides.points.has(b.id))) continue;
+    if (overlapsExisting(copy, a.pos, b.pos, run.id)) return 'Turned that way the line would lie on top of itself.';
+  }
+  drawing.nodes = copy.nodes;
+  if (copy.equipment) drawing.equipment = copy.equipment;
+  return null;
+}
+
 /** The way the line comes into an open end: from its one run's far point to it. */
 export function arrivalAt(drawing: Drawing, nodeId: string): Vec3 | null {
   const runs = drawing.runs.filter((r) => r.from === nodeId || r.to === nodeId);

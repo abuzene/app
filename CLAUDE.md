@@ -490,6 +490,18 @@ ships, and the decisions already taken, so they are not re-litigated.
   45° of an offset comes by itself. The pipe at 45° is a SKEW run in the
   runs list; its figure is typed like any other (`stretchRun` goes along
   the run). Not on an end with a flange, cap or other end piece.
+- **An elbow turned** (his HAM-LET sheet 2, 2026-10-18: "rotate the 90
+  elbow between W5 and W6 to get pipe E pure east" — a riser, W 330, a 45°
+  to the NW, wanted ending east): a corner point's panel has **Line after
+  it goes** (`[data-f="elbow-turn"]`, `elbowTurns` in edit.ts, eight 45°
+  steps, each named by the pipe after the elbow and, where the line turns
+  again, the one after that: "North-east, then east"). `turnElbow` rolls
+  everything on the elbow's turning side (the side without the drawing's
+  first point, `elbowSides`) about the leg that stays (it must lie along an
+  axis): points, pending olet ways and equipment boxes (those two only by
+  quarter turns), refused when it would land on the line. Lengths, items
+  and weld keys stay. A horizontal 45° pipe can fall on the screen's
+  vertical in some views: Rotate shows it.
 - **Closing a gap**: drawing from an open end and tapping an open end of
   **another piece** (`samePiece`) joins them (`connectNodes` in edit.ts, `onConnect`): one run when they lie
   on a line, else legs round a corner, the way with the fewest turns
