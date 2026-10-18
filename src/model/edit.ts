@@ -47,6 +47,42 @@ export interface RouteResult {
   refused?: string;
 }
 
+/** The way the line comes into an open end: from its one run's far point to it. */
+export function arrivalAt(drawing: Drawing, nodeId: string): Vec3 | null {
+  const runs = drawing.runs.filter((r) => r.from === nodeId || r.to === nodeId);
+  if (runs.length !== 1) return null;
+  const end = drawing.nodes.find((n) => n.id === nodeId);
+  const other = drawing.nodes.find((n) => n.id === (runs[0].from === nodeId ? runs[0].to : runs[0].from));
+  if (!end || !other) return null;
+  const d = sub(end.pos, other.pos);
+  const len = length3(d);
+  return len > 1e-6 ? scale3(d, 1 / len) : null;
+}
+
+/**
+ * A 45° elbow on an open end (his ask, 2026-10-18: "add a 45 elbow to the
+ * fittings"): a pipe `length` mm long, centre to centre, leaving the end at
+ * 45° from the way the line comes in, turned toward `turn`. The analysis
+ * names the turn a 45 ELBOW LR with its take-out; drawing on from its far
+ * end along the line's first way makes the second 45° of an offset.
+ */
+export function route45(drawing: Drawing, fromId: string, turn: Axis, length: number, dn: string, schedule: string): RouteResult | null {
+  const from = drawing.nodes.find((n) => n.id === fromId);
+  const along = arrivalAt(drawing, fromId);
+  if (!from || !along || length <= 0) return null;
+  if (from.terminal && from.terminal.kind !== 'OPEN') return { run: null, nodeId: fromId, refused: 'The end has a flange or cap on it: a 45° elbow goes on an open end.' };
+  const side = AXIS_VECTOR[turn];
+  if (Math.abs(along.e * side.e + along.n * side.n + along.u * side.u) > 1e-6) return { run: null, nodeId: fromId, refused: 'A 45° elbow turns square off the line.' };
+  const way = scale3(add(along, side), Math.SQRT1_2);
+  const raw = add(from.pos, scale3(way, length));
+  const target = { e: Math.round(raw.e * 10) / 10, n: Math.round(raw.n * 10) / 10, u: Math.round(raw.u * 10) / 10 };
+  if (overlapsExisting(drawing, from.pos, target)) return { run: null, nodeId: fromId, refused: 'That would lie on top of a line already drawn.' };
+  const toId = ensureNode(drawing, target);
+  const run = addRun(drawing, fromId, toId, dn, schedule);
+  if (run) settleEnds(drawing, [fromId, toId]);
+  return { run, nodeId: toId };
+}
+
 /**
  * Routes `length` mm along `axis` from a node, creating or joining the far node.
  *

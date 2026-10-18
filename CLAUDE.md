@@ -475,6 +475,21 @@ ships, and the decisions already taken, so they are not re-litigated.
   (Support, L50 support, AG/UG), Joints (a BW weld: `placeWeld` splits the
   run at a plain point, welded pipe to pipe, dimension opened). Two columns
   on tablets so all fit.
+- **A 45° elbow** (his ask, 2026-10-18: "add a 45 elbow to the
+  fittings"): runs are otherwise along the six axes, but the analysis
+  already takes any angle (`inferFitting` gives `ELBOW_45` at 45°, its
+  take-out, `PIPE / 45 ELBOW LR` welds, the list line, the 3D sweep). The
+  Fittings palette's **Elbow 45** (`.tool[data-elbow45]` → `placeElbow45`
+  in tools.ts) works on an open end (picked, else the one the pencil is
+  at, `host.drawingFrom`): `elbow45Dialog` in main.ts asks which way it
+  turns (the axes square off the line, `[data-f="e45-turn"]`) and the pipe
+  at 45°, centre to centre (`[data-f="e45-length"]`, default 500, the
+  offset's two legs shown), then `route45` in edit.ts lays that run
+  (`arrivalAt` = the way the line comes in) and the pencil is armed at its
+  far end. Drawn on from there the way the line first went, the second
+  45° of an offset comes by itself. The pipe at 45° is a SKEW run in the
+  runs list; its figure is typed like any other (`stretchRun` goes along
+  the run). Not on an end with a flange, cap or other end piece.
 - **Closing a gap**: drawing from an open end and tapping an open end of
   **another piece** (`samePiece`) joins them (`connectNodes` in edit.ts, `onConnect`): one run when they lie
   on a line, else legs round a corner, the way with the fewest turns

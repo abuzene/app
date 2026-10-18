@@ -97,6 +97,10 @@ export interface Host {
   reducerDialog(ask: ReducerAsk): Promise<ReducerChoice | null>;
   /** Asks which way an olet's branch goes and what size it is. */
   oletDialog(ask: OletAsk): Promise<OletChoice | null>;
+  /** Asks which way a 45° elbow on an end turns, and how long its pipe is. */
+  elbow45Dialog(ask: { ways: Axis[]; dn: string }): Promise<{ turn: Axis; length: number } | null>;
+  /** The point the pencil is armed at, if any. */
+  drawingFrom(): string | null;
   /** Makes this the size the next runs are drawn with. */
   setCurrentSize(dn: string): void;
   /** Puts another item in the place of one on a line; says why not when it cannot. */

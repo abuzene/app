@@ -1,15 +1,15 @@
-import type { ComponentKind, FlangeKind, JointType, Run, TerminalKind } from '../model/types';
+import type { Axis, ComponentKind, FlangeKind, JointType, Run, TerminalKind } from '../model/types';
 import type { Host } from './types';
 import { COMPONENT_LABEL, COUPLING_REACH, UNION_REACH, TERMINAL_LABEL, chainStops, isCoupling, nodeFittingTakeout, dimensionStops, isMark, itemHalf, isValve, oletEntries, oletLegs, oletMarks, resolveEnds, terminalTakeoutOf, valveOpenSide } from '../model/drawing';
-import { addComponent, isCouplingPoint, isPlainPoint, placeCoupling, addEquipment, addFlangeJoint, flangeOnItemFace, applyReducer, boltValveOnEnd, runLength, setLastFlange, setTerminal, splitRun } from '../model/edit';
-import { add, axisBetween, direction, scale3 } from '../model/iso';
+import { addComponent, arrivalAt, route45, isCouplingPoint, isPlainPoint, placeCoupling, addEquipment, addFlangeJoint, flangeOnItemFace, applyReducer, boltValveOnEnd, runLength, setLastFlange, setTerminal, splitRun } from '../model/edit';
+import { AXIS_VECTOR, add, axisBetween, direction, scale3 } from '../model/iso';
 import { DN_LIST, componentTakeout, sizeLabel, valveFlangeKind } from '../model/pipe-data';
 import { isFlange } from '../render/symbols';
 import { runOffsetAtPaper } from '../render/renderer';
 import { componentSymbol, halfCouplingSymbol, jointMark, oletSymbol, type Frame } from '../render/symbols';
 
 /** Branch fittings act on the header, they do not sit in the line. */
-type BranchTool = { branch: 'TEE' } | { olet: JointType; half?: true } | { weld: 'BW' } | { equipment: true } | { measure: true } | { area: true } | { circle: true } | { valve: ComponentKind; ends: 'SW' | 'THD' };
+type BranchTool = { elbow45: true } | { branch: 'TEE' } | { olet: JointType; half?: true } | { weld: 'BW' } | { equipment: true } | { measure: true } | { area: true } | { circle: true } | { valve: ComponentKind; ends: 'SW' | 'THD' };
 type Tool = ComponentKind | BranchTool;
 
 function isBranch(tool: Tool): tool is BranchTool {
@@ -23,7 +23,7 @@ interface ToolGroup {
 
 const GROUPS: ToolGroup[] = [
   { label: 'Flanges', kinds: ['FLG_WN', 'FLG_SW', 'FLG_THD', 'FLG_BLIND'] },
-  { label: 'Fittings', kinds: ['RED_CONC', 'RED_ECC', 'CAP', 'TRANSITION', 'COUPLING_SW', 'COUPLING_THD', 'UNION'] },
+  { label: 'Fittings', kinds: ['RED_CONC', 'RED_ECC', 'CAP', 'TRANSITION', 'COUPLING_SW', 'COUPLING_THD', 'UNION', { elbow45: true }] },
   { label: 'Valves', kinds: ['BALL', 'BALL_ACT', { valve: 'BALL', ends: 'SW' }, { valve: 'BALL', ends: 'THD' }, 'REGULATOR', 'FILTER', 'RELIEF'] },
   { label: 'Branch', kinds: [{ branch: 'TEE' }, { olet: 'BW' }, { olet: 'SW' }, { olet: 'THD' }, { olet: 'THD', half: true }] },
   { label: 'Marks', kinds: ['SUPPORT', 'SUPPORT_L', 'GROUND', { equipment: true }, { measure: true }, { area: true }, { circle: true }] },
@@ -125,6 +125,17 @@ function areaIcon(): string {
     `<line x1="12" y1="24" x2="30" y2="15" stroke="currentColor" stroke-width="2.2"/>` +
     `<line x1="30" y1="34" x2="42" y2="40" stroke="currentColor" stroke-width="1.6"/>` +
     `<path d="M42 40 L36 40 M42 40 L39.5 35" fill="none" stroke="currentColor" stroke-width="1.6"/>` +
+    `</svg>`
+  );
+}
+
+/** A 45° elbow: the line turning half a corner. */
+function elbow45Icon(): string {
+  return (
+    `<svg class="tool-icon" viewBox="0 0 48 48" aria-hidden="true">` +
+    `<path d="M6 34 L20 34 Q24 34 27 31 L40 18" fill="none" stroke="currentColor" stroke-width="2.4"/>` +
+    `<circle cx="20" cy="34" r="1.8" fill="currentColor"/><circle cx="27" cy="31" r="1.8" fill="currentColor"/>` +
+    `<text x="30" y="40" font-size="9" font-family="sans-serif" fill="currentColor">45</text>` +
     `</svg>`
   );
 }
@@ -574,6 +585,41 @@ function placeBranch(host: Host, tool: BranchTool): void {
 }
 
 /**
+ * A 45° elbow on an open end (his ask, 2026-10-18): the end picked, or the
+ * one the pencil is at. Asked which way it turns and how long the pipe at
+ * 45° is; then the pencil is armed at its far end to draw on, and its
+ * length is open for typing.
+ */
+async function placeElbow45(host: Host): Promise<void> {
+  const { drawing, selection } = host.state;
+  const candidates = [selection?.kind === 'node' ? selection.id : null, host.drawingFrom()];
+  const nodeId = candidates.find((id) => id && arrivalAt(drawing, id));
+  if (!nodeId) {
+    host.notify('Pick the open end the 45° elbow goes on (or draw up to it), then Elbow 45.');
+    return;
+  }
+  const along = arrivalAt(drawing, nodeId)!;
+  const run = drawing.runs.find((r) => r.from === nodeId || r.to === nodeId)!;
+  const ways = (['N', 'S', 'E', 'W', 'U', 'D'] as Axis[]).filter((w) => {
+    const v = AXIS_VECTOR[w];
+    return Math.abs(along.e * v.e + along.n * v.n + along.u * v.u) < 1e-6;
+  });
+  const choice = await host.elbow45Dialog({ ways, dn: run.dn });
+  if (!choice) return;
+  let result: ReturnType<typeof route45> = null;
+  host.edit('Add 45° elbow', (d) => {
+    result = route45(d, nodeId, choice.turn, choice.length, run.dn, run.schedule);
+  });
+  const done = result as ReturnType<typeof route45>;
+  if (!done || done.refused || !done.run) {
+    host.notify(done?.refused ?? 'No room for a 45° elbow there.');
+    return;
+  }
+  host.continueFrom(done.nodeId);
+  host.notify('45° elbow placed. Draw on from its end; the way the line went makes the second 45°.');
+}
+
+/**
  * A tee is cut into the header. Equal, or reducing with a smaller branch:
  * asked first, then the branch is drawn from the new point at that size,
  * which is what makes it the one or the other. The dimension up to the tee
@@ -824,6 +870,14 @@ export function renderTools(container: HTMLElement, host: Host): void {
                 `</button>`
               );
             }
+            if ('elbow45' in tool) {
+              return (
+                `<button class="tool" data-elbow45="1" title="45° elbow on an open end: pick the end (or draw up to it), then say which way it turns">` +
+                elbow45Icon() +
+                `<span class="tool-name">Elbow 45</span>` +
+                `</button>`
+              );
+            }
             if ('circle' in tool) {
               return (
                 `<button class="tool" data-circle="1" title="Draw a circle round something with the pen, then write a note on it">` +
@@ -900,6 +954,7 @@ export function renderTools(container: HTMLElement, host: Host): void {
       else if (button.dataset.equipment) placeEquipment(host);
       else if (button.dataset.area) host.startArea();
       else if (button.dataset.circle) host.startCircle();
+      else if (button.dataset.elbow45) void placeElbow45(host);
       else if (button.dataset.measure) {
         const sel = host.state.selection;
         if (sel?.kind === 'node') host.measureFrom(sel.id);

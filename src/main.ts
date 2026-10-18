@@ -385,6 +385,12 @@ const host: Host = {
   reducerDialog(ask) {
     return reducerDialog(ask);
   },
+  elbow45Dialog(ask) {
+    return elbow45Dialog(ask);
+  },
+  drawingFrom() {
+    return canvas.drawingFrom;
+  },
   oletDialog(ask) {
     return oletDialog(ask);
   },
@@ -3077,6 +3083,53 @@ function reducerDialog(ask: ReducerAsk): Promise<ReducerChoice | null> {
 const AXIS_NAMES: Record<Axis, string> = { N: 'North', S: 'South', E: 'East', W: 'West', U: 'Up', D: 'Down' };
 
 /** Which way an olet's branch will go, and its size; the olet then waits on the line for it. */
+/**
+ * A 45° elbow on an open end (his ask, 2026-10-18): which way it turns, off
+ * the line, and how long the pipe at 45° is, centre to centre; the offset
+ * it makes is shown as it is typed.
+ */
+function elbow45Dialog(ask: { ways: Axis[]; dn: string }): Promise<{ turn: Axis; length: number } | null> {
+  return new Promise((resolve) => {
+    const backdrop = document.createElement('div');
+    backdrop.className = 'dialog-backdrop';
+    const pick = ask.ways.find((w) => w !== 'U' && w !== 'D') ?? ask.ways[0];
+    backdrop.innerHTML = `
+<div class="dialog" role="dialog" aria-label="45° elbow" data-editor="elbow45">
+  <h3>45° elbow on ${sizeLabel(ask.dn)}</h3>
+  <div class="row"><label>Turns toward</label><select data-f="e45-turn">${ask.ways.map((w) => `<option value="${w}"${w === pick ? ' selected' : ''}>${AXIS_NAMES[w]}</option>`).join('')}</select></div>
+  <div class="row"><label>Pipe at 45°, mm</label><input type="number" inputmode="numeric" min="1" data-f="e45-length" value="500" /></div>
+  <p class="empty-note" data-f="e45-offset"></p>
+  <div class="btn-row">
+    <button class="btn-line solid" data-confirm>Place 45° elbow</button>
+    <button class="btn-line" data-cancel>Cancel</button>
+  </div>
+</div>`;
+    document.body.appendChild(backdrop);
+    const lengthEl = backdrop.querySelector<HTMLInputElement>('[data-f="e45-length"]')!;
+    const offsetEl = backdrop.querySelector<HTMLElement>('[data-f="e45-offset"]')!;
+    const showOffset = () => {
+      const len = Number(lengthEl.value);
+      const leg = len > 0 ? Math.round(len * Math.SQRT1_2 * 10) / 10 : 0;
+      offsetEl.textContent = len > 0 ? `Centre to centre ${len}: it goes ${leg} on and ${leg} across. Draw on from its end the way the line went for the second 45° of an offset.` : 'Type the length of the pipe at 45°.';
+    };
+    showOffset();
+    lengthEl.addEventListener('input', showOffset);
+    const close = (answer: { turn: Axis; length: number } | null) => {
+      backdrop.remove();
+      resolve(answer);
+    };
+    backdrop.querySelector('[data-confirm]')?.addEventListener('click', () => {
+      const length = Number(lengthEl.value);
+      if (!(length > 0)) return;
+      close({ turn: backdrop.querySelector<HTMLSelectElement>('[data-f="e45-turn"]')!.value as Axis, length });
+    });
+    backdrop.querySelector('[data-cancel]')?.addEventListener('click', () => close(null));
+    backdrop.addEventListener('click', (event) => {
+      if (event.target === backdrop) close(null);
+    });
+  });
+}
+
 function oletDialog(ask: OletAsk): Promise<OletChoice | null> {
   return new Promise((resolve) => {
     const backdrop = document.createElement('div');

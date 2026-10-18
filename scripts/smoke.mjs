@@ -149,7 +149,7 @@ check('a length can be typed', await page.locator('#tab-body .run-list input[dat
 // Palette.
 await page.locator('#tab-body .run-list tbody tr').first().click();
 await page.waitForTimeout(200);
-check('the palette carries the fittings, couplings (SW, NPT), the threaded union, ball valves (flanged, air, SW, threaded), regulator, filter, relief, tee, olets, the half coupling, marks, equipment, move area, circle note and a weld', await page.locator('.tool').count(), (v) => v === 31, '31');
+check('the palette carries the fittings, couplings (SW, NPT), the threaded union, ball valves (flanged, air, SW, threaded), regulator, filter, relief, tee, olets, the half coupling, marks, equipment, move area, circle note, a 45° elbow and a weld', await page.locator('.tool').count(), (v) => v === 32, '32');
 check('and no slip-on or lap joint flange, which are not used here', await page.locator('.tool[data-kind="FLG_SO"], .tool[data-kind="FLG_LAP"]').count(), (v) => v === 0, '0');
 check('a tee can be placed on a header', await page.locator('.tool[data-branch="TEE"]').count(), (v) => v === 1, '1');
 check('the actuated ball valve is there', await page.locator('.tool[data-kind="BALL_ACT"]').count(), (v) => v === 1, '1');
@@ -2114,6 +2114,8 @@ const nodesAt = () => page.evaluate(() => JSON.parse(localStorage.getItem('iso-d
 const runCount = () => page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).runs.length);
 const tapNode = async (id) => {
   const el = page.locator(`#canvas circle.hit-dot[data-node="${id}"]`);
+  // A tab switched just before redraws the canvas; read the point once it is back.
+  await el.waitFor({ state: 'visible', timeout: 3000 });
   const b = await el.boundingBox();
   const at = { bubbles: true, pointerId: 7, pointerType: 'mouse', button: 0, clientX: b.x + b.width / 2, clientY: b.y + b.height / 2, isPrimary: true };
   await el.dispatchEvent('pointerdown', at);
@@ -6128,6 +6130,56 @@ await page.waitForTimeout(250);
   await page.locator('.dim-keypad button:has-text("Remove the circle")').dispatchEvent('pointerdown', { bubbles: true });
   await page.waitForTimeout(300);
   check('removed, the circle goes with its note', `${(await drawingNow()).circles?.length ?? 0} ${await page.locator('#canvas .circle-note').count()}`, (v) => v === '0 0', '0 0');
+}
+
+/* ------------------------------------------------------- a 45° elbow */
+
+// "Add a 45° elbow to the fittings" (2026-10-18): on an open end, asked
+// which way it turns and how long the pipe at 45° is; drawing on the way
+// the line went makes the second 45° of an offset.
+{
+  await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 1000');
+  const endId = (await drawingNow()).nodes.find((n) => n.pos.e === 1000).id;
+  await tapNode(endId);
+  await page.click('.tool[data-elbow45]');
+  await page.waitForTimeout(300);
+  check('Elbow 45 asks which way it turns, square off the line', await page.locator('.dialog [data-f="e45-turn"] option').evaluateAll((os) => os.map((o) => o.value).join(',')), (v) => v === 'N,S,U,D', 'N,S,U,D');
+  await page.selectOption('.dialog [data-f="e45-turn"]', 'N');
+  await page.fill('.dialog [data-f="e45-length"]', '600');
+  await page.click('.dialog [data-confirm]');
+  await page.waitForTimeout(400);
+  await page.click('#tabs button:has-text("Command")');
+  await page.fill('#command-text', 'E 1000');
+  await page.click('[data-a="run-commands"]');
+  await page.waitForTimeout(500);
+  await page.keyboard.press('Escape');
+  await page.click('#tabs button:has-text("Route")');
+  await page.waitForTimeout(150);
+  const placed = (await drawingNow()).nodes.map((n) => `${Math.round(n.pos.e)} ${Math.round(n.pos.n)}`).join(' | ');
+  check('the pipe at 45° goes 424 on and 424 across, and the line carries on east', placed, (v) => v === '0 0 | 1000 0 | 1424 424 | 2424 424', '0 0 | 1000 0 | 1424 424 | 2424 424');
+  await page.click('#tabs button:has-text("Welds")');
+  await page.waitForTimeout(200);
+  const rows45 = await page.locator('#tab-body table tbody tr').allInnerTexts();
+  check('four welds, each PIPE / 45 ELBOW LR', rows45.filter((r) => /PIPE \/ 45 ELBOW LR/.test(r)).length, (v) => v === 4, '4');
+  await page.click('#tabs button:has-text("Items")');
+  await page.waitForTimeout(200);
+  check('two 45 elbows on the list', await page.locator('#tab-body table tbody tr', { hasText: '45 ELBOW LR' }).first().innerText(), (v) => /\t2\t/.test(v), 'QTY 2');
+  await page.click('#tabs button:has-text("Route")');
+  await page.waitForTimeout(150);
+  // Its length typed on the drawing: the pipe at 45° is made 800.
+  const skew = (await drawingNow()).runs.find((r) => r.from === endId);
+  const skewFig = await page.locator(`#canvas [data-dim^="${skew.id}:"]`).first().boundingBox();
+  await pen('mousePressed', skewFig.x + skewFig.width / 2, skewFig.y + skewFig.height / 2);
+  await page.waitForTimeout(80);
+  await pen('mouseReleased', skewFig.x + skewFig.width / 2, skewFig.y + skewFig.height / 2);
+  await page.waitForTimeout(150);
+  for (const k of ['8', '0', '0', 'OK']) await page.locator(`.dim-keypad [data-key="${k}"]`).dispatchEvent('pointerdown', { bubbles: true });
+  await page.waitForTimeout(400);
+  const after45 = await drawingNow();
+  const r45 = after45.runs.find((r) => r.id === skew.id);
+  const pa = after45.nodes.find((n) => n.id === r45.from).pos;
+  const pb = after45.nodes.find((n) => n.id === r45.to).pos;
+  check('typed 800, the pipe at 45° is 800 and still at 45°', `${Math.round(Math.hypot(pb.e - pa.e, pb.n - pa.n, pb.u - pa.u))} ${Math.round(pb.e - pa.e) === Math.round(pb.n - pa.n)}`, (v) => v === '800 true', '800 true');
 }
 
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
