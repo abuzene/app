@@ -5,14 +5,14 @@ import type { AppState, Host, OletAsk, OletChoice, ReducerAsk, ReducerChoice } f
 import { reducerPreview } from './ui/reducer-preview';
 import { tidyLayout, type LayoutSpecs } from './render/tidy';
 import { COMPONENT_LABEL, isValve, analyse, chainStops, dimensionStops, drawnLength, drawnStations, runDrawnFloor, trueAtShare, type DrawnStations, isMark, isReducer, itemAtEnd, itemHalf, runGroupIds, emptyDrawing, oletLegs, oletMarks, uid } from './model/drawing';
-import { isRemoved, loadLibrary, projectsOf, removeDrawing, renumberProject, renumberSheets, sheetNumber, upsertDrawing, worthKeeping } from './model/library';
+import { isRemoved, loadLibrary, makeRoomAfter, retargetFrom, projectsOf, removeDrawing, renumberProject, renumberSheets, sheetNumber, upsertDrawing, worthKeeping } from './model/library';
 import { allowFolder, chooseFolder, folderStatus, forgetFolder, restoreFolder, syncFolder } from './model/folder';
 import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, setDriveClientId, syncDrive } from './model/drive';
 import { AXES, AXIS_VECTOR, add, axisFromScreenDelta, length3, lengthAlongAxis, scale3, sub } from './model/iso';
 import { initialCommandState, runCommands } from './model/commands';
-import { applyAgainstFree, applyKeepingOthers, mergeOlet, applyMeasureOnLine, moveNodes, replaceComponent, addMeasure, applyMeasureToOlet, autoCouplings, DASHED_NOTE, deleteRunGroup, measureTypeable, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, ensureNode, isCouplingPoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, runLength, setLineSize, setRunDashed, setRunDirect, startFromEquipment, straightenBranches, stretchRun, syncEquipment, uncoverPoints } from './model/edit';
+import { applyAgainstFree, applyKeepingOthers, sheetCutSpot, splitSheet, mergeOlet, applyMeasureOnLine, moveNodes, replaceComponent, addMeasure, applyMeasureToOlet, autoCouplings, DASHED_NOTE, deleteRunGroup, measureTypeable, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, ensureNode, isCouplingPoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, runLength, setLineSize, setRunDashed, setRunDirect, startFromEquipment, straightenBranches, stretchRun, syncEquipment, uncoverPoints } from './model/edit';
 import { DN_LIST, schedulesFor, sizeLabel, sizeOf } from './model/pipe-data';
-import { northArrow, paperOf, renderDrawing, symbolSizeFor } from './render/renderer';
+import { northArrow, paperOf, renderDrawing, runOffsetAtPaper, symbolSizeFor } from './render/renderer';
 import { SHEET_STAMPS, renderSheet, sheetStamp, sheetSymbolSize, type SheetSize } from './render/sheet';
 import { Canvas } from './ui/canvas';
 import { esc, fileStem, renderPanel, renderTabs } from './ui/panels';
@@ -326,6 +326,9 @@ const host: Host = {
       if (drive.connected) void runDriveSync();
       else if (drive.clientId) host.notify('Removed here. Its Drive copy goes at the next sync — sign in to Google Drive to do it now.');
     });
+  },
+  splitSheetHere(runId) {
+    splitSheetHere(runId);
   },
   newSheetInProject() {
     newSheetInProject();
@@ -3439,6 +3442,72 @@ function takeUp(drawing: Drawing): void {
   persist();
   render();
   fitView();
+}
+
+/**
+ * Ends the sheet on screen at a pipe and moves all beyond it to a new
+ * sheet right after it (his ask, 2026-10-19: "I draw it all on one sheet,
+ * then mark where the first sheet ends; the rest goes to a new sheet, and
+ * on that one I mark again"). The sheets after it move up one, their
+ * continuation notes with them; the new sheet opens, to be cut again.
+ */
+function splitSheetHere(runId: string): void {
+  const project = state.drawing.meta.project || '';
+  if (!project) {
+    host.notify('Name the project in the Title tab first: its sheets are numbered together.');
+    return;
+  }
+  const run = state.drawing.runs.find((r) => r.id === runId);
+  if (!run) return;
+  const sel = state.selection;
+  const tapped = sel?.kind === 'run' && sel.id === runId && sel.at ? runOffsetAtPaper(state.drawing, state.analysis, run, sel.at) : null;
+  const at = sheetCutSpot(state.drawing, run, tapped);
+  if (at === null) {
+    host.notify('No bare pipe there to end the sheet on: pick a pipe with a length of pipe in it.');
+    return;
+  }
+  const here = sheetNumber(state.drawing.meta.sheet);
+  const trial = splitSheet(state.drawing, runId, at, here);
+  if (typeof trial === 'string') {
+    host.notify(trial);
+    return;
+  }
+  // Room for it first: the sheets after this one move up one.
+  keepNow();
+  makeRoomAfter(project, here);
+  const kept = loadLibrary().find((e) => e.id === state.drawing.id)?.drawing;
+  const base = kept ? (JSON.parse(JSON.stringify(kept)) as Drawing) : state.drawing;
+  const split = splitSheet(base, runId, at, here);
+  if (typeof split === 'string') {
+    host.notify(split);
+    return;
+  }
+  const total = loadLibrary().filter((e) => (e.drawing.meta.project || '') === project).length + 1;
+  split.keep.meta = { ...split.keep.meta, sheet: `${here} of ${total}` };
+  split.rest.meta = { ...split.rest.meta, sheet: `${here + 1} of ${total}`, notes: undefined, stamp: split.keep.meta.stamp };
+  host.edit('End the sheet here', (d) => {
+    for (const key of Object.keys(d) as (keyof Drawing)[]) delete (d as Partial<Drawing>)[key];
+    Object.assign(d, split.keep);
+  });
+  keepNow();
+  upsertDrawing(split.rest);
+  // The sheets its ends go on to carry on from the new sheet now.
+  const onward = [...split.rest.nodes.map((n) => n.terminal?.note ?? ''), ...split.rest.nodes.flatMap((n) => (n.olets ?? []).map((m) => m.note ?? ''))];
+  for (const note of onward) {
+    const to = note.match(/CONT\.?\s*ON\s*SH\.?\s*(\d+)/i);
+    if (to) retargetFrom(project, Number(to[1]), here, here + 1);
+  }
+  renumberProject(project, total);
+  renumberKept(project);
+  // On to the new sheet, to be cut again if need be.
+  undoStack.push(snapshot());
+  redoStack.length = 0;
+  takeUp(split.rest);
+  canvas.setAnchor(null);
+  state.selection = null;
+  recompute();
+  render();
+  host.notify(`Sheet ${here} ends at the cut (CONT. ON SH.${here + 1}); the rest is sheet ${here + 1} of ${total}, open now.`);
 }
 
 /**

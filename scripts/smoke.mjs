@@ -6268,6 +6268,51 @@ await page.waitForTimeout(250);
   await page.waitForTimeout(150);
 }
 
+/* --------------------------------------- end the sheet here, the rest on */
+
+// His idea (2026-10-19): "I draw it all on one sheet, then mark where the
+// first sheet ends and move the rest to a new sheet after it; on the new
+// one I mark again" — the manual New sheet stays as it was.
+{
+  await routeLine('3"\nSTD\nORIGIN 0 0 0\nEND FLG\nE 2000\nN 1500\nE 1000\nEND CONT');
+  await page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem('iso-draw.drawing.v1'));
+    d.id = 'cut-one'; d.meta.project = 'CUT TEST'; d.meta.sheet = '1 of 2';
+    for (const n of d.nodes) if (n.terminal?.kind === 'CONTINUATION') n.terminal.note = 'CONT. ON SH.2';
+    const two = JSON.parse(JSON.stringify(d)); two.id = 'cut-two'; two.meta.sheet = '2 of 2';
+    two.nodes = [{ id: 'z0', pos: { e: 0, n: 0, u: 0 }, terminal: { kind: 'CONTINUATION', note: 'CONT. FROM SH.1' } }, { id: 'z1', pos: { e: 0, n: 0, u: 500 } }];
+    two.runs = [{ id: 'zr', from: 'z0', to: 'z1', dn: 'DN80', schedule: 'STD', inline: [] }];
+    const lib = JSON.parse(localStorage.getItem('iso-draw.library.v1') || '[]').filter((e) => e.drawing.meta.project !== 'CUT TEST');
+    localStorage.setItem('iso-draw.library.v1', JSON.stringify([...lib, { id: 'cut-one', savedAt: Date.now() - 1000, drawing: d }, { id: 'cut-two', savedAt: Date.now() - 2000, drawing: two }]));
+    localStorage.setItem('iso-draw.drawing.v1', JSON.stringify(d));
+  });
+  await page.reload();
+  await page.waitForTimeout(800);
+  await page.click('#fit');
+  await page.waitForTimeout(200);
+  const before = await drawingNow();
+  const rise = before.runs.find((r) => before.nodes.find((n) => n.id === r.from).pos.n !== before.nodes.find((n) => n.id === r.to).pos.n);
+  await page.locator(`#canvas line.hit[data-run="${rise.id}"]`).click({ force: true });
+  await page.waitForTimeout(300);
+  check('a pipe picked offers to end the sheet there', await page.locator('#tab-body [data-a="split-sheet"]').innerText(), (v) => /End the sheet here — the rest to sheet 2/.test(v), 'End the sheet here — the rest to sheet 2');
+  await page.click('#tab-body [data-a="split-sheet"]');
+  await page.waitForTimeout(800);
+  const cutLib = (await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.library.v1')))).filter((e) => e.drawing.meta.project === 'CUT TEST');
+  const sheetsNow = cutLib
+    .map((e) => `${e.drawing.meta.sheet}: ${e.drawing.nodes.filter((n) => n.terminal?.note).map((n) => n.terminal.note).join(' + ')}`)
+    .sort()
+    .join(' | ');
+  check('sheet 1 ends at the cut, the rest is sheet 2, the old sheet 2 is 3 and comes from 2', sheetsNow, (v) => v === '1 of 3: CONT. ON SH.2 | 2 of 3: CONT. FROM SH.1 + CONT. ON SH.3 | 3 of 3: CONT. FROM SH.2', '1: ON 2 | 2: FROM 1 + ON 3 | 3: FROM 2');
+  const first = cutLib.find((e) => e.id === 'cut-one').drawing;
+  check('sheet 1 keeps the line up to the cut, at the spot tapped', JSON.stringify(first.nodes.map((n) => [n.pos.e, n.pos.n])), (v) => v === '[[0,0],[2000,0],[2000,750]]', '[[0,0],[2000,0],[2000,750]]');
+  const onScreen = await drawingNow();
+  check('the new sheet is open, starting at the cut', `${onScreen.meta.sheet} ${JSON.stringify(onScreen.nodes[0].pos)} ${onScreen.runs.length}`, (v) => v === '2 of 3 {"e":2000,"n":750,"u":0} 2', '2 of 3, from (2000,750), two pipes');
+  await page.evaluate(() => {
+    const lib = JSON.parse(localStorage.getItem('iso-draw.library.v1') || '[]').filter((e) => e.drawing.meta.project !== 'CUT TEST');
+    localStorage.setItem('iso-draw.library.v1', JSON.stringify(lib));
+  });
+}
+
 check('no console errors', consoleErrors, (v) => v.length === 0, 'none');
 
 await browser.close();

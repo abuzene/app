@@ -58,7 +58,20 @@ ships, and the decisions already taken, so they are not re-litigated.
   runs after a Remove, after a Drive sync and a folder sync that brought
   or removed sheets, and at start; the `CONT. ON/FROM SH.k` notes follow
   their sheets' new numbers, and a renumbered sheet is stamped newer so a
-  sync carries it over.
+  sync carries it over. **End the sheet here** (his idea, 2026-10-19: "draw
+  it all on one sheet, then mark where the first sheet ends and move the
+  rest to a new sheet after it; on the new one mark again" — the manual
+  New sheet stays, for a PE piece someone else lays): a pipe's panel
+  (`[data-a="split-sheet"]` → `host.splitSheetHere` → `splitSheetHere` in
+  main.ts) cuts the pipe at the spot tapped (`sheetCutSpot`, to 10 mm,
+  never inside an item; else the middle of its longest bare length) and
+  `splitSheet` in edit.ts keeps the line's start side (the CONT. FROM end,
+  else the first point) ending "CONT. ON SH.k+1"; all beyond, branches,
+  equipment, hand dimensions and circles on it, becomes sheet k+1 starting
+  at the cut "CONT. FROM SH.k". `makeRoomAfter` (library.ts) first moves
+  every later sheet and every CONT. note past k up one; `retargetFrom`
+  makes the sheet a moved "CONT. ON" end goes to read "FROM SH.k+1". The
+  new sheet opens, to be cut again. Needs a project name.
 
 ## Before every push
 

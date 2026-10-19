@@ -4,7 +4,7 @@ import { headerTakenOff, COMPONENT_LABEL, DEFAULT_LOGO, ROOT_GAP, TERMINAL_LABEL
 import { COMMAND_HELP } from '../model/commands';
 import { DN_LIST, SIZE_LABELS, defaultValveEnds, schedulesFor, sizeLabel } from '../model/pipe-data';
 import { AXES, AXIS_VECTOR, axisBetween } from '../model/iso';
-import { projectsOf } from '../model/library';
+import { projectsOf, sheetNumber } from '../model/library';
 import { applyChainDimension, applyReducer, elbowTurns, turnElbow, freeDimensions, offersAutoCoupling, resetDrawnLength, setAutoCoupling, wantsAutoCoupling, deletePoint, isCouplingPoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, runLength, setGroupLength, setLastFlange, deleteRunGroup, DASHED_NOTE, setLineSize, setRunDashed, setRunDirect, setRunLength, setTerminal, splitRun } from '../model/edit';
 import { setDriveClientId } from '../model/drive';
 import { reducerPreview } from './reducer-preview';
@@ -109,6 +109,7 @@ function runProperties(host: Host, runId: string): string {
   <div class="btn-row">
     ${header ? '' : '<button class="btn-line" data-a="split">Split in half</button>'}
     ${drawing.options.schematic && group.some((id) => drawing.runs.find((r) => r.id === id)?.visual !== undefined) ? '<button class="btn-line" data-a="drawn-reset" title="Not to scale: clear the drawn length set by hand or left by a stretch">Redraw at its own length</button>' : ''}
+    <button class="btn-line" data-a="split-sheet" title="Cut this pipe where you tapped it: this sheet ends there, everything after it goes to a new sheet right after this one">End the sheet here — the rest to sheet ${sheetNumber(drawing.meta.sheet) + 1}</button>
     <button class="btn-line danger" data-a="delete-run">${header ? 'Delete this header' : 'Delete pipe — this length only'}</button>
   </div>
 </div>`;
@@ -1015,6 +1016,7 @@ function wire(body: HTMLElement, host: Host): void {
         host.notify('The dimension is back and the piece fixed again: tap its figure to type it.');
       }),
     );
+    runEditor.querySelector('[data-a="split-sheet"]')?.addEventListener('click', () => host.splitSheetHere(id));
     runEditor.querySelector('[data-a="drawn-reset"]')?.addEventListener('click', () => {
       host.edit('Redraw at its own length', (d) => resetDrawnLength(d, host.state.analysis, id));
     });

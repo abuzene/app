@@ -220,6 +220,93 @@ export function turnElbow(drawing: Drawing, nodeId: string, steps: number): stri
   return null;
 }
 
+/**
+ * Where a pipe may be cut for a new sheet: the spot tapped (to 10 mm), or
+ * the middle of its longest length of bare pipe; never inside an item.
+ */
+export function sheetCutSpot(drawing: Drawing, run: Run, tapped: number | null): number | null {
+  const total = runLength(drawing, run);
+  const items = run.inline.filter((c) => !isMark(c.kind)).sort((x, y) => x.offset - y.offset);
+  const gaps: [number, number][] = [];
+  let cursor = 0;
+  for (const comp of items) {
+    const half = itemHalf(drawing, run, comp);
+    if (comp.offset - half > cursor) gaps.push([cursor, comp.offset - half]);
+    cursor = Math.max(cursor, comp.offset + half);
+  }
+  if (total > cursor) gaps.push([cursor, total]);
+  const room = gaps.filter(([a, b]) => b - a > 20);
+  if (room.length === 0) return null;
+  if (tapped !== null) {
+    const at = Math.round(tapped / 10) * 10;
+    const hit = room.find(([a, b]) => at > a + 5 && at < b - 5);
+    if (hit) return at;
+  }
+  const [a, b] = room.reduce((best, g) => (g[1] - g[0] > best[1] - best[0] ? g : best));
+  return Math.round((a + b) / 2);
+}
+
+/**
+ * A sheet cut in two at a pipe (his ask, 2026-10-19: "I draw it all on one
+ * sheet, then mark where the first sheet ends and move the rest to a new
+ * sheet after it"): the pipe is cut `distance` along; what lies on the
+ * line's start side stays, ending there "CONT. ON SH.<here+1>"; all beyond
+ * it, branches and what stands on them included, goes to the new sheet,
+ * which starts at the cut "CONT. FROM SH.<here>". Says why not when the
+ * line comes round to itself past the cut.
+ */
+export function splitSheet(drawing: Drawing, runId: string, distance: number, here: number): { keep: Drawing; rest: Drawing } | string {
+  const work = JSON.parse(JSON.stringify(drawing)) as Drawing;
+  const run = work.runs.find((r) => r.id === runId);
+  if (!run) return 'Pick the pipe the sheet ends on.';
+  const cut = splitRun(work, runId, distance);
+  if (!cut) return 'The sheet cannot end there: pick a spot on bare pipe.';
+  const legs = work.runs.filter((r) => r.from === cut || r.to === cut);
+  if (legs.length !== 2) return 'The sheet cannot end there.';
+  const ends = legs.map((r) => (r.from === cut ? r.to : r.from));
+  const sides = ends.map((id) => sideFrom(work, id, cut));
+  if ([...sides[0]].some((id) => sides[1].has(id))) return 'The line comes round to itself past here: end the sheet where it does not.';
+  const start = work.nodes.find((n) => /FROM/i.test(n.terminal?.note ?? '')) ?? work.nodes[0];
+  const later = sides[0].has(start?.id ?? '') ? 1 : 0;
+  const moving = sides[later];
+  const outRun = legs[later];
+  const dn = outRun.dn;
+  const schedule = outRun.schedule;
+  const onward = (ids: string[]) => ids.every((id) => moving.has(id));
+
+  const keep = JSON.parse(JSON.stringify(work)) as Drawing;
+  keep.nodes = keep.nodes.filter((n) => !moving.has(n.id));
+  keep.runs = keep.runs.filter((r) => r.id !== outRun.id && !moving.has(r.from) && !moving.has(r.to));
+  const cutHere = keep.nodes.find((n) => n.id === cut)!;
+  cutHere.terminal = { kind: 'CONTINUATION', note: `CONT. ON SH.${here + 1}`, dn, schedule };
+  if (keep.equipment) keep.equipment = keep.equipment.filter((q) => !q.stand || !moving.has(q.stand));
+  if (keep.measures) keep.measures = keep.measures.filter((m) => !moving.has(m.a) && !moving.has(m.b));
+  if (keep.circles) keep.circles = keep.circles.filter((c) => !c.node || !moving.has(c.node));
+
+  const rest = JSON.parse(JSON.stringify(work)) as Drawing;
+  const startId = uid('n');
+  const cutNode = rest.nodes.find((n) => n.id === cut)!;
+  rest.nodes = [
+    { id: startId, pos: { ...cutNode.pos }, terminal: { kind: 'CONTINUATION', note: `CONT. FROM SH.${here}`, dn, schedule } },
+    ...rest.nodes.filter((n) => moving.has(n.id)),
+  ];
+  rest.runs = rest.runs.filter((r) => r.id === outRun.id || (moving.has(r.from) && moving.has(r.to)));
+  const restOut = rest.runs.find((r) => r.id === outRun.id)!;
+  if (restOut.from === cut) restOut.from = startId;
+  else restOut.to = startId;
+  // Walked from the cut: the pipe leaving it first.
+  rest.runs = [restOut, ...rest.runs.filter((r) => r !== restOut)];
+  rest.equipment = (rest.equipment ?? []).filter((q) => q.stand && moving.has(q.stand));
+  if (rest.equipment.length === 0) rest.equipment = undefined;
+  rest.measures = (rest.measures ?? []).filter((m) => onward([m.a, m.b]));
+  if (rest.measures.length === 0) rest.measures = undefined;
+  rest.circles = (rest.circles ?? []).filter((c) => c.node && moving.has(c.node));
+  if (rest.circles.length === 0) rest.circles = undefined;
+  rest.view3d = undefined;
+  rest.id = uid('d');
+  return { keep, rest };
+}
+
 /** The way the line comes into an open end: from its one run's far point to it. */
 export function arrivalAt(drawing: Drawing, nodeId: string): Vec3 | null {
   const runs = drawing.runs.filter((r) => r.from === nodeId || r.to === nodeId);

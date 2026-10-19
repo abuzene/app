@@ -71,6 +71,8 @@ export interface Host {
    * as continuing on the new sheet, and the new sheet starts from it.
    */
   newSheetInProject(): void;
+  /** Ends the sheet at a pipe; all beyond it goes to a new sheet after this one. */
+  splitSheetHere(runId: string): void;
   /** The print dialog for a project, all its sheets picked. */
   printProject(name: string): void;
   /** Welds numbered across the project with this code ("HYF 1/2.1"), or per sheet (null). */

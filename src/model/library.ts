@@ -129,6 +129,65 @@ export function renumberProject(name: string, total: number): void {
 }
 
 /**
+ * Room for a sheet after sheet `k` of a project (his ask, 2026-10-19, a
+ * sheet split in two): every sheet numbered past `k` goes up one, and every
+ * "CONT. ON/FROM SH.m" past `k`, on any of its sheets, with it.
+ */
+export function makeRoomAfter(project: string, k: number): void {
+  const entries = loadLibrary();
+  const now = Date.now();
+  const bump = (note: string) => note.replace(/(CONT\. (?:ON|FROM) SH\.)(\d+)/, (all, head: string, m: string) => (Number(m) > k ? `${head}${Number(m) + 1}` : all));
+  for (const entry of entries) {
+    const drawing = entry.drawing;
+    if ((drawing.meta.project || '') !== project) continue;
+    let dirty = false;
+    const no = sheetNumber(drawing.meta.sheet);
+    if (no > k) {
+      drawing.meta.sheet = `${no + 1} of ${(drawing.meta.sheet ?? '').match(/of\s*(\d+)/)?.[1] ?? no + 1}`;
+      dirty = true;
+    }
+    for (const node of drawing.nodes) {
+      if (node.terminal?.note && bump(node.terminal.note) !== node.terminal.note) {
+        node.terminal.note = bump(node.terminal.note);
+        dirty = true;
+      }
+      for (const mark of node.olets ?? []) {
+        if (mark.note && bump(mark.note) !== mark.note) {
+          mark.note = bump(mark.note);
+          dirty = true;
+        }
+      }
+    }
+    if (dirty) entry.savedAt = Math.max(now, entry.savedAt + 1);
+  }
+  saveLibrary(entries.sort((a, b) => b.savedAt - a.savedAt));
+}
+
+/**
+ * On sheet `target` of a project, "CONT. FROM SH.<from>" made to read
+ * `to`: the line it carries on comes from another sheet now (a sheet split
+ * in two, the far end on the new one).
+ */
+export function retargetFrom(project: string, target: number, from: number, to: number): void {
+  const entries = loadLibrary();
+  const now = Date.now();
+  const re = new RegExp(`(CONT\\. FROM SH\\.)${from}(?!\\d)`);
+  for (const entry of entries) {
+    const drawing = entry.drawing;
+    if ((drawing.meta.project || '') !== project || sheetNumber(drawing.meta.sheet) !== target) continue;
+    let dirty = false;
+    for (const node of drawing.nodes) {
+      if (node.terminal?.note && re.test(node.terminal.note)) {
+        node.terminal.note = node.terminal.note.replace(re, `$1${to}`);
+        dirty = true;
+      }
+    }
+    if (dirty) entry.savedAt = Math.max(now, entry.savedAt + 1);
+  }
+  saveLibrary(entries.sort((a, b) => b.savedAt - a.savedAt));
+}
+
+/**
  * Numbers the sheets of each named project 1…n of n, in their order, so a
  * sheet removed leaves no gap (his complaint, 2026-09-30: "3 sheets, not
  * 4" — sheets 1, 2 and 4 of 4 were left after sheet 3 went). The
