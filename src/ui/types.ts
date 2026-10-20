@@ -127,6 +127,10 @@ export interface ReducerAsk {
   drawOn: boolean;
   /** The end piece it sits against, when the end wears one: "WELD NECK FLANGE". */
   against?: string;
+  /** What the picture shows either side, left then right, when not the usual. */
+  sides?: [string, string];
+  /** The large end on the right of the picture to begin with. */
+  largeRight?: boolean;
 }
 
 export interface OletAsk {

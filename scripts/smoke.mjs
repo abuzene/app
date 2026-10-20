@@ -5069,6 +5069,60 @@ const couplingsNow = async () => (await drawingNow()).nodes.filter((n) => n.fitt
   check('with its flange on, the reducer still drags as one piece', `${after.a > withFlange.a + 50} ${Math.round(after.b - after.a) === Math.round(withFlange.b - withFlange.a)}`, (v) => v === 'true true', 'true true');
 }
 
+/* ------------------- a valve's flange welded straight to a reducer, no pipe */
+
+// "I still cannot draw the flange welded to the reducer" (his DESHANIM sheet,
+// 2026-10-20): reducer 3"x2", the regulator's flange on its face, the
+// regulator, and a reducer 2"x3" on its other flange, with no pipe between.
+{
+  await routeLine('3"\nSTD\nORIGIN 0 0 0\nEND FLG\nE 3000\nEND FLG');
+  await page.click('#fit');
+  await page.waitForTimeout(200);
+  const firstRun = (await drawingNow()).runs[0].id;
+  const runHit = page.locator(`#canvas line.hit[data-run="${firstRun}"]`).first();
+  await runHit.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await runHit.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await page.waitForTimeout(300);
+  await page.locator('.tool[data-kind="RED_CONC"]').click();
+  await page.waitForTimeout(300);
+  await page.selectOption('.dialog [data-f="red-small"]', 'DN50');
+  await page.click('.dialog [data-confirm]');
+  await page.waitForTimeout(400);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+  const redRun = (await drawingNow()).runs.find((r) => r.inline.some((c) => c.kind === 'RED_CONC'));
+  await tapNode(redRun.to);
+  await page.locator('.tool[data-kind="REGULATOR"]').click();
+  await page.waitForTimeout(400);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+  const weldRows = async () => {
+    await page.click('#tabs button:has-text("Welds")');
+    await page.waitForTimeout(200);
+    const rows = await page.locator('#tab-body table tbody tr').allInnerTexts();
+    await page.click('#tabs button:has-text("Route")');
+    await page.waitForTimeout(200);
+    return rows;
+  };
+  let rows = await weldRows();
+  check('a regulator picked on the reducer\'s face is welded straight to it: one weld, no pipe', `${rows.filter((r) => /2"\tBW\tCON RED 3" X 2" \/ WELD NECK FLANGE/.test(r)).length} ${rows.filter((r) => /PIPE \/ CON RED 3" X 2"/.test(r)).length} ${rows.length}`, (v) => v === '1 1 5', '1 weld CON RED / WELD NECK FLANGE, the reducer\'s other weld to the pipe, 5 in all');
+  const reg = (await drawingNow()).runs.flatMap((r) => r.inline).find((c) => c.kind === 'REGULATOR');
+  await page.locator(`#canvas .component[data-component="${reg.id}"]`).first().click({ force: true });
+  await page.waitForTimeout(250);
+  await page.locator('.tool[data-kind="RED_CONC"]').click();
+  await page.waitForTimeout(300);
+  check('a reducer picked with the valve asks with the valve on one side and its small end there', `${await page.locator('.dialog .red-preview').evaluate((e) => e.textContent.replace(/\s+/g, ' ').trim())}`, (v) => /PRESSURE REGULATOR/.test(v) && /LINE/.test(v), 'PRESSURE REGULATOR … LINE');
+  await page.selectOption('.dialog [data-f="red-large"]', 'DN80');
+  await page.click('.dialog [data-confirm]');
+  await page.waitForTimeout(400);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+  rows = await weldRows();
+  check('and the reducer goes straight on the regulator\'s other flange: reducer, regulator, reducer, no pipe', `${rows.filter((r) => /2"\tBW\tCON RED 3" X 2" \/ WELD NECK FLANGE/.test(r)).length} ${rows.filter((r) => /PIPE \/ WELD NECK FLANGE/.test(r) && /\t2"\t/.test(r)).length}`, (v) => v === '2 0', '2 welds CON RED / WELD NECK FLANGE, no 2" pipe weld');
+  const d = await drawingNow();
+  check('the line keeps its ends; the pipe after it is 3" again', `${Math.max(...d.nodes.map((n) => n.pos.e))} ${d.runs[d.runs.length - 1].dn}`, (v) => v === '3000 DN80', '3000 DN80');
+}
+
 /* ------------- flange, reducer, flange with no pipe; weld numbers run on */
 
 // "W10 and W12: I try to draw flange, reducer, flange joined with no pipe

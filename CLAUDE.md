@@ -656,6 +656,20 @@ ships, and the decisions already taken, so they are not re-litigated.
   reducer moves onto it, not the other way round"). `setRunDirect` returns
   that point and the HUD/panel select it. Weld overrides on
   `n:<end>:term` are carried to the face.
+- **A valve's flange welded straight to a reducer** (his DESHANIM sheet,
+  2026-10-20: "I still cannot draw the flange welded to the reducer" —
+  reducer 3"x2", regulator, reducer 2"x3" with no pipe): a valve picked with
+  a reducer's face point selected goes on that face (`valveOnItemFace` in
+  edit.ts, into the pipe beyond, which gives its length, else what lies
+  beyond goes on: `roomFor`); a reducer picked with a valve selected goes
+  on the valve's flange, toward the run's end else its start, in a run of
+  its own (`reducerOnValveFace`; the dialog shows the valve and LINE, large
+  end outward to begin with, `ReducerAsk.sides`/`largeRight`). Two items
+  whose faces meet with no pipe — in one run, or across a plain point —
+  make **one weld** (`metFace` in `analyse`): named for both, a reducer
+  first (`CON RED 3" X 2" / WELD NECK FLANGE`), made by the reducer, else
+  the one first along the route; two flanged valves face to face are left
+  alone. A dimension typed to the flange's length does the same.
 - **List names typed over** (Items tab, `[data-bom-name]` inputs;
   `drawing.bomNames[lineKey]`, applied at the end of `analyse` after the
   sort, so item numbers stay put): capitalised, printed on the sheet's

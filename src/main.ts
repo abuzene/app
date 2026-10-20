@@ -3036,9 +3036,9 @@ function reducerDialog(ask: ReducerAsk): Promise<ReducerChoice | null> {
     // The picture reads left to right: the line as drawn so far, then the
     // reducer, then the open end (or the flange it sits against); along a
     // run, the run's start then its end.
-    const leftSide = ask.atEnd ? 'LINE' : 'RUN START';
-    const rightSide = ask.atEnd ? ask.against ?? 'OPEN END' : 'RUN END';
-    let largeOutward = false;
+    const leftSide = ask.sides?.[0] ?? (ask.atEnd ? 'LINE' : 'RUN START');
+    const rightSide = ask.sides?.[1] ?? (ask.atEnd ? ask.against ?? 'OPEN END' : 'RUN END');
+    let largeOutward = !!ask.largeRight;
     backdrop.innerHTML = `
 <div class="dialog" role="dialog" aria-label="Reducer" data-editor="reducer">
   <h3 data-red-name>${name(ask.large, ask.small)}</h3>
@@ -3046,7 +3046,7 @@ function reducerDialog(ask: ReducerAsk): Promise<ReducerChoice | null> {
   <div class="row"><label>Small end</label><select data-f="red-small">${sizeOptions(ask.small)}</select></div>
   <div class="row red-row"><div data-red-preview></div><button class="btn-line" type="button" data-a="red-flip">Flip</button></div>
   ${ask.drawOn ? '<div class="row"><label>Then</label><label class="check"><input type="checkbox" data-f="red-drawon" checked /> Carry on drawing from its far end, at that size</label></div>' : ''}
-  <p class="empty-note">${ask.against ? `Welded straight to the ${ask.against.toLowerCase()} on the end. ` : ''}The pipe either side takes the size of the end it meets; both ends are points the line can be picked up at.</p>
+  <p class="empty-note">${ask.against ? `Welded straight to the ${ask.against.toLowerCase()}${ask.atEnd ? ' on the end' : ''}. ` : ''}The pipe either side takes the size of the end it meets; both ends are points the line can be picked up at.</p>
   <div class="btn-row">
     <button class="btn-line solid" data-confirm>Place reducer</button>
     <button class="btn-line" data-cancel>Cancel</button>

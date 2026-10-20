@@ -1,7 +1,7 @@
 import type { Axis, ComponentKind, FlangeKind, JointType, Run, TerminalKind } from '../model/types';
 import type { Host } from './types';
 import { COMPONENT_LABEL, COUPLING_REACH, UNION_REACH, TERMINAL_LABEL, chainStops, isCoupling, nodeFittingTakeout, dimensionStops, isMark, itemHalf, isValve, oletEntries, oletLegs, oletMarks, resolveEnds, terminalTakeoutOf, valveOpenSide } from '../model/drawing';
-import { addComponent, arrivalAt, route45, isCouplingPoint, isPlainPoint, placeCoupling, addEquipment, addFlangeJoint, flangeOnItemFace, applyReducer, boltValveOnEnd, runLength, setLastFlange, setTerminal, splitRun } from '../model/edit';
+import { addComponent, arrivalAt, route45, isCouplingPoint, isPlainPoint, placeCoupling, addEquipment, addFlangeJoint, flangeOnItemFace, applyReducer, reducerOnValveFace, valveOnItemFace, boltValveOnEnd, runLength, setLastFlange, setTerminal, splitRun } from '../model/edit';
 import { AXIS_VECTOR, add, axisBetween, direction, scale3 } from '../model/iso';
 import { DN_LIST, componentTakeout, sizeLabel, valveFlangeKind } from '../model/pipe-data';
 import { isFlange } from '../render/symbols';
@@ -266,6 +266,33 @@ function hasTarget(host: Host): boolean {
  */
 async function placeReducer(host: Host, kind: 'RED_CONC' | 'RED_ECC'): Promise<void> {
   const { selection, analysis } = host.state;
+  // With a valve picked, the reducer is welded straight to its flange (his
+  // DESHANIM sheet, 2026-10-20: "the flange welded to the reducer").
+  if (selection?.kind === 'component') {
+    const { drawing } = host.state;
+    const vRun = drawing.runs.find((r) => r.inline.some((c) => c.id === selection.id));
+    const valve = vRun?.inline.find((c) => c.id === selection.id);
+    if (vRun && valve && isValve(valve.kind)) {
+      if (!reducerOnValveFace(JSON.parse(JSON.stringify(drawing)), valve.id, kind, vRun.dn, vRun.dn, false)) {
+        host.notify('Both faces of the valve already have something against them.');
+        return;
+      }
+      const dn = valve.dn ?? vRun.dn;
+      const at = DN_LIST.indexOf(dn);
+      const name = COMPONENT_LABEL[valve.kind] ?? valve.kind;
+      const choice = await host.reducerDialog({ kind, large: DN_LIST[Math.min(DN_LIST.length - 1, at + 1)] ?? dn, small: dn, atEnd: false, drawOn: false, against: 'flange of the valve', sides: [name, 'LINE'], largeRight: true });
+      if (!choice) return;
+      let addedId: string | null = null;
+      host.edit(`Add ${kind === 'RED_ECC' ? 'ECC RED' : 'CON RED'}`, (d) => {
+        addedId = reducerOnValveFace(d, valve.id, kind, choice.large, choice.small, choice.largeOutward);
+      });
+      if (addedId) {
+        host.select({ kind: 'component', id: addedId });
+        host.notify('Reducer welded straight to the valve\'s flange, no pipe between.');
+      }
+      return;
+    }
+  }
   const info = selection?.kind === 'node' ? analysis.nodeInfo.get(selection.id) : undefined;
   const endNode = info && info.degree === 1 ? info.node : null;
   const run = endNode ? info!.runs[0] : targetRun(host);
@@ -433,6 +460,20 @@ function place(host: Host, kind: ComponentKind, ends?: 'SW' | 'THD'): void {
       const run = info.runs[0];
       if (run) {
         placeFlangeOnRun(host, run, kind, run.from === nodeId ? 'start' : 'end', nodeFittingTakeout(info, run.dn));
+        return;
+      }
+    }
+
+    // On a reducer's face, mid-line: the valve's flange is welded straight
+    // to it, no pipe between (his DESHANIM sheet, 2026-10-20).
+    if (isValve(kind) && info && info.degree === 2 && info.fitting === 'NONE' && valveOnItemFace(JSON.parse(JSON.stringify(host.state.drawing)), nodeId, kind, ends)) {
+      let added: string | null = null;
+      host.edit(`Add ${label}`, (d) => {
+        added = valveOnItemFace(d, nodeId, kind, ends);
+      });
+      if (added) {
+        host.select({ kind: 'component', id: added });
+        host.notify(`${label} welded straight to the reducer, no pipe between.`);
         return;
       }
     }

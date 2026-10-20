@@ -1420,11 +1420,56 @@ export function analyse(drawing: Drawing): Analysis {
           : isReducer(comp.kind)
             ? reducerName(comp, run.dn)
             : COMPONENT_LABEL[comp.kind] ?? comp.kind;
+      // Its face right on another item's, with no pipe between — a valve's
+      // flange welded straight to a reducer (his DESHANIM sheet, 2026-10-20:
+      // "I still cannot draw the flange welded to the reducer"), in the same
+      // run or across the point between them: one weld for the two, named
+      // for both, a reducer first. A reducer makes it; else the one first
+      // along the route. Two flanges face to face are bolted, not ours.
+      const ownLabel = (c: InlineComponent, r: Run) => {
+        const cDn = c.dn ?? r.dn;
+        return resolveEnds(c.kind, cDn, c.ends, defaultJoint) === 'FLG' && !isFlange(c.kind) && !isReducer(c.kind)
+          ? COMPONENT_LABEL[valveFlangeKind(defaultJoint)] ?? 'FLANGE'
+          : inlineLabel(c, r.dn);
+      };
+      const flangedValve = (c: InlineComponent, r: Run) =>
+        isValve(c.kind) && resolveEnds(c.kind, c.dn ?? r.dn, c.ends, defaultJoint) === 'FLG';
+      const metFace = (side: 0 | 1): { make: boolean; name: string } | null => {
+        if (isMark(comp.kind) || comp.bare === side) return null;
+        const at = side === 0 ? comp.offset - takeout : comp.offset + takeout;
+        let other: { comp: InlineComponent; run: Run; first: boolean } | null = null;
+        for (const c of run.inline) {
+          if (c.id === comp.id || isMark(c.kind) || c.bare === (side === 0 ? 1 : 0)) continue;
+          const cDn = c.dn ?? run.dn;
+          const cHalf = componentTakeout(c.kind, cDn, resolveEnds(c.kind, cDn, c.ends, defaultJoint) === 'FLG' && valveFlangeKind(defaultJoint), c.ff);
+          if (cHalf <= 0) continue;
+          const face = side === 0 ? c.offset + cHalf : c.offset - cHalf;
+          if (Math.abs(face - at) < 0.5) other = { comp: c, run, first: side === 1 };
+        }
+        const end = side === 0 ? a : b;
+        if (!other && !end.terminal && !end.flange && nodeInfo.get(end.id)?.fitting === 'NONE' && itemAtEnd(drawing, run, side === 0)?.comp.id === comp.id) {
+          const across = drawing.runs.filter((r) => r.id !== run.id && (r.from === end.id || r.to === end.id));
+          const meets = across.length === 1 ? itemAtEnd(drawing, across[0], across[0].from === end.id) : null;
+          if (meets) {
+            const mine = runIndex.get(run.id) ?? 0;
+            const theirs = runIndex.get(across[0].id) ?? 0;
+            other = { comp: meets.comp, run: across[0], first: mine < theirs || (mine === theirs && run.id < across[0].id) };
+          }
+        }
+        if (!other || (flangedValve(comp, run) && flangedValve(other.comp, other.run))) return null;
+        const mineRed = isReducer(comp.kind);
+        const theirsRed = isReducer(other.comp.kind);
+        const make = mineRed !== theirsRed ? mineRed : other.first;
+        const names = [ownLabel(comp, run), ownLabel(other.comp, other.run)];
+        return { make, name: (mineRed !== theirsRed ? mineRed : other.first) ? names.join(' / ') : names.reverse().join(' / ') };
+      };
       for (const side of [0, 1] as const) {
         // A transition joint is welded on its steel side only; the plastic
         // side is fused, which is no weld of ours.
         if (comp.kind === 'TRANSITION' && side === (comp.flip ? 1 : 0)) continue;
         if (onTerminal(side === 0)) continue;
+        const met = metFace(side);
+        if (met && !met.make) continue;
         // No flange on the valve's last face (or a blind there): nothing welded.
         if (comp.lastFlange && valveOpenSide(drawing, run, comp) === side) continue;
         // Bolted straight to the valve beside it: no flange, no weld.
@@ -1437,7 +1482,7 @@ export function analyse(drawing: Drawing): Analysis {
           joint,
           sideDn,
           run.schedule,
-          `PIPE / ${joinedTo}`,
+          met ? met.name : `PIPE / ${joinedTo}`,
           add(a.pos, scale3(dir, distance)),
           side === 0 ? 1 : -1,
           idx,

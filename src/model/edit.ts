@@ -512,6 +512,119 @@ export function flangeOnItemFace(drawing: Drawing, nodeId: string, kind: FlangeK
 }
 
 /**
+ * Bare pipe at one end of a run: from that end up to the first item on it,
+ * or to the far end's take-out when there is none.
+ */
+function roomAtEnd(drawing: Drawing, run: Run, atStart: boolean): number {
+  const len = runLength(drawing, run);
+  const farId = atStart ? run.to : run.from;
+  const far = drawing.nodes.find((n) => n.id === farId);
+  let back = 0;
+  if (far?.terminal) back = terminalTakeoutOf(far.terminal.kind, run.dn);
+  else if (far?.flange) back = componentTakeout(far.flange, run.dn);
+  else {
+    const info = analyse(drawing).nodeInfo.get(farId);
+    if (info && info.fitting !== 'NONE' && info.fitting !== 'OLET') back = nodeFittingTakeout(info, run.dn);
+  }
+  let room = len - back;
+  for (const c of run.inline) {
+    if (isMark(c.kind)) continue;
+    const near = (atStart ? c.offset : len - c.offset) - itemHalf(drawing, run, c);
+    room = Math.min(room, near);
+  }
+  return room;
+}
+
+/**
+ * Makes `need` mm of bare pipe at one end of a run: the pipe there gives it
+ * when it has it; else the run's far end goes out, with everything beyond it
+ * and every item on the run, so no pipe already cut changes length.
+ */
+function roomFor(drawing: Drawing, run: Run, atStart: boolean, need: number): boolean {
+  const short = need - roomAtEnd(drawing, run, atStart);
+  if (short <= 0.5) return true;
+  const len = runLength(drawing, run);
+  if (!stretchRun(drawing, run.id, len + short, atStart ? 'to' : 'from', true)) return false;
+  // Held where they were by the stretch; they go out with the far end.
+  for (const c of run.inline) c.offset = atStart ? c.offset + short : c.offset - short;
+  return true;
+}
+
+/**
+ * A valve picked with a reducer's face point selected is welded straight to
+ * the reducer, its flange on the face, with no pipe between (his DESHANIM
+ * sheet, 2026-10-20: "I still cannot draw the flange welded to the
+ * reducer"). It goes into the pipe beyond the point, which gives its length,
+ * or, with too little there, pushes what lies beyond on. Returns its id.
+ */
+export function valveOnItemFace(drawing: Drawing, nodeId: string, kind: ComponentKind, ends?: EndType): string | null {
+  const node = drawing.nodes.find((n) => n.id === nodeId);
+  if (!node || node.terminal || node.flange || !isValve(kind)) return null;
+  const runs = drawing.runs.filter((r) => r.from === nodeId || r.to === nodeId);
+  if (runs.length !== 2) return null;
+  const faceRun = runs.find((r) => {
+    const meets = itemAtEnd(drawing, r, r.from === nodeId);
+    return !!meets && meets.face <= 0.5 && !isValve(meets.comp.kind);
+  });
+  const beyond = runs.find((r) => r !== faceRun);
+  if (!faceRun || !beyond) return null;
+  const atStart = beyond.from === nodeId;
+  if (itemAtEnd(drawing, beyond, atStart)) return null;
+  const dn = itemAtEnd(drawing, faceRun, faceRun.from === nodeId)!.dn;
+  const joint = drawing.options.joint ?? 'BW';
+  const half = componentTakeout(kind, dn, resolveEnds(kind, dn, ends, joint) === 'FLG' && valveFlangeKind(joint));
+  if (half <= 0 || !roomFor(drawing, beyond, atStart, half * 2)) return null;
+  const len = runLength(drawing, beyond);
+  const comp = addComponent(drawing, beyond.id, kind, atStart ? half : len - half, ends);
+  if (!comp) return null;
+  if (dn !== beyond.dn) comp.dn = dn;
+  return comp.id;
+}
+
+/**
+ * A reducer picked with a valve selected is welded straight to the valve's
+ * flange, on its face toward the run's end (else its other face), in a run
+ * of its own like any reducer; the pipe beyond gives its length or what lies
+ * beyond goes on. Returns the reducer's id.
+ */
+export function reducerOnValveFace(drawing: Drawing, valveId: string, kind: 'RED_CONC' | 'RED_ECC', large: string, small: string, largeOutward: boolean): string | null {
+  const run = drawing.runs.find((r) => r.inline.some((c) => c.id === valveId));
+  const valve = run?.inline.find((c) => c.id === valveId);
+  if (!run || !valve || !isValve(valve.kind)) return null;
+  const half = itemHalf(drawing, run, valve);
+  const redHalf = componentTakeout(kind, sizeOf(large).od >= sizeOf(small).od ? large : small);
+  for (const side of [1, 0] as const) {
+    if (valve.bare === side || (valve.lastFlange && valveOpenSide(drawing, run, valve) === side)) continue;
+    const len = runLength(drawing, run);
+    const face = side === 1 ? valve.offset + half : valve.offset - half;
+    // Something already against this face, in the run.
+    if (run.inline.some((c) => c.id !== valve.id && !isMark(c.kind) && Math.abs((side === 1 ? c.offset - itemHalf(drawing, run, c) : c.offset + itemHalf(drawing, run, c)) - face) < 0.5)) continue;
+    let pointId: string | null;
+    if (face > len - 0.5 || face < 0.5) pointId = face < 0.5 ? run.from : run.to;
+    else pointId = splitRun(drawing, run.id, face);
+    if (!pointId) continue;
+    const point = drawing.nodes.find((n) => n.id === pointId);
+    const others = drawing.runs.filter((r) => r.id !== run.id && (r.from === pointId || r.to === pointId) && !r.inline.some((c) => c.id === valve.id));
+    if (!point || point.terminal || point.flange || others.length !== 1) continue;
+    const beyond = others[0];
+    const atStart = beyond.from === pointId;
+    if (itemAtEnd(drawing, beyond, atStart) || !roomFor(drawing, beyond, atStart, redHalf * 2)) continue;
+    const blen = runLength(drawing, beyond);
+    const comp = addComponent(drawing, beyond.id, kind, atStart ? redHalf : blen - redHalf);
+    if (!comp) return null;
+    // A run of its own, both faces points.
+    const far = atStart ? redHalf * 2 : blen - redHalf * 2;
+    if (far > 0.5 && far < blen - 0.5) splitRun(drawing, beyond.id, far);
+    // Large outward: the large end away from the valve.
+    const holder = drawing.runs.find((r) => r.inline.some((c) => c.id === comp.id))!;
+    const valveAtStart = holder.from === pointId;
+    applyReducer(drawing, comp.id, large, small, valveAtStart ? largeOutward : !largeOutward);
+    return comp.id;
+  }
+  return null;
+}
+
+/**
  * Where along a run a point sits, as a distance from its start. Used to place
  * and then slide the things that sit in the line.
  */
