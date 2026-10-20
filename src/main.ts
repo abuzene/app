@@ -2742,8 +2742,10 @@ function openPrintDialog(ask: { project?: string; all?: boolean } = {}): void {
           : chosen[0] === state.drawing
             ? `${fileStem(host)}.pdf`
             : `${stem(chosen[0])}-sheet-${sheetNumber(chosen[0].meta.sheet)}.pdf`;
-      // Several sheets go as one PDF, a page each, whichever button.
-      if (what === 'pdf' || (what === 'print' && rendered.length > 1)) {
+      // PDF sheet makes one PDF, a page each; Print sends them all to the
+      // printer dialog, a page each (his complaint, 2026-10-20: the whole
+      // project went to the share sheet only, with no way to print it).
+      if (what === 'pdf') {
         close();
         void makePdfSheet(rendered, sheetSize(), fileName);
         return;
@@ -2755,7 +2757,7 @@ function openPrintDialog(ask: { project?: string; all?: boolean } = {}): void {
           true,
         );
       } else {
-        printSheet(rendered[0], sheetSize(), upright());
+        printSheet(rendered, sheetSize(), upright(), pick === 'all' ? fileName.replace(/\.pdf$/, '') : undefined);
       }
       close();
     });
@@ -2929,7 +2931,8 @@ function assemblePdf(pages: PdfImage[], wPt: number, hPt: number): Blob {
 /** A tablet's printer gives upright paper unless told otherwise. */
 const tabletPrinter = /iPad|iPhone|Android/.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
 
-function printSheet(sheet: string, size: SheetSize, upright = false): void {
+function printSheet(sheets: string | string[], size: SheetSize, upright = false, title?: string): void {
+  const all = Array.isArray(sheets) ? sheets : [sheets];
   const { w, h } = SHEET_MM[size];
   let root = document.getElementById('print-root');
   if (!root) {
@@ -2953,10 +2956,11 @@ function printSheet(sheet: string, size: SheetSize, upright = false): void {
   const orient = upright ? 'portrait' : 'landscape';
   const named = size === 'A4' ? `A4 ${orient}` : size === 'A3' ? `A3 ${orient}` : upright ? `${h}mm ${w}mm` : `${w}mm ${h}mm`;
   page.textContent = `@page { size: ${named}; margin: 0; }`;
-  const turned = sheet
-    .replace(/<svg([^>]*)viewBox="0 0 ([\d.]+) ([\d.]+)"([^>]*)width="[^"]*" height="[^"]*"/, (_m, a, sw, sh, b) =>
-      `<svg${a}viewBox="0 0 ${sh} ${sw}"${b}width="${sh}mm" height="${sw}mm"><g transform="translate(${sh} 0) rotate(90)">`)
-    .replace(/<\/svg>\s*$/, '</g></svg>');
+  const turn = (sheet: string) =>
+    sheet
+      .replace(/<svg([^>]*)viewBox="0 0 ([\d.]+) ([\d.]+)"([^>]*)width="[^"]*" height="[^"]*"/, (_m, a, sw, sh, b) =>
+        `<svg${a}viewBox="0 0 ${sh} ${sw}"${b}width="${sh}mm" height="${sw}mm"><g transform="translate(${sh} 0) rotate(90)">`)
+      .replace(/<\/svg>\s*$/, '</g></svg>');
   // A tablet prints nothing that is pinned to the page, so there the sheet
   // is laid out in the flow instead, at a width whose height is sure to fit
   // inside the margins and footer the tablet keeps for itself.
@@ -2964,14 +2968,16 @@ function printSheet(sheet: string, size: SheetSize, upright = false): void {
   // taking no notice of ours, so the tablet gets both sheets and the print
   // stylesheet shows the one that lies along the paper it actually got; the
   // choice here only says which to expect. Elsewhere the page is the sheet.
-  root.className = tabletPrinter ? `tablet ${upright ? 'want-upright' : 'want-landscape'}` : '';
-  root.innerHTML = tabletPrinter ? `<div class="sheet-land">${sheet}</div><div class="sheet-port">${turned}</div>` : upright ? turned : sheet;
+  root.className = [tabletPrinter ? `tablet ${upright ? 'want-upright' : 'want-landscape'}` : '', all.length > 1 ? 'pages' : ''].join(' ').trim();
+  const one = (sheet: string) =>
+    tabletPrinter ? `<div class="sheet-land">${sheet}</div><div class="sheet-port">${turn(sheet)}</div>` : upright ? turn(sheet) : sheet;
+  root.innerHTML = all.length > 1 ? all.map((sheet) => `<div class="print-page">${one(sheet)}</div>`).join('') : one(all[0]);
 
   // The page title is what "Save as PDF" names the file.
-  const title = document.title;
-  document.title = fileStem(host);
+  const before = document.title;
+  document.title = title ?? fileStem(host);
   const restore = () => {
-    document.title = title;
+    document.title = before;
   };
   window.addEventListener('afterprint', restore, { once: true });
   setTimeout(restore, 4000);

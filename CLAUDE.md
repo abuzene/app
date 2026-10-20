@@ -1001,9 +1001,14 @@ ships, and the decisions already taken, so they are not re-litigated.
   id, `all`) lists the project's library sheets (`openPrintDialog({
   project, all })`, `keepNow` first, the on-screen one as it is now); the
   Projects tab's **PDF** button on each project (`[data-project-pdf]`,
-  `host.printProject`) opens it with `all` picked. Several sheets always
-  go as one PDF, a page each (`sheetsToPdf` → `assemblePdf(pages)`), from
-  PDF sheet or Print alike; named `<project>-all-sheets.pdf`, one other
+  `host.printProject`) opens it with `all` picked. Several sheets go as
+  one PDF, a page each (`sheetsToPdf` → `assemblePdf(pages)`), from PDF
+  sheet; **Print sends them all to the printer dialog, a page each** (his
+  complaint, 2026-10-20: "all the sheets — no print, only share"; Print
+  used to make the PDF too): `printSheet(sheets[])` puts each in a
+  `.print-page` in the flow with a page break after it (`#print-root.pages`;
+  on a computer each page 100vw × 100vh, a tablet's as one sheet's), the
+  document titled `<project>-all-sheets`. PDF named `<project>-all-sheets.pdf`, one other
   sheet `<line>-sheet-k.pdf`. Stamp, notes and symbol-size rows
   (`[data-here-only]`) show only for the sheet on screen; each other sheet
   prints with its own. **Each sheet's style is its own** (his complaint,

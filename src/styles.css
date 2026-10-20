@@ -456,6 +456,13 @@ tr.selected { background: var(--accent-soft); }
      and the paper's real orientation, where the tablet reports it, wins. */
   #print-root.tablet .sheet-port, #print-root.tablet.want-upright .sheet-land { display: none; }
   #print-root.tablet.want-upright .sheet-port { display: block; }
+  /* Several sheets, a page each: in the flow, a page break after each (pinned,
+     they took one page between them). On a computer each fills its page,
+     whose vw/vh are the page's there; a tablet's are set as one sheet's. */
+  #print-root.pages { position: static; height: auto; overflow: visible; }
+  #print-root.pages .print-page { break-after: page; page-break-after: always; overflow: hidden; }
+  #print-root.pages:not(.tablet) .print-page { width: 100vw; height: 100vh; }
+  #print-root.pages .print-page:last-child { break-after: auto; page-break-after: auto; }
 }
 @media print and (orientation: portrait) {
   #print-root.tablet .sheet-land { display: none !important; }

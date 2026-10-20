@@ -1939,6 +1939,22 @@ check('with its end marked as going on to sheet 2', await page.evaluate(() => JS
   check('the sheet on screen is lettered the same alone and with the set', `${alone} | ${together.join(' | ')}`, (v) => !!alone && v.startsWith(`${alone} | ${alone}`), alone);
   await page.click('.dialog [data-close]');
   await page.waitForTimeout(200);
+
+  // "All the sheets: no print, only share" (2026-10-20): Print with all the
+  // project's sheets picked went to the share sheet. It goes to the printer
+  // dialog now, a page each.
+  await page.evaluate(() => {
+    window.__printed = 0;
+    window.print = () => { window.__printed++; };
+  });
+  await page.click('#print');
+  await page.waitForTimeout(250);
+  await page.selectOption('#sheet-pages', 'all');
+  await page.click('.dialog-backdrop [data-x="print"]');
+  await page.waitForTimeout(600);
+  check('Print with all the sheets goes to the printer dialog, a page each', `${await page.evaluate(() => window.__printed)} ${await page.locator('#print-root .print-page').count()}`, (v) => v === '1 2', '1 2');
+  check('and prints on two pages at the sheet\'s own size', pdfPages(await page.pdf({ preferCSSPageSize: true })), (v) => v === 2, '2');
+  check('and on two pages of A4', pdfPages(await page.pdf({ format: 'A4', landscape: true })), (v) => v === 2, '2');
 }
 // "I have 3 sheets, not 4" (2026-09-30): sheets 1, 2 and 4 of 4 were left
 // after sheet 3 was removed. The sheets left are numbered 1…n again, the
