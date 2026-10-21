@@ -73,6 +73,8 @@ export interface Host {
   newSheetInProject(): void;
   /** Ends the sheet at a pipe; all beyond it goes to a new sheet after this one. */
   splitSheetHere(runId: string): void;
+  /** Takes the length of pipe picked out, the items either side meeting; false when none is picked. */
+  closePickedPiece(): boolean;
   /** The print dialog for a project, all its sheets picked. */
   printProject(name: string): void;
   /** Welds numbered across the project with this code ("HYF 1/2.1"), or per sheet (null). */

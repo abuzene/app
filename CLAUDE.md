@@ -684,8 +684,14 @@ ships, and the decisions already taken, so they are not re-litigated.
   out (`closePickedPiece` in main.ts → `closePipeStretch` in edit.ts: the
   points between are joined through, then `closePipePiece`): the side the
   route starts from stays, the items past it and all beyond come back by
-  its length, and what meets is welded straight (one weld, above). The
-  panel's Delete pipe — this length only still deletes the run. A reducer
+  its length, and what meets is welded straight (one weld, above). A
+  picked length that is a **whole run**, face to face (his next "still not
+  working": the pipe between the regulator's flange and the reducer was a
+  run of its own, and closing it would leave a run of no length, so nothing
+  happened), is first joined on to the run beyond its moving end (else its
+  other end), through a plain point. The panel's Delete pipe — this length
+  only does the same when a length is picked (`host.closePickedPiece`);
+  otherwise it deletes the run. A reducer
   put along a pipe over a support moves the support to the longer pipe
   beside it (`placeReducer`; one was left inside the reducer).
   **A flange on the end, its size** (same sheet: "let me pick the flange

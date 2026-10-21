@@ -1043,6 +1043,9 @@ function wire(body: HTMLElement, host: Host): void {
       host.edit('Redraw at its own length', (d) => resetDrawnLength(d, host.state.analysis, id));
     });
     runEditor.querySelector('[data-a="delete-run"]')?.addEventListener('click', () => {
+      // A length picked between items comes out and they meet, as on the HUD;
+      // deleting the run would cut the line in two there.
+      if (host.closePickedPiece()) return;
       host.edit('Delete run', (d) => deleteRunGroup(d, host.state.analysis, id));
       host.select(null);
     });

@@ -5335,6 +5335,36 @@ const couplingsNow = async () => (await drawingNow()).nodes.filter((n) => n.fitt
   check('Delete pipe: the reducer welded straight to the regulator\'s flange, the point and its weld gone', `${rows.filter((r) => /2"\tBW\tCON RED 3" X 2" \/ WELD NECK FLANGE/.test(r)).length} ${rows.filter((r) => /\t2"\tBW\tPIPE \/ PIPE/.test(r)).length} ${d.nodes.some((n) => n.id === 'neixdg')} ${d.runs.length}`, (v) => v === '1 0 false 9', '1 0 false 9');
 }
 
+// "Still not working" (same sheet, after): the pipe between the valve's
+// flange and the reducer was a run of its own, face to face, and taking it
+// out would have left a run of no length, so nothing happened. It is joined
+// on to the reducer's run and comes out; the panel's Delete pipe does the
+// same as the HUD's (it used to delete the run and cut the line in two).
+{
+  await page.evaluate((d) => localStorage.setItem('iso-draw.drawing.v1', JSON.stringify(d)), {"version":1,"meta":{"project":"GAP TEST","sheet":"1 of 1"},"options":{"snap":10,"scale":0.06,"schematic":true,"schematicLength":1500,"showDimensions":true,"showWelds":true,"showItems":true,"showNodeLabels":true,"showGrid":true,"northRotation":2,"joint":"BW","pipeSchedule":"SCH40","fittingThickness":"STD","sheetScale":10,"northArrow":135},"nodes":[{"id":"na","pos":{"e":0,"n":0,"u":0},"terminal":{"kind":"FLG_WN"}},{"id":"nb","pos":{"e":400,"n":0,"u":0}},{"id":"nc","pos":{"e":500,"n":0,"u":0}},{"id":"nd","pos":{"e":589,"n":0,"u":0}},{"id":"ne","pos":{"e":1500,"n":0,"u":0}}],"runs":[{"id":"r1","from":"na","to":"nb","dn":"DN50","schedule":"SCH40","inline":[{"id":"cv","kind":"BALL","offset":249}]},{"id":"r2","from":"nb","to":"nc","dn":"DN50","schedule":"SCH40","inline":[]},{"id":"r3","from":"nc","to":"nd","dn":"DN50","schedule":"SCH40","inline":[{"id":"cr","kind":"RED_CONC","offset":44.5,"dn":"DN80","dn2":"DN50","flip":true}]},{"id":"r4","from":"nd","to":"ne","dn":"DN80","schedule":"SCH40","inline":[]}]});
+  await page.reload();
+  await page.waitForTimeout(700);
+  await page.click('#fit');
+  await page.waitForTimeout(300);
+  const ends = await page.evaluate(() => {
+    const l = document.querySelector('#canvas line.hit[data-run="r2"]');
+    const m = l.getScreenCTM();
+    const p = (x, y) => { const q = new DOMPoint(x, y).matrixTransform(m); return [q.x, q.y]; };
+    return [p(+l.getAttribute('x1'), +l.getAttribute('y1')), p(+l.getAttribute('x2'), +l.getAttribute('y2'))];
+  });
+  await page.mouse.click((ends[0][0] + ends[1][0]) / 2, (ends[0][1] + ends[1][1]) / 2);
+  await page.waitForTimeout(300);
+  await page.click('#tab-body [data-a="delete-run"]');
+  await page.waitForTimeout(400);
+  const d = await drawingNow();
+  await page.click('#tabs button:has-text("Welds")');
+  await page.waitForTimeout(250);
+  const rows = await page.locator('#tab-body table tbody tr').allInnerTexts();
+  await page.click('#tabs button:has-text("Route")');
+  await page.waitForTimeout(200);
+  check('a whole run of pipe between a valve\'s flange and a reducer comes out: one weld, the line whole', `${rows.filter((r) => /2"\tBW\tCON RED 3" X 2" \/ WELD NECK FLANGE/.test(r)).length} ${rows.length} ${d.runs.length} ${d.nodes.find((n) => n.id === 'ne')?.pos.e}`, (v) => v === '1 4 3 1400', '1 4 3 1400');
+}
+
 // A reducer put along a pipe over a support: the support goes to the pipe
 // beside it, not inside the reducer (it was left there on the same sheet).
 {

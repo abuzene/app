@@ -1269,7 +1269,6 @@ export function closePipePiece(drawing: Drawing, runId: string, lo: number, hi: 
  * more pipe between the regulator's flange and the reducer).
  */
 export function closePipeStretch(drawing: Drawing, parts: PipeStretchPart[]): boolean {
-  if (parts.length === 1) return closePipePiece(drawing, parts[0].runId, parts[0].lo, parts[0].hi);
   const pointAt = (runId: string, offset: number): Vec3 | null => {
     const run = drawing.runs.find((r) => r.id === runId);
     const a = drawing.nodes.find((n) => n.id === run?.from)?.pos;
@@ -1294,18 +1293,34 @@ export function closePipeStretch(drawing: Drawing, parts: PipeStretchPart[]): bo
   }
   for (const nodeId of between) if (!joinThrough(drawing, nodeId)) return false;
   const mid = scale3(add(p1, p2), 0.5);
-  const run = drawing.runs.find((r) => {
-    const a = drawing.nodes.find((n) => n.id === r.from)?.pos;
-    const b = drawing.nodes.find((n) => n.id === r.to)?.pos;
-    if (!a || !b) return false;
-    const len = length3(sub(b, a));
-    return Math.abs(length3(sub(mid, a)) + length3(sub(b, mid)) - len) < 0.5;
-  });
-  if (!run) return false;
-  const from = drawing.nodes.find((n) => n.id === run.from)!.pos;
-  const lo = Math.min(length3(sub(p1, from)), length3(sub(p2, from)));
-  const hi = Math.max(length3(sub(p1, from)), length3(sub(p2, from)));
-  return closePipePiece(drawing, run.id, lo, hi);
+  const locate = () => {
+    const run = drawing.runs.find((r) => {
+      const a = drawing.nodes.find((n) => n.id === r.from)?.pos;
+      const b = drawing.nodes.find((n) => n.id === r.to)?.pos;
+      if (!a || !b) return false;
+      return Math.abs(length3(sub(mid, a)) + length3(sub(b, mid)) - length3(sub(b, a))) < 0.5;
+    });
+    if (!run) return null;
+    const from = drawing.nodes.find((n) => n.id === run.from)!.pos;
+    const d1 = length3(sub(p1, from));
+    const d2 = length3(sub(p2, from));
+    return { run, lo: Math.min(d1, d2), hi: Math.max(d1, d2) };
+  };
+  let found = locate();
+  if (!found) return false;
+  // The pipe is the whole run, from one item's face to the other's across
+  // its two points (his DESHANIM sheet: the pipe between the regulator's
+  // flange and the reducer did not go): it is joined on to the run beyond
+  // the end that moves, so the pipe can come out and the two faces meet.
+  if (found.lo <= 0.5 && found.hi >= runLength(drawing, found.run) - 0.5) {
+    const run = found.run;
+    const keepFrom = !routeOrder(drawing).reversed.has(run.id);
+    const order = keepFrom ? [run.to, run.from] : [run.from, run.to];
+    if (!order.some((n) => isPlainPoint(drawing, n) && joinThrough(drawing, n))) return false;
+    found = locate();
+    if (!found) return false;
+  }
+  return closePipePiece(drawing, found.run.id, found.lo, found.hi);
 }
 
 /**

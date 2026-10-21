@@ -327,6 +327,9 @@ const host: Host = {
       else if (drive.clientId) host.notify('Removed here. Its Drive copy goes at the next sync — sign in to Google Drive to do it now.');
     });
   },
+  closePickedPiece() {
+    return closePickedPiece();
+  },
   splitSheetHere(runId) {
     splitSheetHere(runId);
   },
