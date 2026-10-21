@@ -236,7 +236,26 @@ ships, and the decisions already taken, so they are not re-litigated.
   piece**, each on its own side (`placeRow` on a copy first), as he does
   by hand; a row on its own may go out to 13.5 symbols.
   `tidyLayout(specs, trace?)` reports every label's cost and why, with a
-  `probe` for any spot, for tuning. Dimension rows start 3
+  `probe` for any spot, for tuning. **The items as drawn** (his DESHANIM
+  sheet, 2026-10-21: "Tidy is not doing the job well" — the dimension row
+  ran through a support's base and the valves, a balloon sat on a figure,
+  short figures ran together): `symbolOutlines` in main.ts renders the
+  drawing into a hidden SVG and traces every shape of `g.component` (not
+  `g.node`: a fitting hugs its point, and traced tees drove weld numbers
+  across the dimensions on the HILLEL check) into segments every 0.6
+  symbol (`LayoutSpecs.outlines`, kind `outline`). A symbol counts **once**
+  per label however many segments it touches (box on it 9, leader on it 2;
+  a leader may leave through its own item within 1.2 symbols). A label
+  over a **figure or lettering costs 14**; a leader across a dimension
+  line stays 5. A figure's capsule stands where the text really is
+  (baseline 0.75 symbol off the line, middle 0.45 further). Figures in a
+  row are kept 0.8 symbol apart, and a figure too wide for its piece may
+  stand **past the piece's end** (`along` < 0 or > 1, the line carried on
+  under it in `renderDimension`, a drag may take it four symbols out) but
+  never beside another piece of its line, whichever side that piece's row
+  is. A row that cannot lie clear as one is cut into **runs of
+  neighbours** that can, each on one line (one by one they stepped out
+  like a staircase). Dimension rows start 3
   symbols off the pipe so the **pipe letter** fits between, and a letter
   may sit anywhere along its pipe, close beside it with no leader
   (`besideAlong`; the renderer draws no leader within `LETTER_BESIDE`).

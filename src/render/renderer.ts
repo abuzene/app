@@ -279,7 +279,13 @@ function renderDimension(
   // Moved by hand, the line sits where it was put — the other side of the
   // pipe when dragged across — and the figure where it was slid to.
   const off = place?.offset ?? size * 2.6;
-  const along = Math.max(0.08, Math.min(0.92, place?.along ?? 0.5));
+  // A short piece's figure may stand just past its end, on the line carried
+  // on under it (Tidy puts it there when it will not fit between).
+  const out = (size * 6) / len;
+  const along = Math.max(Math.min(0.08, -out), Math.min(Math.max(0.92, 1 + out), place?.along ?? 0.5));
+  const reachText = (text.length * size * 0.72) / 2 / len;
+  const lineFrom = along < 0 ? along - reachText : 0;
+  const lineTo = along > 1 ? along + reachText : 1;
   const gap = size * 0.5;
   const ax = a.x + nx * off;
   const ay = a.y + ny * off;
@@ -311,7 +317,7 @@ function renderDimension(
       `<g class="dim">` +
       ext(a, { x: ax, y: ay }) +
       ext(b, { x: bx, y: by }) +
-      `<line class="dim-line" x1="${ax.toFixed(2)}" y1="${ay.toFixed(2)}" x2="${bx.toFixed(2)}" y2="${by.toFixed(2)}"/>` +
+      `<line class="dim-line" x1="${(ax + (bx - ax) * lineFrom).toFixed(2)}" y1="${(ay + (by - ay) * lineFrom).toFixed(2)}" x2="${(ax + (bx - ax) * lineTo).toFixed(2)}" y2="${(ay + (by - ay) * lineTo).toFixed(2)}"/>` +
       slash(ax, ay) +
       slash(bx, by) +
       // Clear of the dimension line, never sitting across it.

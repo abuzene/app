@@ -30,6 +30,13 @@ export interface LayoutSpecs {
   letters: { key: string; at: Pt; n: Pt; text: string; dflt: Pt; feet?: [Pt, Pt][] }[];
   /** Notes at a line's end ("CONT. FROM SH.1"): moved like a label, `dflt` where they sit anyway. */
   notes: { key: string; at: Pt; n: Pt; w: number; h: number; dflt: Pt }[];
+  /**
+   * The symbols as drawn, traced into short segments: a support's base,
+   * a regulator's spring, an actuator, a valve's flanges. A circle round
+   * each item's centre left all of these out, and dimension lines and
+   * labels were laid across them (his DESHANIM sheet, 2026-10-21).
+   */
+  outlines?: [Pt, Pt][];
 }
 
 export interface TidyResult {
@@ -48,7 +55,7 @@ interface Capsule {
   /** Kept off by labels and leaders only, not by other dimensions. */
   labelsOnly?: boolean;
   /** What it is, for how badly a label or leader on it reads. */
-  kind?: 'pipe' | 'point' | 'text' | 'dimline' | 'dimfull' | 'figure' | 'ext' | 'box' | 'leader';
+  kind?: 'pipe' | 'point' | 'outline' | 'text' | 'dimline' | 'dimfull' | 'figure' | 'ext' | 'box' | 'leader';
 }
 
 function segDistance(p1: Pt, q1: Pt, p2: Pt, q2: Pt): number {
@@ -110,15 +117,21 @@ function dimCapsules(a: Pt, b: Pt, n: Pt, off: number, along: number, text: stri
   const by = b.y + n.y * off;
   // The line, short of its ends, so the pieces of one run may meet.
   const trim = Math.min(s * 0.4, len * 0.2);
-  const line: Capsule = { a: { x: ax + ux * trim, y: ay + uy * trim }, b: { x: bx - ux * trim, y: by - uy * trim }, r: s * 0.15, kind: 'dimline' };
+  // A figure past an end carries the line on under it.
+  const w = Math.max(s * 1.2, text.length * s * 0.72);
+  const past = (w / 2 + s * 0.2) / len;
+  const from = along < 0 ? along - past : 0;
+  const to = along > 1 ? along + past : 1;
+  const line: Capsule = { a: { x: ax + (bx - ax) * from + ux * trim, y: ay + (by - ay) * from + uy * trim }, b: { x: ax + (bx - ax) * to - ux * trim, y: ay + (by - ay) * to - uy * trim }, r: s * 0.15, kind: 'dimline' };
   let angle = Math.atan2(by - ay, bx - ax);
   if (angle > Math.PI / 2 || angle < -Math.PI / 2) angle += Math.PI;
   const tx = ax + (bx - ax) * along;
   const ty = ay + (by - ay) * along;
-  const lift = s * 0.75;
+  // The figure stands on a baseline 0.75 symbol off the line and rises
+  // about one symbol from it: its middle is that much further out.
+  const lift = s * 0.75 + s * 0.45;
   const cx = tx + Math.sin(angle) * lift;
   const cy = ty - Math.cos(angle) * lift;
-  const w = Math.max(s * 1.2, text.length * s * 0.72);
   const h = s * 1.25;
   const half = Math.max(0, (w - h) / 2);
   const fx = Math.cos(angle);
@@ -132,7 +145,7 @@ function dimCapsules(a: Pt, b: Pt, n: Pt, off: number, along: number, text: stri
   // from a tee's weld crossed a branch's dimension right by its end.
   // Its end ticks reach half a symbol past the ends.
   const tick = s * 0.5;
-  const full: Capsule = { a: { x: ax - ux * tick, y: ay - uy * tick }, b: { x: bx + ux * tick, y: by + uy * tick }, r: s * 0.1, labelsOnly: true, kind: 'dimfull' };
+  const full: Capsule = { a: { x: ax + (bx - ax) * from - ux * tick, y: ay + (by - ay) * from - uy * tick }, b: { x: ax + (bx - ax) * to + ux * tick, y: ay + (by - ay) * to + uy * tick }, r: s * 0.1, labelsOnly: true, kind: 'dimfull' };
   return Math.abs(off) > s * 0.6 ? [line, figure, full, extFrom(a), extFrom(b)] : [line, figure, full];
 }
 
@@ -189,11 +202,13 @@ export function tidyLayout(specs: LayoutSpecs, trace?: TidyTrace): TidyResult {
     ...specs.pipes.map(([a, b]) => ({ a, b, r: s * 0.3, kind: 'pipe' as const })),
     ...specs.points.map(({ p, r }) => ({ a: p, b: p, r, kind: 'point' as const })),
     ...specs.texts.map(({ p, w, h }) => ({ ...boxCapsule(p, w, h), kind: 'text' as const })),
+    ...(specs.outlines ?? []).map(([a, b]) => ({ a, b, r: s * 0.12, kind: 'outline' as const })),
   ];
   const placed: Capsule[] = [];
   const result: TidyResult = { dims: {}, tags: {}, balloons: {}, letters: {}, notes: {} };
   const forDims = (cs: Capsule[]) => cs.filter((c) => !c.labelsOnly);
-  const clash = (cs: Capsule[]) => forDims(cs).reduce((n, c) => n + hits(c, fixed, gap) + hits(c, forDims(placed), gap), 0);
+  const clash = (cs: Capsule[]) =>
+    forDims(cs).reduce((n, c) => n + hits(c, fixed, gap) + (c.kind === 'figure' ? hits(c, forDims(placed).filter((o) => o.kind === 'figure'), s * 0.8) : 0) + hits(c, forDims(placed), gap), 0);
 
   // Dimensions first: they stand off their pipe in rows. Pieces along one
   // line (a run broken at its valves) keep to one row, as on his sheets;
@@ -236,7 +251,7 @@ export function tidyLayout(specs: LayoutSpecs, trace?: TidyTrace): TidyResult {
   // either side: the pieces' one line crosses one branch or the other)
   // is laid out piece by piece, each on the side clear for it, as on
   // his own sheets (the 749 right of the header, the 100 and 250 left).
-  const placeRow = (row: Row, offsets: number[]): number => {
+  const placeRow = (row: Row, offsets: number[], line: Dim[] = row.dims): number => {
     const { a: ra, b: rb } = row.dims[0];
     const len = Math.hypot(rb.x - ra.x, rb.y - ra.y);
     // One normal for the row; each dimension's own offset is signed to it.
@@ -256,6 +271,17 @@ export function tidyLayout(specs: LayoutSpecs, trace?: TidyTrace): TidyResult {
       const put: { key: string; n: Pt; along: number }[] = [];
       let clashes = 0;
       let skew = 0;
+      // The row's own lines at this offset: a figure set past its piece's
+      // end must not stand over the next piece's line.
+      const lineOf = (dim: Dim): Capsule => {
+        const l = Math.hypot(dim.b.x - dim.a.x, dim.b.y - dim.a.y);
+        let dn = { x: -(dim.b.y - dim.a.y) / l, y: (dim.b.x - dim.a.x) / l };
+        const dm = { x: (dim.a.x + dim.b.x) / 2, y: (dim.a.y + dim.b.y) / 2 };
+        if ((dm.x - specs.centroid.x) * dn.x + (dm.y - specs.centroid.y) * dn.y < 0) dn = { x: -dn.x, y: -dn.y };
+        const sign = dn.x * n.x + dn.y * n.y < 0 ? -1 : 1;
+        return dimCapsules(dim.a, dim.b, dn, o.off * sign, 0.5, dim.text, s)[0];
+      };
+      const rowLines = line.map((dim) => ({ key: dim.key, line: lineOf(dim) }));
       for (const dim of row.dims) {
         const l = Math.hypot(dim.b.x - dim.a.x, dim.b.y - dim.a.y);
         // renderDimension turns its normal away from the middle of the
@@ -265,14 +291,37 @@ export function tidyLayout(specs: LayoutSpecs, trace?: TidyTrace): TidyResult {
         if ((dm.x - specs.centroid.x) * dn.x + (dm.y - specs.centroid.y) * dn.y < 0) dn = { x: -dn.x, y: -dn.y };
         const sign = dn.x * n.x + dn.y * n.y < 0 ? -1 : 1;
         let pick = { along: 0.5, c: Infinity, caps: [] as Capsule[] };
-        for (const along of alongs) {
+        // A figure too wide for its piece may stand past either end.
+        const fig = (Math.max(s * 1.2, dim.text.length * s * 0.72) / 2 + s * 0.5) / l;
+        const tries = fig * 2 > 0.84 ? [...alongs, 1 + fig, -fig] : alongs;
+        for (const along of tries) {
           const cs = dimCapsules(dim.a, dim.b, dn, o.off * sign, along, dim.text, s);
-          const c = clash(cs) + forDims(cs).reduce((m, cap) => m + hits(cap, forDims(caps), gap), 0);
+          // Two figures side by side read as one number: kept well apart.
+          // Past its end, the figure must not stand beside another piece of
+          // the line, whichever side of the pipe that piece's own row is.
+          let beside = 0;
+          if (along < 0 || along > 1) {
+            const fig = cs.find((c) => c.kind === 'figure')!;
+            const t = (p: Pt) => (p.x - ra.x) * row.u.x + (p.y - ra.y) * row.u.y;
+            const lo = Math.min(t(fig.a), t(fig.b)) - fig.r;
+            const hi = Math.max(t(fig.a), t(fig.b)) + fig.r;
+            for (const other of line) {
+              if (other.key === dim.key) continue;
+              const olo = Math.min(t(other.a), t(other.b));
+              const ohi = Math.max(t(other.a), t(other.b));
+              if (lo < ohi - s * 0.1 && hi > olo + s * 0.1) beside += 1;
+            }
+          }
+          const others = rowLines.filter((r) => r.key !== dim.key).map((r) => r.line);
+          const c =
+            beside +
+            clash(cs) +
+            forDims(cs).reduce((m, cap) => m + hits(cap, forDims(caps), cap.kind === 'figure' ? s * 0.8 : gap) + (cap.kind === 'figure' ? hits(cap, others, gap) : 0), 0);
           if (c < pick.c) pick = { along, c, caps: cs };
           if (c === 0) break;
         }
         clashes += pick.c;
-        skew += Math.abs(pick.along - 0.5);
+        skew += Math.min(1.5, Math.abs(pick.along - 0.5));
         caps.push(...pick.caps);
         put.push({ key: dim.key, n: dn, along: pick.along });
       }
@@ -294,15 +343,34 @@ export function tidyLayout(specs: LayoutSpecs, trace?: TidyTrace): TidyResult {
       continue;
     }
     // Tried as one row on a copy of what is placed; clashing, the pieces
-    // go one by one instead.
+    // go in runs of neighbours that lie clear together, each run on one
+    // line (one by one they stepped out like a staircase, each at its own
+    // distance: his DESHANIM sheet, 2026-10-21).
     const mark = placed.length;
     const cost = placeRow(row, OFFSETS);
     if (cost < 1000) continue;
     placed.length = mark;
-    for (const dim of row.dims) {
-      const l = Math.hypot(dim.b.x - dim.a.x, dim.b.y - dim.a.y);
-      placeRow({ dims: [dim], u: row.u, spans: [[0, l]], longest: l }, [...OFFSETS, 11, 13.5]);
+    const o = row.dims[0].a;
+    const sorted = [...row.dims].sort((x, y) => {
+      const tx = Math.min((x.a.x - o.x) * row.u.x + (x.a.y - o.y) * row.u.y, (x.b.x - o.x) * row.u.x + (x.b.y - o.y) * row.u.y);
+      const ty = Math.min((y.a.x - o.x) * row.u.x + (y.a.y - o.y) * row.u.y, (y.b.x - o.x) * row.u.x + (y.b.y - o.y) * row.u.y);
+      return tx - ty;
+    });
+    const sub = (dims: Dim[]): Row => ({ dims, u: row.u, spans: [], longest: Math.max(...dims.map((d) => Math.hypot(d.b.x - d.a.x, d.b.y - d.a.y))) });
+    let group: Dim[] = [];
+    for (const dim of sorted) {
+      const trial = [...group, dim];
+      const at = placed.length;
+      const c = placeRow(sub(trial), [...OFFSETS, 11, 13.5], row.dims);
+      placed.length = at;
+      if (group.length === 0 || c < 1000) {
+        group = trial;
+        continue;
+      }
+      placeRow(sub(group), [...OFFSETS, 11, 13.5], row.dims);
+      group = [dim];
     }
+    if (group.length) placeRow(sub(group), [...OFFSETS, 11, 13.5], row.dims);
   }
 
   // Then the labels on leaders: the nearest free spot round what each
@@ -368,7 +436,10 @@ export function tidyLayout(specs: LayoutSpecs, trace?: TidyTrace): TidyResult {
   // lettering or a pipe worst, a dimension line next, another leader, and
   // a thin dashed extension line least (his ask, 2026-09-26: "try as far
   // as possible that the lines do not cut").
-  const UNDER_BOX: Record<string, number> = { pipe: 4, point: 4, text: 6, figure: 6, box: 6, dimline: 3, dimfull: 0, ext: 1, leader: 2 };
+  // A label over a dimension's figure or other lettering hides it: worst
+  // of all, far worse than a leader across a dimension line, which his own
+  // sheets have (his DESHANIM sheet, 2026-10-21: a balloon set on the 203).
+  const UNDER_BOX: Record<string, number> = { pipe: 4, point: 4, outline: 9, text: 14, figure: 14, box: 6, dimline: 3, dimfull: 0, ext: 1, leader: 2 };
   const ACROSS: Record<string, number> = { dimfull: 5, ext: 0.8, leader: 3 };
   // Whether two leaders cut each other past their starts: two leaving one
   // point (an olet's weld and its balloon) touch there and do not cross,
@@ -395,9 +466,17 @@ export function tidyLayout(specs: LayoutSpecs, trace?: TidyTrace): TidyResult {
     const by1 = Math.max(box.a.y, box.b.y) + box.r + gap;
     const far = (o: Capsule, x0: number, x1: number, y0: number, y1: number) =>
       Math.min(o.a.x, o.b.x) - o.r > x1 || Math.max(o.a.x, o.b.x) + o.r < x0 || Math.min(o.a.y, o.b.y) - o.r > y1 || Math.max(o.a.y, o.b.y) + o.r < y0;
+    // A symbol's outline is many short pieces: it counts once, however
+    // many of them a label or its leader touches.
+    let onOutline = false;
+    let leaderOnOutline = false;
     const under = (o: Capsule) => {
       if (far(o, bx0, bx1, by0, by1)) return;
-      if (segDistance(box.a, box.b, o.a, o.b) < box.r + o.r + gap) add(UNDER_BOX[o.kind ?? 'box'] ?? 4, `box on ${o.kind ?? 'box'}`);
+      if (o.kind === 'outline' && onOutline) return;
+      if (segDistance(box.a, box.b, o.a, o.b) < box.r + o.r + gap) {
+        if (o.kind === 'outline') onOutline = true;
+        add(UNDER_BOX[o.kind ?? 'box'] ?? 4, `box on ${o.kind ?? 'box'}`);
+      }
     };
     for (const o of fixed) under(o);
     for (const o of placed) under(o);
@@ -413,9 +492,14 @@ export function tidyLayout(specs: LayoutSpecs, trace?: TidyTrace): TidyResult {
       for (const o of fixed) {
         if (far(o, lx0, lx1, ly0, ly1)) continue;
         if (o.kind === 'point' && Math.hypot(o.a.x - whole.a.x, o.a.y - whole.a.y) < o.r + s * 1.6) continue;
+        // A weld on an item's face leaves through the item's own outline.
+        if (o.kind === 'outline' && (leaderOnOutline || segDistance(o.a, o.b, whole.a, whole.a) < s * 1.2)) continue;
         // Crossing a pipe, or running along one right beside it.
         const reach = o.kind === 'pipe' ? s * 0.3 : o.r + leader.r;
-        if (segDistance(leader.a, leader.b, o.a, o.b) < reach) add(3, `leader on ${o.kind}`);
+        if (segDistance(leader.a, leader.b, o.a, o.b) < reach) {
+          if (o.kind === 'outline') leaderOnOutline = true;
+          add(o.kind === 'outline' ? 2 : 3, `leader on ${o.kind}`);
+        }
       }
       const across = (o: Capsule) => {
         if (far(o, lx0, lx1, ly0, ly1)) return;

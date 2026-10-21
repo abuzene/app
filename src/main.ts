@@ -1,6 +1,6 @@
 import './styles.css';
 import type { Axis, CircleNote, Drawing, InlineComponent, Run, Vec3, WeldCounter } from './model/types';
-import type { Preview, Selection } from './render/renderer';
+import type { Preview, Pt, Selection } from './render/renderer';
 import type { AppState, Host, OletAsk, OletChoice, ReducerAsk, ReducerChoice } from './ui/types';
 import { reducerPreview } from './ui/reducer-preview';
 import { tidyLayout, type LayoutSpecs } from './render/tidy';
@@ -1391,7 +1391,10 @@ const canvas = new Canvas(svg, {
   onSlideDim(key, delta, frame, commit) {
     closeDimensionEditor();
     const offset = frame.off + delta.dx * frame.nx + delta.dy * frame.ny;
-    const along = Math.max(0.08, Math.min(0.92, frame.along + (delta.dx * frame.ux + delta.dy * frame.uy) / Math.max(frame.len, 1)));
+    // Inside the piece, or out past an end by up to four symbols (a short
+    // piece's figure, as Tidy may set it).
+    const out = (symbolSizeFor(state.drawing, state.analysis) * 4) / Math.max(frame.len, 1);
+    const along = Math.max(Math.min(0.08, -out), Math.min(Math.max(0.92, 1 + out), frame.along + (delta.dx * frame.ux + delta.dy * frame.uy) / Math.max(frame.len, 1)));
     const apply = (d: Drawing) => {
       d.dimOverrides = { ...d.dimOverrides, [key]: { ...d.dimOverrides?.[key], offset, along } };
     };
@@ -2333,11 +2336,53 @@ $('tidy').addEventListener('click', () => tidyDrawing());
  * undo step, and every one can still be moved by hand. Laid out for the
  * bigger of the screen's symbols and the sheet's, so the PDF reads as well.
  */
+/**
+ * The items of a rendered drawing traced into short segments, for Tidy to
+ * keep clear of: each line, path and outline of an item's symbol, sampled
+ * along its length in the drawing's own units.
+ */
+function symbolOutlines(content: string, size: number): [Pt, Pt][] {
+  const host = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  host.setAttribute('width', '10');
+  host.setAttribute('height', '10');
+  host.style.cssText = 'position:absolute;left:-10000px;top:0;visibility:hidden;pointer-events:none';
+  host.innerHTML = content;
+  host.querySelectorAll('.hits').forEach((e) => e.remove());
+  document.body.appendChild(host);
+  const out: [Pt, Pt][] = [];
+  try {
+    // The items along the line: supports, valves, regulators and their
+    // like reach well off the pipe. A fitting's symbol hugs its point,
+    // which is kept clear of already, and traced it only drove weld
+    // numbers off round tees and across the dimensions.
+    const shapes = host.querySelectorAll<SVGGeometryElement>(':scope > g.component :is(line, path, polygon, polyline, circle, rect, ellipse)');
+    for (const el of shapes) {
+      const m = el.getCTM();
+      const len = el.getTotalLength();
+      if (!m || !(len > 0)) continue;
+      const n = Math.max(1, Math.ceil(len / (size * 0.6)));
+      let prev: Pt | null = null;
+      for (let i = 0; i <= n; i += 1) {
+        const q = el.getPointAtLength((len * i) / n).matrixTransform(m);
+        const p = { x: q.x, y: q.y };
+        if (prev) out.push([prev, p]);
+        prev = p;
+      }
+    }
+  } catch {
+    // No layout to measure: Tidy goes by the items' centres alone.
+  } finally {
+    host.remove();
+  }
+  return out;
+}
+
 function tidyDrawing(): void {
   if (state.drawing.runs.length === 0) return;
   const size = Math.max(symbolSizeFor(state.drawing, state.analysis), sheetSymbolSize(state.drawing, state.analysis));
   const specs: LayoutSpecs = { size, centroid: { x: 0, y: 0 }, pipes: [], points: [], texts: [], dims: [], tags: [], balloons: [], letters: [], notes: [] };
-  renderDrawing({ drawing: state.drawing, analysis: state.analysis, view: { x: 0, y: 0, w: 1, h: 1 }, selection: null, symbol: size, collect: specs });
+  const content = renderDrawing({ drawing: state.drawing, analysis: state.analysis, view: { x: 0, y: 0, w: 1, h: 1 }, selection: null, symbol: size, collect: specs });
+  specs.outlines = symbolOutlines(content, size);
   const result = tidyLayout(specs);
   host.edit('Tidy', (d) => {
     const dims = { ...d.dimOverrides };

@@ -5365,6 +5365,83 @@ const couplingsNow = async () => (await drawingNow()).nodes.filter((n) => n.fitt
   check('a whole run of pipe between a valve\'s flange and a reducer comes out: one weld, the line whole', `${rows.filter((r) => /2"\tBW\tCON RED 3" X 2" \/ WELD NECK FLANGE/.test(r)).length} ${rows.length} ${d.runs.length} ${d.nodes.find((n) => n.id === 'ne')?.pos.e}`, (v) => v === '1 4 3 1400', '1 4 3 1400');
 }
 
+/* -------------------- Tidy keeps clear of the symbols and the figures */
+
+// "Tidy is not doing the job well" (his DESHANIM sheet, 2026-10-21): the
+// dimension row ran through the support's base and the valves (Tidy knew
+// each item only as a circle round its centre), a balloon sat on a figure,
+// and short pieces' figures ran together. Now the symbols are traced, a
+// label over a figure is the worst place there is, and the pieces along
+// the line keep to one or two rows with their figures apart.
+{
+  await page.evaluate((d) => localStorage.setItem('iso-draw.drawing.v1', JSON.stringify(d)), {"version":1,"meta":{"project":"TIDY TEST","sheet":"1 of 1"},"options":{"snap":10,"scale":0.06,"schematic":true,"schematicLength":1500,"showDimensions":true,"showWelds":true,"showItems":true,"showNodeLabels":true,"showGrid":true,"northRotation":2,"joint":"BW","pipeSchedule":"SCH40","fittingThickness":"STD","sheetScale":10,"northArrow":135},"nodes":[{"id":"n2kpsn","pos":{"e":-407,"n":0,"u":0},"terminal":{"kind":"FLG_WN"}},{"id":"n3jgmg","pos":{"e":332,"n":0,"u":0}},{"id":"n6rbyu","pos":{"e":-180,"n":0,"u":0}},{"id":"neixdg","pos":{"e":909,"n":0,"u":0}},{"id":"nhxpva","pos":{"e":493,"n":0,"u":0}},{"id":"nldg8r","pos":{"e":1112,"n":0,"u":0}},{"id":"nnw6aw","pos":{"e":1112,"n":350,"u":0}},{"id":"np8s6i","pos":{"e":1112,"n":350,"u":2240}},{"id":"n1arnfm","pos":{"e":8912,"n":350,"u":2240},"terminal":{"kind":"CONTINUATION","note":"CONT. ON SH.2","dn":"DN80","schedule":"SCH40"}},{"id":"n6zrei","pos":{"e":998,"n":0,"u":0}}],"runs":[{"id":"r49tym","from":"n2kpsn","to":"n6rbyu","dn":"DN80","schedule":"SCH40","inline":[{"id":"c5dksf","kind":"RED_CONC","offset":157,"dn":"DN150","dn2":"DN80"}],"visual":144},{"id":"r7pio6","from":"n6rbyu","to":"n3jgmg","dn":"DN80","schedule":"SCH40","inline":[{"id":"c9vy4s","kind":"BALL","offset":169.5,"bare":1},{"id":"cdzkgu","kind":"FILTER","offset":391.5,"bare":0,"lastFlange":"none"}],"visual":220},{"id":"rfiatp","from":"n3jgmg","to":"nhxpva","dn":"DN80","schedule":"SCH40","inline":[{"id":"c139xua","kind":"SUPPORT","offset":80.5}],"visual":248},{"id":"ri7d1r","from":"nhxpva","to":"neixdg","dn":"DN50","schedule":"SCH40","inline":[{"id":"cgacah","kind":"RED_CONC","offset":44.5,"dn":"DN80","dn2":"DN50"},{"id":"ckr4s3","kind":"REGULATOR","offset":252.5,"dn":"DN50"}],"visual":144},{"id":"rmcdr2","from":"neixdg","to":"n6zrei","dn":"DN50","schedule":"SCH40","inline":[{"id":"c5mwf2","kind":"RED_CONC","offset":44.5,"dn":"DN80","dn2":"DN50","flip":true}],"visual":144},{"id":"r7h1pv","from":"n6zrei","to":"nldg8r","dn":"DN80","schedule":"SCH40","inline":[{"id":"c14r5s5","kind":"SUPPORT","offset":64}],"visual":144},{"id":"roeg4x","from":"nldg8r","to":"nnw6aw","dn":"DN80","schedule":"SCH40","inline":[],"visual":350},{"id":"rqinem","from":"nnw6aw","to":"np8s6i","dn":"DN80","schedule":"SCH40","inline":[],"visual":590},{"id":"rsrrb3","from":"np8s6i","to":"n1arnfm","dn":"DN80","schedule":"SCH40","inline":[],"visual":650}],"weldOverrides":{},"dimOverrides":{"ri7d1r:2":{"hidden":true}},"measures":[{"id":"m1a0ub","a":"n2kpsn","b":"nldg8r"}],"id":"d16mk1"});
+  await page.reload();
+  await page.waitForTimeout(700);
+  await page.click('#fit');
+  await page.waitForTimeout(300);
+  await page.click('#tidy');
+  await page.waitForTimeout(1200);
+  const d = await drawingNow();
+  const off = (k) => Math.round((d.dimOverrides?.[k]?.offset ?? NaN) * 100);
+  check('Tidy: the pieces along the valves lie in one or two rows, not a staircase', new Set(['r7pio6:0', 'r7pio6:1', 'r7pio6:3', 'rfiatp:0', 'ri7d1r:0', 'ri7d1r:1'].map(off)).size, (v) => v <= 2, 'at most 2 offsets');
+  const tidyClear = await page.evaluate(() => {
+    // Each shape as its four corners on the screen: a figure is turned
+    // along its line, and its upright box would take in far too much.
+    const quad = (e) => {
+      const b = e.getBBox();
+      const m = e.getScreenCTM();
+      return [[b.x, b.y], [b.x + b.width, b.y], [b.x + b.width, b.y + b.height], [b.x, b.y + b.height]].map(([x, y]) => new DOMPoint(x, y).matrixTransform(m));
+    };
+    const figs = [...document.querySelectorAll('#canvas .dim-text')].map(quad);
+    const labels = [...document.querySelectorAll('#canvas .balloon-ring, #canvas .weld-box, #canvas .pipe-letter-box')].map(quad);
+    // Separating axes: two convex shapes meet unless one edge's normal parts them.
+    const meet = (P, Q) => {
+      for (const S of [P, Q]) {
+        for (let i = 0; i < 4; i += 1) {
+          const a = S[i];
+          const b = S[(i + 1) % 4];
+          const nx = b.y - a.y;
+          const ny = a.x - b.x;
+          const len = Math.hypot(nx, ny) || 1;
+          const pr = (R) => R.map((p) => (p.x * nx + p.y * ny) / len);
+          const p = pr(P);
+          const q = pr(Q);
+          if (Math.max(...p) < Math.min(...q) + 1 || Math.max(...q) < Math.min(...p) + 1) return false;
+        }
+      }
+      return true;
+    };
+    let onFigure = 0;
+    for (const f of figs) for (const l of labels) if (meet(f, l)) onFigure += 1;
+    let figures = 0;
+    for (let i = 0; i < figs.length; i += 1) for (let j = i + 1; j < figs.length; j += 1) if (meet(figs[i], figs[j])) figures += 1;
+    // The supports' bases against the dimension lines.
+    let base = 0;
+    const lines = [...document.querySelectorAll('#canvas .dim-line')].map((l) => {
+      const lm = l.getScreenCTM();
+      return [new DOMPoint(+l.getAttribute('x1'), +l.getAttribute('y1')).matrixTransform(lm), new DOMPoint(+l.getAttribute('x2'), +l.getAttribute('y2')).matrixTransform(lm)];
+    });
+    for (const poly of document.querySelectorAll('#canvas g.component polygon')) {
+      const pts = poly.points;
+      const m = poly.getScreenCTM();
+      const P = [...Array(pts.numberOfItems).keys()].map((i) => pts.getItem(i).matrixTransform(m));
+      for (const [a, b] of lines) {
+        for (let i = 0; i < P.length; i += 1) {
+          const p = P[i];
+          const q = P[(i + 1) % P.length];
+          const d1 = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+          const d2 = (b.x - a.x) * (q.y - a.y) - (b.y - a.y) * (q.x - a.x);
+          const d3 = (q.x - p.x) * (a.y - p.y) - (q.y - p.y) * (a.x - p.x);
+          const d4 = (q.x - p.x) * (b.y - p.y) - (q.y - p.y) * (b.x - p.x);
+          if (d1 * d2 < 0 && d3 * d4 < 0) base += 1;
+        }
+      }
+    }
+    return `${onFigure} ${figures} ${base}`;
+  });
+  check('Tidy: no label on a figure, no two figures together, no dimension line across a symbol', tidyClear, (v) => v === '0 0 0', '0 0 0');
+}
+
 // A reducer put along a pipe over a support: the support goes to the pipe
 // beside it, not inside the reducer (it was left there on the same sheet).
 {
