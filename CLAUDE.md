@@ -917,7 +917,19 @@ ships, and the decisions already taken, so they are not re-litigated.
   valve's own face to face, nor shorter than the piece's pipe allows. So
   a pipe typed up to a valve that would hit the next one moves both on
   (no longer refused), and an olet typed past the header's end carries the
-  piece beyond it along. **Right after placing an item** (valve, tee,
+  piece beyond it along. **A free piece with no pipe to give no longer
+  blocks the line** (his DESHANIM sheet, 2026-10-21: "I cannot change the
+  161 or the 120 — always let me, and change the total if need be"):
+  `applyAgainstFree` is tried on a copy and, refused, the figure is typed
+  through `applyKeepingOthers`; that never takes a move that leaves
+  fittings overrunning their pipe more than before (`RunLengths.short`).
+  A tap near a figure's centre is the figure's even under an item's or a
+  pipe's touch target (`buriedFigure` in canvas.ts now weighs those too;
+  the 161 and 120 sat under supports). **Mouse wheel zoom** (same day:
+  "it goes on moving by itself after the wheel"): the steps of a frame are
+  taken as one, only the view box moves while the wheel turns, and the
+  sheet is drawn afresh 140 ms after it stops (`onWheel` in canvas.ts).
+  **Right after placing an item** (valve, tee,
   weld, coupling: `host.editDimension` → `openDimensionEditor(…, placing)`)
   the usual move alone: the item goes where typed, the other side gives.
 - **Hand dimensions along one straight line are typeable**

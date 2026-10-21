@@ -264,7 +264,7 @@ export class Canvas {
     this.render();
   }
 
-  zoomBy(factor: number, cx?: number, cy?: number): void {
+  zoomBy(factor: number, cx?: number, cy?: number, light = false): void {
     const rect = this.svg.getBoundingClientRect();
     const px = cx ?? rect.left + rect.width / 2;
     const py = cy ?? rect.top + rect.height / 2;
@@ -276,7 +276,10 @@ export class Canvas {
     const after = this.toPaper(px, py);
     this.view.x += before.x - after.x;
     this.view.y += before.y - after.y;
-    this.render();
+    // While the wheel turns only the view box moves; the sheet is drawn
+    // afresh once it stops.
+    if (light) this.svg.setAttribute('viewBox', `${this.view.x.toFixed(3)} ${this.view.y.toFixed(3)} ${this.view.w.toFixed(3)} ${this.view.h.toFixed(3)}`);
+    else this.render();
   }
 
   /** What a drag on a circle note does: moves it from where it was, or sizes it round its middle. */
@@ -328,8 +331,11 @@ export class Canvas {
     const circleSizeEl = target?.closest('[data-circle-size]');
     // Only a tag, balloon, mark or box lying over a figure gives way to it;
     // the pipe and its points keep their taps.
-    const overFigure = !!(tagEl || balloonEl || equipmentEl || weldEl) && !nodeEl;
-    const dimEl = target?.closest('[data-dim]') ?? (overFigure ? this.buriedFigure(event.clientX, event.clientY, tagEl ?? balloonEl ?? equipmentEl ?? weldEl ?? null) : null);
+    // An item's touch target (a support's, a reducer's) or a pipe's lying
+    // over a figure gives way the same way (his DESHANIM sheet, 2026-10-21:
+    // "I cannot change the 161 or the 120" — each sat under a support).
+    const overFigure = !!(tagEl || balloonEl || equipmentEl || weldEl || compEl || runEl) && !nodeEl;
+    const dimEl = target?.closest('[data-dim]') ?? (overFigure ? this.buriedFigure(event.clientX, event.clientY, tagEl ?? balloonEl ?? equipmentEl ?? weldEl ?? compEl ?? runEl ?? null) : null);
     let handleEl = target?.closest('[data-run-end]');
     // Points lie on top of one another near a line's end: the stretch
     // handle of a picked pipe covered an olet beside it, and dragging "the
@@ -814,7 +820,20 @@ export class Canvas {
     // only takes the tap when the tap is nearer the figure's centre, so a
     // note or tag beside a figure (zoomed out, they sit close) keeps its own.
     const own = over?.getBoundingClientRect();
-    const ownDistance = own ? Math.hypot(own.left + own.width / 2 - clientX, own.top + own.height / 2 - clientY) : Infinity;
+    let ownDistance = own ? Math.hypot(own.left + own.width / 2 - clientX, own.top + own.height / 2 - clientY) : Infinity;
+    // A pipe is a line: how far the tap is from the line itself.
+    if (over instanceof SVGLineElement) {
+      const m = over.getScreenCTM();
+      if (m) {
+        const at = (x: number, y: number) => ({ x: m.a * x + m.c * y + m.e, y: m.b * x + m.d * y + m.f });
+        const p1 = at(over.x1.baseVal.value, over.y1.baseVal.value);
+        const p2 = at(over.x2.baseVal.value, over.y2.baseVal.value);
+        const vx = p2.x - p1.x;
+        const vy = p2.y - p1.y;
+        const t = Math.max(0, Math.min(1, ((clientX - p1.x) * vx + (clientY - p1.y) * vy) / Math.max(vx * vx + vy * vy, 1e-9)));
+        ownDistance = Math.hypot(p1.x + vx * t - clientX, p1.y + vy * t - clientY);
+      }
+    }
     for (const el of document.elementsFromPoint(clientX, clientY)) {
       const figure = el.closest('[data-dim]');
       if (!figure) continue;
@@ -1013,9 +1032,32 @@ export class Canvas {
     this.cb.onHover('drawing again from here');
   };
 
+  /**
+   * The wheel zooms. A mouse sends a burst of small steps for each notch,
+   * and drawing the whole sheet afresh for every one queued them up, so the
+   * sheet went on zooming by itself after the wheel had stopped (his
+   * complaint, 2026-10-21). The steps of one frame are taken as one, only
+   * the view box moves while the wheel turns, and the sheet is drawn afresh
+   * once it has stopped.
+   */
+  private wheelDelta = 0;
+  private wheelPoint = { x: 0, y: 0 };
+  private wheelFrame = 0;
+  private wheelSettle: ReturnType<typeof setTimeout> | undefined;
   private onWheel = (event: WheelEvent): void => {
     event.preventDefault();
-    const factor = Math.exp(-event.deltaY * 0.0016);
-    this.zoomBy(factor, event.clientX, event.clientY);
+    const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 400 : 1;
+    this.wheelDelta += event.deltaY * unit;
+    this.wheelPoint = { x: event.clientX, y: event.clientY };
+    if (this.wheelFrame) return;
+    this.wheelFrame = requestAnimationFrame(() => {
+      this.wheelFrame = 0;
+      // One frame never zooms by more than a notch's worth or so.
+      const delta = Math.max(-400, Math.min(400, this.wheelDelta));
+      this.wheelDelta = 0;
+      this.zoomBy(Math.exp(-delta * 0.0016), this.wheelPoint.x, this.wheelPoint.y, true);
+      clearTimeout(this.wheelSettle);
+      this.wheelSettle = setTimeout(() => this.render(), 140);
+    });
   };
 }

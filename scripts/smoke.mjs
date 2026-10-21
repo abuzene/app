@@ -3709,7 +3709,8 @@ check('deleted from its panel', await page.locator('#canvas .equip-box').count()
     const c = await page.locator('#canvas').boundingBox();
     await page.mouse.move(e.x + e.width / 2, e.y + e.height / 2);
     await page.mouse.wheel(0, 240);
-    await page.waitForTimeout(120);
+    // The sheet is drawn afresh once the wheel has stopped (140 ms).
+    await page.waitForTimeout(250);
     if (c.width < 0) break;
   }
   const headerRun = (await drawingNow()).runs.find((r) => r.from === olet || r.to === olet).id;
@@ -4746,6 +4747,7 @@ const couplingsNow = async () => (await drawingNow()).nodes.filter((n) => n.fitt
       await page.mouse.wheel(0, -300);
       await page.waitForTimeout(80);
     }
+    await page.waitForTimeout(250);
     const b1 = await page.locator(`#canvas circle.hit-dot[data-node="${firstCpl.id}"]`).boundingBox();
     const x = b1.x + b1.width / 2;
     const y = b1.y + b1.height / 2;
@@ -5212,6 +5214,47 @@ const couplingsNow = async () => (await drawingNow()).nodes.filter((n) => n.fitt
   await page.click('#tabs button:has-text("Route")');
   await page.waitForTimeout(200);
   check('welded to a reducer, the reducer\'s end takes the flange\'s new size', rows.filter((r) => /6"\tBW\tCON RED 6" X 4" \/ WELD NECK FLANGE/.test(r)).length, (v) => v === 1, '1 weld 6" CON RED 6" X 4" / WELD NECK FLANGE');
+}
+
+/* --------------- a figure under a support's touch target; a free piece with no pipe */
+
+// "I cannot change the 161 or the 120" (his DESHANIM sheet, 2026-10-21):
+// each figure lay under a support's touch target, and a dimension deleted
+// after the regulator (a free piece with no pipe in it to give) refused
+// every other figure on the line. A tap on a figure is the figure's, and
+// with no pipe to give the figure is typed the usual way, the total going
+// with it — never by shrinking a run its fittings already overrun.
+{
+  const desh = {"version":1,"meta":{"project":"DESH TEST","sheet":"1 of 1"},"options":{"snap":10,"scale":0.06,"schematic":true,"schematicLength":1500,"showDimensions":true,"showWelds":true,"showItems":true,"showNodeLabels":true,"showGrid":true,"northRotation":2,"joint":"BW","pipeSchedule":"SCH40","fittingThickness":"STD","sheetScale":10,"northArrow":135},"nodes":[{"id":"n2kpsn","pos":{"e":-407,"n":0,"u":0},"terminal":{"kind":"FLG_WN"}},{"id":"n3jgmg","pos":{"e":332,"n":0,"u":0}},{"id":"n6rbyu","pos":{"e":-180,"n":0,"u":0}},{"id":"neixdg","pos":{"e":953,"n":0,"u":0}},{"id":"nhxpva","pos":{"e":493,"n":0,"u":0}},{"id":"nldg8r","pos":{"e":1073,"n":0,"u":0}},{"id":"nnw6aw","pos":{"e":1073,"n":350,"u":0}},{"id":"np8s6i","pos":{"e":1073,"n":350,"u":2240}},{"id":"n1arnfm","pos":{"e":8873,"n":350,"u":2240},"terminal":{"kind":"CONTINUATION","note":"CONT. ON SH.2","dn":"DN80","schedule":"SCH40"}}],"runs":[{"id":"r49tym","from":"n2kpsn","to":"n6rbyu","dn":"DN80","schedule":"SCH40","inline":[{"id":"c5dksf","kind":"RED_CONC","offset":157,"dn":"DN150","dn2":"DN80"}],"visual":144},{"id":"r7pio6","from":"n6rbyu","to":"n3jgmg","dn":"DN80","schedule":"SCH40","inline":[{"id":"c9vy4s","kind":"BALL","offset":169.5,"bare":1},{"id":"cdzkgu","kind":"FILTER","offset":391.5,"bare":0,"lastFlange":"none"}],"visual":220},{"id":"rfiatp","from":"n3jgmg","to":"nhxpva","dn":"DN80","schedule":"SCH40","inline":[{"id":"c139xua","kind":"SUPPORT","offset":80.5}],"visual":248},{"id":"ri7d1r","from":"nhxpva","to":"neixdg","dn":"DN80","schedule":"SCH40","inline":[{"id":"cgacah","kind":"RED_CONC","offset":44.5,"dn":"DN80","dn2":"DN50"},{"id":"ckr4s3","kind":"REGULATOR","offset":271.5}],"visual":144},{"id":"rmcdr2","from":"neixdg","to":"nldg8r","dn":"DN80","schedule":"SCH40","inline":[{"id":"c14r5s5","kind":"SUPPORT","offset":70}],"visual":280},{"id":"roeg4x","from":"nldg8r","to":"nnw6aw","dn":"DN80","schedule":"SCH40","inline":[],"visual":350},{"id":"rqinem","from":"nnw6aw","to":"np8s6i","dn":"DN80","schedule":"SCH40","inline":[],"visual":590},{"id":"rsrrb3","from":"np8s6i","to":"n1arnfm","dn":"DN80","schedule":"SCH40","inline":[],"visual":650}],"dimOverrides":{"ri7d1r:2":{"hidden":true}},"measures":[{"id":"m1a0ub","a":"n2kpsn","b":"nldg8r"}]};
+  const loadDesh = async () => {
+    await page.evaluate((d) => localStorage.setItem('iso-draw.drawing.v1', JSON.stringify(d)), desh);
+    await page.reload();
+    await page.waitForTimeout(700);
+    await page.click('#fit');
+    await page.waitForTimeout(300);
+  };
+  const figures = () => page.evaluate(() => [...document.querySelectorAll('#canvas text.dim-text')].map((e) => e.textContent).join(' '));
+  const typeOn = async (key, digits) => {
+    const box = await page.locator(`#canvas [data-dim="${key}"]`).first().boundingBox();
+    const at = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    const under = await page.evaluate(({ x, y }) => document.elementsFromPoint(x, y).map((e) => e.getAttribute('data-component') ?? '').filter(Boolean).join(), at);
+    await penTap(at.x, at.y);
+    const opened = await page.locator('.dim-editor').count();
+    if (opened) {
+      for (const k of digits) await page.locator(`.dim-keypad [data-key="${k}"]`).dispatchEvent('pointerdown', { bubbles: true });
+      await page.locator('.dim-keypad [data-key="OK"]').dispatchEvent('pointerdown', { bubbles: true });
+      await page.waitForTimeout(500);
+    }
+    return `${opened} ${under ? 'under ' + under : 'clear'}`;
+  };
+  await loadDesh();
+  check('his sheet reads 161 and 120 to begin with', await figures(), (v) => / 161 /.test(v) && / 120 /.test(v), '161, 120');
+  const tapped161 = await typeOn('rfiatp:0', '200');
+  check('the 161 opens (under the support or not) and takes 200, the 1480 total going with it', `${tapped161.split(' ')[0]} ${await figures()}`, (v) => v.startsWith('1 ') && / 200 /.test(v) && / 1519$/.test(v), '1 … 200 … 1519');
+  await loadDesh();
+  await typeOn('rmcdr2:0', '150');
+  const d = await drawingNow();
+  check('the 120 takes 150: what lies beyond goes on, the regulator\'s run is not shrunk', `${await figures()} | ${d.nodes.find((n) => n.id === 'neixdg').pos.e}`, (v) => / 150 /.test(v) && v.endsWith('| 953'), '150, the regulator run left at 953');
 }
 
 /* ------------- flange, reducer, flange with no pipe; weld numbers run on */

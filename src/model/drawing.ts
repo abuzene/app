@@ -116,6 +116,8 @@ export interface RunLengths {
   centre: number;
   /** Pipe actually cut, after deducting fitting and component take-outs. */
   cut: number;
+  /** How far its fittings overrun it: more than the run can hold. */
+  short?: number;
 }
 
 /**
@@ -1168,7 +1170,7 @@ export function analyse(drawing: Drawing): Analysis {
       const hi = comp.offset + half - (comp.bare === 1 ? flangeLen : 0);
       cut -= open ? Math.min(hi, centre) - Math.max(lo, 0) : hi - lo;
     }
-    runLengths.set(run.id, { run, centre, cut: Math.max(0, cut) });
+    runLengths.set(run.id, { run, centre, cut: Math.max(0, cut), short: run.direct ? 0 : Math.max(0, -cut) });
     // Nothing left to cut between two fittings: they meet, and there is one
     // weld between them — whether the run was marked so or is simply that
     // short. Two welds on one spot, one to be struck off by hand, is no use.

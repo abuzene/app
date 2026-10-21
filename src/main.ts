@@ -532,7 +532,14 @@ function openDimensionEditor(key: string, clientX: number, clientY: number, plac
       host.edit('Set dimension', (d) => {
         // A piece whose dimension was deleted is free: it takes up the
         // difference, and what lies past it stays (his ask, 2026-09-28).
-        const againstFree = measured ? undefined : applyAgainstFree(d, state.analysis, key, Math.round(value));
+        // A free piece on the line gives, when it has the pipe; when it has
+        // not, the figure is typed the usual way and the line's total
+        // changes (his DESHANIM sheet, 2026-10-21: "always let me change a
+        // piece's dimension, and the total with it if need be" — a free
+        // piece with no pipe in it refused the 161 and the 120).
+        let againstFree = measured ? undefined : applyAgainstFree(JSON.parse(JSON.stringify(d)), state.analysis, key, Math.round(value));
+        if (againstFree === null) againstFree = applyAgainstFree(d, state.analysis, key, Math.round(value));
+        else if (typeof againstFree === 'string') againstFree = undefined;
         if (againstFree !== undefined) refused = againstFree;
         else if (measured) {
           // Along a straight line the side that keeps the other dimensions

@@ -3448,6 +3448,11 @@ export function applyKeepingOthers(drawing: Drawing, analysis: Analysis, key: st
       }
     }
   }
+  // A move that leaves fittings overrunning their pipe more than before is
+  // never taken: typing the 120 after his regulator shrank the run holding
+  // it, which already had no pipe (his DESHANIM sheet, 2026-10-21).
+  const overrun = (a: Analysis) => [...a.runLengths.values()].reduce((sum, r) => sum + (r.short ?? 0), 0);
+  const overrunBefore = overrun(analysis);
   let best: { d: Drawing; changed: number } | null = null;
   let firstWhy: string | null = null;
   for (const attempt of tries) {
@@ -3456,7 +3461,12 @@ export function applyKeepingOthers(drawing: Drawing, analysis: Analysis, key: st
       firstWhy ??= why;
       continue;
     }
-    const after = shownDimensions(d, analyse(d));
+    const looked = analyse(d);
+    if (overrun(looked) > overrunBefore + 0.5) {
+      firstWhy ??= 'That would leave a run shorter than its fittings.';
+      continue;
+    }
+    const after = shownDimensions(d, looked);
     const reads = after.get(key);
     if (reads !== undefined && Math.abs(reads - value) > 0.6) continue;
     // A tie goes to the usual move (an olet typed moves alone, the
