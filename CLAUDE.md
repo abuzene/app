@@ -688,6 +688,16 @@ ships, and the decisions already taken, so they are not re-litigated.
   alone it is its pipe's size (`setLineSize` on its line); welded to a
   reducer it sets that end of the reducer, the reducer's far face staying
   and the end piece coming in or out with the reducer's new length.
+  **A valve beside a reducer in the same run takes that end's size**
+  (same sheet: "a W7 I do not understand" — his regulator, drawn into the
+  3" x 2" reducer's run before reducers had runs of their own, was 3"):
+  `sizeItemsBesideReducers` (in `uncoverPoints`) gives it the reducer's end
+  size, against the reducer's face, the line beyond brought to its far
+  face when that was on the run's end; `reducerOnValveFace` sizes the
+  valve to the new reducer's end the same way. A run with only marks and
+  no pipe left counts as touching, and an item straight on a fitting at a
+  run's end (`itemOnFitting`) or across a point from a touching run makes
+  the one weld, named for both (`CON RED 3" X 2" / 90 ELBOW LR`).
   The **3D view** sizes an end flange (and a flanged joint's) by `endDn`,
   the reducer's end it is welded to, not the run's size (same day: "the
   flange is 3 and joins a 6 reducer — it must take the size itself").

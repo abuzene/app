@@ -591,6 +591,21 @@ export function reducerOnValveFace(drawing: Drawing, valveId: string, kind: 'RED
   const run = drawing.runs.find((r) => r.inline.some((c) => c.id === valveId));
   const valve = run?.inline.find((c) => c.id === valveId);
   if (!run || !valve || !isValve(valve.kind)) return null;
+  // The valve is the size of the reducer's end against it; resized, the
+  // face on its other side stays where it was (against what is there).
+  const meetsSize = largeOutward ? small : large;
+  if ((valve.dn ?? run.dn) !== meetsSize && sizeOf(large).od !== sizeOf(small).od) {
+    const before = itemHalf(drawing, run, valve);
+    valve.dn = meetsSize;
+    const after = itemHalf(drawing, run, valve);
+    // Toward the run's end goes the reducer (else its start): the other face stays.
+    const len0 = runLength(drawing, run);
+    const endFree = !(valve.offset + before > len0 - 0.5 && (() => {
+      const node = drawing.nodes.find((n) => n.id === run.to);
+      return !!node?.terminal || drawing.runs.filter((r) => r.from === run.to || r.to === run.to).length !== 2;
+    })());
+    valve.offset = endFree ? valve.offset - before + after : valve.offset + before - after;
+  }
   const half = itemHalf(drawing, run, valve);
   const redHalf = componentTakeout(kind, sizeOf(large).od >= sizeOf(small).od ? large : small);
   for (const side of [1, 0] as const) {
@@ -1867,8 +1882,55 @@ function reseatLastFlange(drawing: Drawing): boolean {
   return changed;
 }
 
+/**
+ * A valve in the same run as a reducer, past one of its ends, is that end's
+ * size: drawn in before a reducer was always a run of its own, it kept the
+ * run's size — a 3" regulator after a 3" x 2" reducer on his DESHANIM sheet
+ * (2026-10-21), whose length was all wrong, so a reducer put on its far
+ * flange left pipe and welds where none were ("a W7 I do not understand").
+ * One touching the reducer's face stays against it at its new length.
+ */
+export function sizeItemsBesideReducers(drawing: Drawing): boolean {
+  let changed = false;
+  for (const run of drawing.runs) {
+    for (const red of run.inline.filter((c) => isReducer(c.kind))) {
+      const sides = reducerSides(red, run.dn);
+      const redHalf = componentTakeout(red.kind, red.dn ?? run.dn, false, red.ff);
+      for (const c of run.inline) {
+        if (c === red || c.dn || !isValve(c.kind)) continue;
+        const after = c.offset > red.offset;
+        const size = after ? sides.end : sides.start;
+        if (size === run.dn) continue;
+        // Another reducer between them has the say.
+        if (run.inline.some((o) => o !== red && isReducer(o.kind) && (after ? o.offset > red.offset && o.offset < c.offset : o.offset < red.offset && o.offset > c.offset))) continue;
+        const oldHalf = itemHalf(drawing, run, c);
+        const len = runLength(drawing, run);
+        const face = after ? red.offset + redHalf : red.offset - redHalf;
+        // Against the reducer's face, or over it (the wrong length made
+        // them overlap): it goes against it.
+        const near = after ? c.offset - oldHalf : c.offset + oldHalf;
+        const touching = after ? near <= face + 0.5 : near >= face - 0.5;
+        // Its far face on the run's end, where the line was drawn on from.
+        const atEnd = after ? c.offset + oldHalf >= len - 0.5 : c.offset - oldHalf <= 0.5;
+        c.dn = size;
+        const newHalf = itemHalf(drawing, run, c);
+        if (touching) c.offset = after ? face + newHalf : face - newHalf;
+        // The line beyond comes to its far face, so no pipe opens up there.
+        if (touching && atEnd) {
+          if (after) stretchRun(drawing, run.id, c.offset + newHalf, 'to', true);
+          else stretchRun(drawing, run.id, len - (c.offset - newHalf), 'from', true);
+        }
+        changed = true;
+      }
+    }
+  }
+  if (changed) for (const run of drawing.runs) run.inline.sort((x, y) => x.offset - y.offset);
+  return changed;
+}
+
 export function uncoverPoints(drawing: Drawing): boolean {
   let changed = sortReducerSizes(drawing) || reseatLastFlange(drawing);
+  changed = sizeItemsBesideReducers(drawing) || changed;
   const joint = drawing.options.joint ?? 'BW';
   for (const node of [...drawing.nodes]) {
     if (node.joint || node.terminal || !isPlainPoint(drawing, node.id)) continue;

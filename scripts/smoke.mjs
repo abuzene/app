@@ -5249,12 +5249,50 @@ const couplingsNow = async () => (await drawingNow()).nodes.filter((n) => n.fitt
   };
   await loadDesh();
   check('his sheet reads 161 and 120 to begin with', await figures(), (v) => / 161 /.test(v) && / 120 /.test(v), '161, 120');
+  // The total by hand, flange to the elbow, as it reads before.
+  const total = async () => Number((await figures()).split(' ').pop());
+  const totalBefore = await total();
+  const regEnd = (await drawingNow()).nodes.find((n) => n.id === 'neixdg').pos.e;
   const tapped161 = await typeOn('rfiatp:0', '200');
-  check('the 161 opens (under the support or not) and takes 200, the 1480 total going with it', `${tapped161.split(' ')[0]} ${await figures()}`, (v) => v.startsWith('1 ') && / 200 /.test(v) && / 1519$/.test(v), '1 … 200 … 1519');
+  check('the 161 opens (under the support or not) and takes 200, the total going with it', `${tapped161.split(' ')[0]} ${/ 200 /.test(await figures())} ${(await total()) - totalBefore}`, (v) => v === '1 true 39', '1 true 39');
   await loadDesh();
   await typeOn('rmcdr2:0', '150');
   const d = await drawingNow();
-  check('the 120 takes 150: what lies beyond goes on, the regulator\'s run is not shrunk', `${await figures()} | ${d.nodes.find((n) => n.id === 'neixdg').pos.e}`, (v) => / 150 /.test(v) && v.endsWith('| 953'), '150, the regulator run left at 953');
+  check('the 120 takes 150: what lies beyond goes on, the regulator\'s run is not shrunk', `${/ 150 /.test(await figures())} ${(await total()) - totalBefore} ${d.nodes.find((n) => n.id === 'neixdg').pos.e === regEnd}`, (v) => v === 'true 30 true', 'true 30 true');
+}
+
+/* ------------- a reducer on his old regulator: no stray pipe, no stray weld */
+
+// "I cannot put a reducer straight on the flange, and it adds a W7 I do not
+// understand" (his DESHANIM sheet, 2026-10-21): the regulator, drawn in the
+// same run as the 3" x 2" reducer before reducers had runs of their own,
+// was sized 3"; resized to 2" by the new reducer it shrank and left pipe
+// and welds either side. Now it is 2" from the start, against the reducer,
+// and the new reducer goes straight on its far flange.
+{
+  await page.evaluate((d) => localStorage.setItem('iso-draw.drawing.v1', JSON.stringify(d)), {"version":1,"meta":{"project":"DESH TEST 2","sheet":"1 of 1"},"options":{"snap":10,"scale":0.06,"schematic":true,"schematicLength":1500,"showDimensions":true,"showWelds":true,"showItems":true,"showNodeLabels":true,"showGrid":true,"northRotation":2,"joint":"BW","pipeSchedule":"SCH40","fittingThickness":"STD","sheetScale":10,"northArrow":135},"nodes":[{"id":"n2kpsn","pos":{"e":-407,"n":0,"u":0},"terminal":{"kind":"FLG_WN"}},{"id":"n3jgmg","pos":{"e":332,"n":0,"u":0}},{"id":"n6rbyu","pos":{"e":-180,"n":0,"u":0}},{"id":"neixdg","pos":{"e":953,"n":0,"u":0}},{"id":"nhxpva","pos":{"e":493,"n":0,"u":0}},{"id":"nldg8r","pos":{"e":1073,"n":0,"u":0}},{"id":"nnw6aw","pos":{"e":1073,"n":350,"u":0}},{"id":"np8s6i","pos":{"e":1073,"n":350,"u":2240}},{"id":"n1arnfm","pos":{"e":8873,"n":350,"u":2240},"terminal":{"kind":"CONTINUATION","note":"CONT. ON SH.2","dn":"DN80","schedule":"SCH40"}}],"runs":[{"id":"r49tym","from":"n2kpsn","to":"n6rbyu","dn":"DN80","schedule":"SCH40","inline":[{"id":"c5dksf","kind":"RED_CONC","offset":157,"dn":"DN150","dn2":"DN80"}],"visual":144},{"id":"r7pio6","from":"n6rbyu","to":"n3jgmg","dn":"DN80","schedule":"SCH40","inline":[{"id":"c9vy4s","kind":"BALL","offset":169.5,"bare":1},{"id":"cdzkgu","kind":"FILTER","offset":391.5,"bare":0,"lastFlange":"none"}],"visual":220},{"id":"rfiatp","from":"n3jgmg","to":"nhxpva","dn":"DN80","schedule":"SCH40","inline":[{"id":"c139xua","kind":"SUPPORT","offset":80.5}],"visual":248},{"id":"ri7d1r","from":"nhxpva","to":"neixdg","dn":"DN80","schedule":"SCH40","inline":[{"id":"cgacah","kind":"RED_CONC","offset":44.5,"dn":"DN80","dn2":"DN50"},{"id":"ckr4s3","kind":"REGULATOR","offset":271.5}],"visual":144},{"id":"rmcdr2","from":"neixdg","to":"nldg8r","dn":"DN80","schedule":"SCH40","inline":[{"id":"c14r5s5","kind":"SUPPORT","offset":70}],"visual":280},{"id":"roeg4x","from":"nldg8r","to":"nnw6aw","dn":"DN80","schedule":"SCH40","inline":[],"visual":350},{"id":"rqinem","from":"nnw6aw","to":"np8s6i","dn":"DN80","schedule":"SCH40","inline":[],"visual":590},{"id":"rsrrb3","from":"np8s6i","to":"n1arnfm","dn":"DN80","schedule":"SCH40","inline":[],"visual":650}],"dimOverrides":{"ri7d1r:2":{"hidden":true}},"measures":[{"id":"m1a0ub","a":"n2kpsn","b":"nldg8r"}]});
+  await page.reload();
+  await page.waitForTimeout(700);
+  await page.click('#fit');
+  await page.waitForTimeout(300);
+  const reg = (await drawingNow()).runs.flatMap((r) => r.inline).find((c) => c.kind === 'REGULATOR');
+  check('the old regulator after the 3" x 2" reducer is 2"', reg.dn, (v) => v === 'DN50', 'DN50');
+  await page.locator(`#canvas .component[data-component="${reg.id}"]`).first().click({ force: true });
+  await page.waitForTimeout(300);
+  await page.locator('.tool[data-kind="RED_CONC"]').click();
+  await page.waitForTimeout(300);
+  await page.selectOption('.dialog [data-f="red-large"]', 'DN80');
+  await page.selectOption('.dialog [data-f="red-small"]', 'DN50');
+  await page.click('.dialog [data-confirm]');
+  await page.waitForTimeout(400);
+  await page.keyboard.press('Escape');
+  await page.click('#tabs button:has-text("Welds")');
+  await page.waitForTimeout(250);
+  const rows = await page.locator('#tab-body table tbody tr').allInnerTexts();
+  await page.click('#tabs button:has-text("Route")');
+  await page.waitForTimeout(200);
+  check('reducer, regulator, reducer: welded straight, no 2" pipe and no extra weld', `${rows.filter((r) => /2"\tBW\tCON RED 3" X 2" \/ WELD NECK FLANGE/.test(r)).length} ${rows.filter((r) => /\t2"\tBW\tPIPE \//.test(r)).length}`, (v) => v === '2 0', '2 0');
+  check('and the reducer straight on the elbow beyond is one weld', rows.filter((r) => /CON RED 3" X 2" \/ 90 ELBOW LR/.test(r)).length, (v) => v === 1, '1');
 }
 
 /* ------------- flange, reducer, flange with no pipe; weld numbers run on */

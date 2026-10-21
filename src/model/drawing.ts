@@ -1175,7 +1175,8 @@ export function analyse(drawing: Drawing): Analysis {
     // weld between them — whether the run was marked so or is simply that
     // short. Two welds on one spot, one to be struck off by hand, is no use.
     const ends = endTakeout(fromInfo, run, endDn(drawing, run, true)) + endTakeout(toInfo, run, endDn(drawing, run, false)) + terminalTakeout(a, endDn(drawing, run, true)) + terminalTakeout(b, endDn(drawing, run, false));
-    if (run.direct || (run.inline.length === 0 && cut <= 0.5 && ends > 0.5)) touching.add(run.id);
+    // A support or other mark on it is no pipe to cut either.
+    if (run.direct || (run.inline.every((c) => isMark(c.kind)) && cut <= 0.5 && ends > 0.5)) touching.add(run.id);
     if (cut < 0) {
       warnings.push(`Run ${sizeLabel(run.dn)} of ${Math.round(centre)} mm is shorter than its fittings require.`);
     }
@@ -1219,6 +1220,34 @@ export function analyse(drawing: Drawing): Analysis {
       anchor: on?.anchor,
       reach: on?.reach,
     });
+  };
+
+  /**
+   * The item whose face sits right on a fitting's leg at a run's end — a
+   * reducer straight on an elbow, no pipe between — and the size there. Its
+   * weld is the fitting's leg weld, named for both.
+   */
+  const itemOnFitting = (run: Run, atStart: boolean, takeout: number): { comp: InlineComponent; dn: string; label: string } | null => {
+    if (takeout <= 0.5) return null;
+    const a = nodeById.get(run.from);
+    const b = nodeById.get(run.to);
+    if (!a || !b) return null;
+    const total = length3(sub(b.pos, a.pos));
+    for (const c of run.inline) {
+      if (isMark(c.kind)) continue;
+      const cDn = c.dn ?? run.dn;
+      const flanged = resolveEnds(c.kind, cDn, c.ends, defaultJoint) === 'FLG' && !isFlange(c.kind) && !isReducer(c.kind);
+      if (flanged && c.bare === (atStart ? 0 : 1)) continue;
+      const half = componentTakeout(c.kind, cDn, flanged && valveFlangeKind(defaultJoint), c.ff);
+      if (half <= 0) continue;
+      const face = atStart ? c.offset - half : total - c.offset - half;
+      if (Math.abs(face - takeout) >= 0.5) continue;
+      const sides = reducerSides(c, run.dn);
+      const dn = isReducer(c.kind) ? (atStart ? sides.start : sides.end) : cDn;
+      const label = flanged ? COMPONENT_LABEL[valveFlangeKind(defaultJoint)] ?? 'FLANGE' : inlineLabel(c, run.dn);
+      return { comp: c, dn, label };
+    }
+    return null;
   };
 
   /** Whether an item along a run touching this point has a face right on it. */
@@ -1405,12 +1434,14 @@ export function analyse(drawing: Drawing): Analysis {
           );
         }
       } else {
+        // An item straight on the fitting: one weld, named for both.
+        const onFitting = itemOnFitting(run, atStart, takeout);
         pushJoint(
           `n:${node.id}:${run.id}`,
           nodeJoint,
-          run.dn,
+          onFitting?.dn ?? run.dn,
           run.schedule,
-          `PIPE / ${info.fitting === 'COUPLING' ? couplingName(nodeJoint, !!node.union) : fittingLabel(info.fitting)}`,
+          `${onFitting ? onFitting.label : 'PIPE'} / ${info.fitting === 'COUPLING' ? couplingName(nodeJoint, !!node.union) : fittingLabel(info.fitting)}`,
           pos,
           facing,
           idx,
@@ -1494,6 +1525,21 @@ export function analyse(drawing: Drawing): Analysis {
         if (onTerminal(side === 0)) continue;
         const met = metFace(side);
         if (met && !met.make) continue;
+        // Across a point from a run with no pipe in it (a reducer's face, then
+        // straight on to an elbow): that run's one weld is its.
+        {
+          const end = side === 0 ? a : b;
+          if (!end.terminal && !end.flange && nodeInfo.get(end.id)?.fitting === 'NONE' && itemAtEnd(drawing, run, side === 0)?.comp.id === comp.id) {
+            const across = drawing.runs.filter((r) => r.id !== run.id && (r.from === end.id || r.to === end.id));
+            if (across.length === 1 && touching.has(across[0].id)) continue;
+          }
+        }
+        // Straight on a fitting at the run's end: the fitting's leg weld is its.
+        {
+          const end = side === 0 ? a : b;
+          const endInfo = nodeInfo.get(end.id);
+          if (endInfo && endInfo.degree >= 2 && endInfo.fitting !== 'NONE' && endInfo.fitting !== 'OLET' && itemOnFitting(run, side === 0, nodeFittingTakeout(endInfo, run.dn))?.comp.id === comp.id) continue;
+        }
         // No flange on the valve's last face (or a blind there): nothing welded.
         if (comp.lastFlange && valveOpenSide(drawing, run, comp) === side) continue;
         // Bolted straight to the valve beside it: no flange, no weld.
