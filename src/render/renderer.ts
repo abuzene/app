@@ -1,6 +1,6 @@
 import type { Analysis } from '../model/drawing';
 import type { Axis, DimOverride, Drawing, FlangeKind, Run, Vec3 } from '../model/types';
-import { headerTakenOff, COMPONENT_LABEL, COUPLING_REACH, UNION_REACH, SYMBOL_MM, couplingKindAt, isCoupling, TERMINAL_LABEL, chainStops, dimensionStops, drawnShare, trueAtShare, fittingLabel, runGroupIds, isMark, isReducer, isSupport, isValve, itemAtEnd, pipePieceAt, oletEntries, oletLegs, resolveEnds, valveOpenSide } from '../model/drawing';
+import { headerTakenOff, COMPONENT_LABEL, COUPLING_REACH, UNION_REACH, SYMBOL_MM, couplingKindAt, isCoupling, TERMINAL_LABEL, chainStops, dimensionStops, drawnShare, trueAtShare, fittingLabel, runGroupIds, isMark, isReducer, isSupport, isValve, itemAtEnd, pipeStretchAt, oletEntries, oletLegs, resolveEnds, valveOpenSide } from '../model/drawing';
 import { componentTakeout, sizeLabel, valveFlangeKind } from '../model/pipe-data';
 import { AXIS_VECTOR, axisBetween, axisScreenDir, equals3, northArrowDir, project, scale3, add, sub } from '../model/iso';
 import { LETTER_BESIDE, weldTagSize, type LayoutSpecs } from './tidy';
@@ -397,6 +397,10 @@ export function renderDrawing(state: RenderState): string {
   const compCentre = new Map<string, Pt>();
   /** The length of pipe picked in a run with items, drawn over the run. */
   let pickedPiece = '';
+  // It may run on through plain points into the runs either side.
+  const pickedRun = sel?.kind === 'run' && sel.at ? drawing.runs.find((r) => r.id === sel.id) : undefined;
+  const tappedAt = pickedRun && sel?.kind === 'run' && sel.at ? runOffsetAtPaper(drawing, analysis, pickedRun, sel.at) : null;
+  const stretch = pickedRun && tappedAt !== null ? pipeStretchAt(drawing, analysis, pickedRun, tappedAt) : null;
 
   for (const run of drawing.runs) {
     const a = paper(run.from);
@@ -417,12 +421,12 @@ export function renderDrawing(state: RenderState): string {
     const pb = towards(b, a, trimAt(run.to));
     // In a run that holds items, the length of pipe tapped is what is picked,
     // not the whole run through its valves (his DESHANIM sheet, 2026-10-21).
-    const tapped = selected && sel?.kind === 'run' && sel.id === run.id && sel.at ? runOffsetAtPaper(drawing, analysis, run, sel.at) : null;
-    const piece = tapped !== null ? pipePieceAt(drawing, analysis, run, tapped) : null;
+    const piece = stretch && selected ? stretch : null;
     straights.push({ run, pa, pb, selected: selected && !piece, gaps: [] });
-    if (piece) {
+    const part = stretch?.find((p) => p.runId === run.id);
+    if (part) {
       const st = analysis.stations.get(run.id);
-      pickedPiece = pipeLine(a, b, drawnShare(st, piece[0], total), drawnShare(st, piece[1], total), 'pipe selected');
+      pickedPiece += pipeLine(a, b, drawnShare(st, part.lo, total), drawnShare(st, part.hi, total), 'pipe selected');
     }
     if (selected && !piece) {
       // A picked run shows a handle at each end, dragged to make it longer or

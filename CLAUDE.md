@@ -672,15 +672,22 @@ ships, and the decisions already taken, so they are not re-litigated.
   alone. A dimension typed to the flange's length does the same.
   **One length of pipe picked** (same sheet, 2026-10-21: "the marked pipe
   should be only between W2 and W3, not through the valve and the filter,
-  and I should be able to delete it"): in a run holding items the tap
-  picks the bare pipe it falls on (`pipePieceAt` in drawing.ts over
-  `pipeSpans`, from the selection's `at`); the renderer draws only that
-  length picked, with no stretch handles, and the HUD's Delete pipe and
-  No pipe — fittings touch take it out (`closePickedPiece` in main.ts →
-  `closePipePiece` in edit.ts): the side the route starts from stays, the
-  items past it and all beyond the run come back by its length, and what
-  meets is welded straight (one weld, above). The panel's Delete pipe —
-  this length only still deletes the run.
+  and I should be able to delete it"): the tap picks the bare pipe it
+  falls on (`pipeStretchAt` in drawing.ts over `pipeSpans`, from the
+  selection's `at`), **carried on through plain points** into the runs
+  either side while their pipe reaches the point (his "tried, still not
+  fixed", same day: between the regulator's flange and a reducer put along
+  the pipe lay pipe, a point welded PIPE / PIPE and more pipe); picked only
+  when an item's face ends it at one side at least, else the run is picked
+  as before. The renderer draws only that length picked, with no stretch
+  handles, and the HUD's Delete pipe and No pipe — fittings touch take it
+  out (`closePickedPiece` in main.ts → `closePipeStretch` in edit.ts: the
+  points between are joined through, then `closePipePiece`): the side the
+  route starts from stays, the items past it and all beyond come back by
+  its length, and what meets is welded straight (one weld, above). The
+  panel's Delete pipe — this length only still deletes the run. A reducer
+  put along a pipe over a support moves the support to the longer pipe
+  beside it (`placeReducer`; one was left inside the reducer).
   **A flange on the end, its size** (same sheet: "let me pick the flange
   and change its diameter"): the end point's panel (headed "line end —
   WELD NECK FLANGE") has **Size** (`[data-f="end-dn"]`, `endSizeRow` in

@@ -343,6 +343,12 @@ async function placeReducer(host: Host, kind: 'RED_CONC' | 'RED_ECC'): Promise<v
     // up at, and the pipe beyond the far one is its own size.
     const far = comp.offset + half;
     const nearFace = comp.offset - half;
+    // A support where the reducer now is goes to the longer pipe beside it
+    // (on his DESHANIM sheet one was left inside the reducer).
+    for (const m of target.inline) {
+      if (isMark(m.kind) && m.offset > nearFace && m.offset < far) m.offset = nearFace > total - far ? nearFace / 2 : (far + total) / 2;
+    }
+    target.inline.sort((x, y) => x.offset - y.offset);
     if (far < total - 0.5) splitRun(d, target.id, far);
     if (nearFace > 0.5) splitRun(d, target.id, nearFace);
     applyReducer(d, comp.id, choice.large, choice.small, choice.largeOutward);

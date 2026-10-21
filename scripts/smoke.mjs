@@ -5295,6 +5295,73 @@ const couplingsNow = async () => (await drawingNow()).nodes.filter((n) => n.fitt
   check('and the reducer straight on the elbow beyond is one weld', rows.filter((r) => /CON RED 3" X 2" \/ 90 ELBOW LR/.test(r)).length, (v) => v === 1, '1');
 }
 
+/* ------- pipe, a point and pipe between the regulator and the reducer */
+
+// "Tried, still not fixed" (his DESHANIM sheet, 2026-10-21): a reducer put
+// along the pipe after the regulator before it could go on its flange left
+// pipe, a point welded pipe to pipe and more pipe between them. The pipe
+// tapped is picked on through the point, and Delete pipe takes it all out:
+// the reducer welded straight to the flange, no pipe-to-pipe weld left.
+{
+  await page.evaluate((d) => localStorage.setItem('iso-draw.drawing.v1', JSON.stringify(d)), {"version":1,"meta":{"project":"DESH TEST 3","sheet":"1 of 1"},"options":{"snap":10,"scale":0.06,"schematic":true,"schematicLength":1500,"showDimensions":true,"showWelds":true,"showItems":true,"showNodeLabels":true,"showGrid":true,"northRotation":2,"joint":"BW","pipeSchedule":"SCH40","fittingThickness":"STD","sheetScale":10,"northArrow":135},"nodes":[{"id":"n2kpsn","pos":{"e":-407,"n":0,"u":0},"terminal":{"kind":"FLG_WN"}},{"id":"n3jgmg","pos":{"e":332,"n":0,"u":0}},{"id":"n6rbyu","pos":{"e":-180,"n":0,"u":0}},{"id":"neixdg","pos":{"e":953,"n":0,"u":0}},{"id":"nhxpva","pos":{"e":493,"n":0,"u":0}},{"id":"nldg8r","pos":{"e":1073,"n":0,"u":0}},{"id":"nnw6aw","pos":{"e":1073,"n":350,"u":0}},{"id":"np8s6i","pos":{"e":1073,"n":350,"u":2240}},{"id":"n1arnfm","pos":{"e":8873,"n":350,"u":2240},"terminal":{"kind":"CONTINUATION","note":"CONT. ON SH.2","dn":"DN80","schedule":"SCH40"}},{"id":"n3zlk2","pos":{"e":1057.5,"n":0,"u":0}},{"id":"n5ln2s","pos":{"e":968.5,"n":0,"u":0}}],"runs":[{"id":"r49tym","from":"n2kpsn","to":"n6rbyu","dn":"DN80","schedule":"SCH40","inline":[{"id":"c5dksf","kind":"RED_CONC","offset":157,"dn":"DN150","dn2":"DN80"}],"visual":144},{"id":"r7pio6","from":"n6rbyu","to":"n3jgmg","dn":"DN80","schedule":"SCH40","inline":[{"id":"c9vy4s","kind":"BALL","offset":169.5,"bare":1},{"id":"cdzkgu","kind":"FILTER","offset":391.5,"bare":0,"lastFlange":"none"}],"visual":220},{"id":"rfiatp","from":"n3jgmg","to":"nhxpva","dn":"DN80","schedule":"SCH40","inline":[{"id":"c139xua","kind":"SUPPORT","offset":80.5}],"visual":248},{"id":"ri7d1r","from":"nhxpva","to":"neixdg","dn":"DN50","schedule":"SCH40","inline":[{"id":"cgacah","kind":"RED_CONC","offset":44.5,"dn":"DN80","dn2":"DN50"},{"id":"ckr4s3","kind":"REGULATOR","offset":271.5}],"visual":144},{"id":"rmcdr2","from":"neixdg","to":"n5ln2s","dn":"DN50","schedule":"SCH40","inline":[],"visual":144},{"id":"r6t8sg","from":"n5ln2s","to":"n3zlk2","dn":"DN50","schedule":"SCH40","inline":[{"id":"c29p67","kind":"RED_CONC","offset":44.5,"dn":"DN80","dn2":"DN50","flip":true},{"id":"c14r5s5","kind":"SUPPORT","offset":54.5}],"visual":144},{"id":"r4i7p4","from":"n3zlk2","to":"nldg8r","dn":"DN80","schedule":"SCH40","inline":[],"visual":144},{"id":"roeg4x","from":"nldg8r","to":"nnw6aw","dn":"DN80","schedule":"SCH40","inline":[],"visual":350},{"id":"rqinem","from":"nnw6aw","to":"np8s6i","dn":"DN80","schedule":"SCH40","inline":[],"visual":590},{"id":"rsrrb3","from":"np8s6i","to":"n1arnfm","dn":"DN80","schedule":"SCH40","inline":[],"visual":650}],"weldOverrides":{},"dimOverrides":{"ri7d1r:2":{"hidden":true}},"measures":[{"id":"m1a0ub","a":"n2kpsn","b":"nldg8r"}],"id":"d1basa"});
+  await page.reload();
+  await page.waitForTimeout(700);
+  await page.click('#fit');
+  await page.waitForTimeout(300);
+  const dot = await page.locator('circle.hit-dot[data-node="neixdg"]').boundingBox();
+  for (let i = 0; i < 4; i++) {
+    await page.mouse.move(dot.x + dot.width / 2, dot.y + dot.height / 2);
+    await page.mouse.wheel(0, -300);
+    await page.waitForTimeout(300);
+  }
+  await page.waitForTimeout(300);
+  const ends = await page.evaluate(() => {
+    const l = document.querySelector('#canvas line.hit[data-run="rmcdr2"]');
+    const m = l.getScreenCTM();
+    const p = (x, y) => { const q = new DOMPoint(x, y).matrixTransform(m); return [q.x, q.y]; };
+    return [p(+l.getAttribute('x1'), +l.getAttribute('y1')), p(+l.getAttribute('x2'), +l.getAttribute('y2'))];
+  });
+  await page.mouse.click((ends[0][0] + ends[1][0]) / 2, (ends[0][1] + ends[1][1]) / 2);
+  await page.waitForTimeout(300);
+  check('the pipe tapped is picked on through the point welded pipe to pipe', await page.locator('#canvas .pipe.selected').count(), (v) => v === 2, '2 lengths');
+  await page.click('#hud-delete');
+  await page.waitForTimeout(400);
+  const d = await drawingNow();
+  await page.click('#tabs button:has-text("Welds")');
+  await page.waitForTimeout(250);
+  const rows = await page.locator('#tab-body table tbody tr').allInnerTexts();
+  await page.click('#tabs button:has-text("Route")');
+  await page.waitForTimeout(200);
+  check('Delete pipe: the reducer welded straight to the regulator\'s flange, the point and its weld gone', `${rows.filter((r) => /2"\tBW\tCON RED 3" X 2" \/ WELD NECK FLANGE/.test(r)).length} ${rows.filter((r) => /\t2"\tBW\tPIPE \/ PIPE/.test(r)).length} ${d.nodes.some((n) => n.id === 'neixdg')} ${d.runs.length}`, (v) => v === '1 0 false 9', '1 0 false 9');
+}
+
+// A reducer put along a pipe over a support: the support goes to the pipe
+// beside it, not inside the reducer (it was left there on the same sheet).
+{
+  await page.evaluate((d) => localStorage.setItem('iso-draw.drawing.v1', JSON.stringify(d)), {"version":1,"meta":{"project":"DESH TEST 2","sheet":"1 of 1"},"options":{"snap":10,"scale":0.06,"schematic":true,"schematicLength":1500,"showDimensions":true,"showWelds":true,"showItems":true,"showNodeLabels":true,"showGrid":true,"northRotation":2,"joint":"BW","pipeSchedule":"SCH40","fittingThickness":"STD","sheetScale":10,"northArrow":135},"nodes":[{"id":"n2kpsn","pos":{"e":-407,"n":0,"u":0},"terminal":{"kind":"FLG_WN"}},{"id":"n3jgmg","pos":{"e":332,"n":0,"u":0}},{"id":"n6rbyu","pos":{"e":-180,"n":0,"u":0}},{"id":"neixdg","pos":{"e":953,"n":0,"u":0}},{"id":"nhxpva","pos":{"e":493,"n":0,"u":0}},{"id":"nldg8r","pos":{"e":1073,"n":0,"u":0}},{"id":"nnw6aw","pos":{"e":1073,"n":350,"u":0}},{"id":"np8s6i","pos":{"e":1073,"n":350,"u":2240}},{"id":"n1arnfm","pos":{"e":8873,"n":350,"u":2240},"terminal":{"kind":"CONTINUATION","note":"CONT. ON SH.2","dn":"DN80","schedule":"SCH40"}}],"runs":[{"id":"r49tym","from":"n2kpsn","to":"n6rbyu","dn":"DN80","schedule":"SCH40","inline":[{"id":"c5dksf","kind":"RED_CONC","offset":157,"dn":"DN150","dn2":"DN80"}],"visual":144},{"id":"r7pio6","from":"n6rbyu","to":"n3jgmg","dn":"DN80","schedule":"SCH40","inline":[{"id":"c9vy4s","kind":"BALL","offset":169.5,"bare":1},{"id":"cdzkgu","kind":"FILTER","offset":391.5,"bare":0,"lastFlange":"none"}],"visual":220},{"id":"rfiatp","from":"n3jgmg","to":"nhxpva","dn":"DN80","schedule":"SCH40","inline":[{"id":"c139xua","kind":"SUPPORT","offset":80.5}],"visual":248},{"id":"ri7d1r","from":"nhxpva","to":"neixdg","dn":"DN80","schedule":"SCH40","inline":[{"id":"cgacah","kind":"RED_CONC","offset":44.5,"dn":"DN80","dn2":"DN50"},{"id":"ckr4s3","kind":"REGULATOR","offset":271.5}],"visual":144},{"id":"rmcdr2","from":"neixdg","to":"nldg8r","dn":"DN80","schedule":"SCH40","inline":[{"id":"c14r5s5","kind":"SUPPORT","offset":70}],"visual":280},{"id":"roeg4x","from":"nldg8r","to":"nnw6aw","dn":"DN80","schedule":"SCH40","inline":[],"visual":350},{"id":"rqinem","from":"nnw6aw","to":"np8s6i","dn":"DN80","schedule":"SCH40","inline":[],"visual":590},{"id":"rsrrb3","from":"np8s6i","to":"n1arnfm","dn":"DN80","schedule":"SCH40","inline":[],"visual":650}],"dimOverrides":{"ri7d1r:2":{"hidden":true}},"measures":[{"id":"m1a0ub","a":"n2kpsn","b":"nldg8r"}]});
+  await page.reload();
+  await page.waitForTimeout(700);
+  await page.click('#fit');
+  await page.waitForTimeout(300);
+  const ends = await page.evaluate(() => {
+    const l = document.querySelector('#canvas line.hit[data-run="rmcdr2"]');
+    const m = l.getScreenCTM();
+    const p = (x, y) => { const q = new DOMPoint(x, y).matrixTransform(m); return [q.x, q.y]; };
+    return [p(+l.getAttribute('x1'), +l.getAttribute('y1')), p(+l.getAttribute('x2'), +l.getAttribute('y2'))];
+  });
+  await page.mouse.click(ends[0][0] + (ends[1][0] - ends[0][0]) * 0.3, ends[0][1] + (ends[1][1] - ends[0][1]) * 0.3);
+  await page.waitForTimeout(300);
+  await page.locator('.tool[data-kind="RED_CONC"]').click();
+  await page.waitForTimeout(300);
+  await page.click('.dialog [data-confirm]');
+  await page.waitForTimeout(400);
+  await page.keyboard.press('Escape');
+  const d = await drawingNow();
+  const redRun = d.runs.find((r) => r.inline.some((c) => c.kind === 'RED_CONC' && c.id !== 'c5dksf' && c.id !== 'cgacah'));
+  const supRun = d.runs.find((r) => r.inline.some((c) => c.id === 'c14r5s5'));
+  check('a reducer put over a support leaves the support on the pipe beside it', `${!!redRun} ${redRun?.inline.length} ${!!supRun && supRun !== redRun}`, (v) => v === 'true 1 true', 'true 1 true');
+}
+
 /* ------------- flange, reducer, flange with no pipe; weld numbers run on */
 
 // "W10 and W12: I try to draw flange, reducer, flange joined with no pipe

@@ -1,6 +1,6 @@
 import type { Axis, ComponentKind, Drawing, EndType, Equipment, FlangeKind, InlineComponent, IsoNode, Measure, Run, TerminalKind, Vec3 } from './types';
 import { AXIS_VECTOR, add, axisBetween, direction, equals3, length3, scale3, step, sub } from './iso';
-import { analyse, routeOrder, chainStops, headerTakenOff, dimensionStops, isCoupling, nodeFittingTakeout, pipeSpans, drawnLength, runDrawnFloor, itemHalf, fittingsTouchLength, reducerSides, isReducer, minDrawnLength, isMark, isValve, itemAtEnd, oletEntries, oletLegs, oletMarks, resolveEnds, runGroupIds, terminalTakeoutOf, uid, valveOpenSide, type Analysis } from './drawing';
+import { analyse, routeOrder, chainStops, headerTakenOff, dimensionStops, isCoupling, nodeFittingTakeout, pipeSpans, drawnLength, runDrawnFloor, itemHalf, fittingsTouchLength, reducerSides, isReducer, minDrawnLength, isMark, isValve, itemAtEnd, oletEntries, oletLegs, oletMarks, resolveEnds, runGroupIds, terminalTakeoutOf, uid, valveOpenSide, type Analysis, type PipeStretchPart } from './drawing';
 import { componentTakeout, schedulesFor, sizeOf, valveFlangeKind } from './pipe-data';
 
 /** Finds an existing node at a position, so that routes join rather than overlap. */
@@ -1259,6 +1259,53 @@ export function closePipePiece(drawing: Drawing, runId: string, lo: number, hi: 
   }
   for (const c of run.inline) c.offset = was.get(c.id)!;
   return false;
+}
+
+/**
+ * A length of pipe that runs on through plain points (`pipeStretchAt`)
+ * taken out: the points between are joined through first, so no pipe to
+ * pipe weld is left where the pipe was, then it closes up as one piece (his
+ * DESHANIM sheet, 2026-10-21: "tried, still not fixed" — pipe, a point and
+ * more pipe between the regulator's flange and the reducer).
+ */
+export function closePipeStretch(drawing: Drawing, parts: PipeStretchPart[]): boolean {
+  if (parts.length === 1) return closePipePiece(drawing, parts[0].runId, parts[0].lo, parts[0].hi);
+  const pointAt = (runId: string, offset: number): Vec3 | null => {
+    const run = drawing.runs.find((r) => r.id === runId);
+    const a = drawing.nodes.find((n) => n.id === run?.from)?.pos;
+    const b = drawing.nodes.find((n) => n.id === run?.to)?.pos;
+    const dir = a && b ? direction(a, b) : null;
+    return a && dir ? add(a, scale3(dir, offset)) : null;
+  };
+  const ends = parts.flatMap((p) => [pointAt(p.runId, p.lo), pointAt(p.runId, p.hi)]);
+  if (ends.some((e) => !e)) return false;
+  let p1 = ends[0]!;
+  let p2 = ends[0]!;
+  for (const x of ends as Vec3[]) {
+    for (const y of ends as Vec3[]) if (length3(sub(y, x)) > length3(sub(p2, p1))) [p1, p2] = [x, y];
+  }
+  const between: string[] = [];
+  for (let i = 0; i + 1 < parts.length; i++) {
+    const a = drawing.runs.find((r) => r.id === parts[i].runId);
+    const b = drawing.runs.find((r) => r.id === parts[i + 1].runId);
+    const common = a && b && [a.from, a.to].find((n) => n === b.from || n === b.to);
+    if (!common) return false;
+    between.push(common);
+  }
+  for (const nodeId of between) if (!joinThrough(drawing, nodeId)) return false;
+  const mid = scale3(add(p1, p2), 0.5);
+  const run = drawing.runs.find((r) => {
+    const a = drawing.nodes.find((n) => n.id === r.from)?.pos;
+    const b = drawing.nodes.find((n) => n.id === r.to)?.pos;
+    if (!a || !b) return false;
+    const len = length3(sub(b, a));
+    return Math.abs(length3(sub(mid, a)) + length3(sub(b, mid)) - len) < 0.5;
+  });
+  if (!run) return false;
+  const from = drawing.nodes.find((n) => n.id === run.from)!.pos;
+  const lo = Math.min(length3(sub(p1, from)), length3(sub(p2, from)));
+  const hi = Math.max(length3(sub(p1, from)), length3(sub(p2, from)));
+  return closePipePiece(drawing, run.id, lo, hi);
 }
 
 /**

@@ -4,13 +4,13 @@ import type { Preview, Selection } from './render/renderer';
 import type { AppState, Host, OletAsk, OletChoice, ReducerAsk, ReducerChoice } from './ui/types';
 import { reducerPreview } from './ui/reducer-preview';
 import { tidyLayout, type LayoutSpecs } from './render/tidy';
-import { COMPONENT_LABEL, isValve, analyse, chainStops, dimensionStops, drawnLength, drawnStations, runDrawnFloor, trueAtShare, type DrawnStations, isMark, isReducer, itemAtEnd, itemHalf, runGroupIds, emptyDrawing, oletLegs, oletMarks, pipePieceAt, uid } from './model/drawing';
+import { COMPONENT_LABEL, isValve, analyse, chainStops, dimensionStops, drawnLength, drawnStations, runDrawnFloor, trueAtShare, type DrawnStations, isMark, isReducer, itemAtEnd, itemHalf, runGroupIds, emptyDrawing, oletLegs, oletMarks, pipeStretchAt, type PipeStretchPart, uid } from './model/drawing';
 import { isRemoved, loadLibrary, makeRoomAfter, retargetFrom, projectsOf, removeDrawing, renumberProject, renumberSheets, sheetNumber, upsertDrawing, worthKeeping } from './model/library';
 import { allowFolder, chooseFolder, folderStatus, forgetFolder, restoreFolder, syncFolder } from './model/folder';
 import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, setDriveClientId, syncDrive } from './model/drive';
 import { AXES, AXIS_VECTOR, add, axisFromScreenDelta, length3, lengthAlongAxis, scale3, sub } from './model/iso';
 import { initialCommandState, runCommands } from './model/commands';
-import { applyAgainstFree, applyKeepingOthers, closePipePiece, sheetCutSpot, splitSheet, mergeOlet, applyMeasureOnLine, moveNodes, replaceComponent, addMeasure, applyMeasureToOlet, autoCouplings, DASHED_NOTE, deleteRunGroup, measureTypeable, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, ensureNode, isCouplingPoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, runLength, setLineSize, setRunDashed, setRunDirect, startFromEquipment, straightenBranches, stretchRun, syncEquipment, uncoverPoints } from './model/edit';
+import { applyAgainstFree, applyKeepingOthers, closePipeStretch, sheetCutSpot, splitSheet, mergeOlet, applyMeasureOnLine, moveNodes, replaceComponent, addMeasure, applyMeasureToOlet, autoCouplings, DASHED_NOTE, deleteRunGroup, measureTypeable, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, ensureNode, isCouplingPoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, runLength, setLineSize, setRunDashed, setRunDirect, startFromEquipment, straightenBranches, stretchRun, syncEquipment, uncoverPoints } from './model/edit';
 import { DN_LIST, schedulesFor, sizeLabel, sizeOf } from './model/pipe-data';
 import { northArrow, paperOf, renderDrawing, runOffsetAtPaper, symbolSizeFor } from './render/renderer';
 import { SHEET_STAMPS, renderSheet, sheetStamp, sheetSymbolSize, type SheetSize } from './render/sheet';
@@ -3653,14 +3653,13 @@ function oletAlone(nodeId: string): boolean {
 }
 
 /** The length of pipe picked in a run that holds items, if one is. */
-function pickedPiece(): { runId: string; lo: number; hi: number } | null {
+function pickedPiece(): PipeStretchPart[] | null {
   const sel = state.selection;
   if (sel?.kind !== 'run' || !sel.at) return null;
   const run = state.drawing.runs.find((r) => r.id === sel.id);
   if (!run) return null;
   const at = runOffsetAtPaper(state.drawing, state.analysis, run, sel.at);
-  const piece = at === null ? null : pipePieceAt(state.drawing, state.analysis, run, at);
-  return piece ? { runId: run.id, lo: piece[0], hi: piece[1] } : null;
+  return at === null ? null : pipeStretchAt(state.drawing, state.analysis, run, at);
 }
 
 /**
@@ -3671,12 +3670,12 @@ function pickedPiece(): { runId: string; lo: number; hi: number } | null {
 function closePickedPiece(): boolean {
   const piece = pickedPiece();
   if (!piece) return false;
-  if (!closePipePiece(JSON.parse(JSON.stringify(state.drawing)), piece.runId, piece.lo, piece.hi)) {
+  if (!closePipeStretch(JSON.parse(JSON.stringify(state.drawing)), piece)) {
     host.notify('That length of pipe cannot come out here.');
     return true;
   }
   host.edit('Delete pipe', (d) => {
-    closePipePiece(d, piece.runId, piece.lo, piece.hi);
+    closePipeStretch(d, piece);
   });
   host.select(null);
   host.notify('That length of pipe is gone: the items either side meet with no pipe, one weld between them.');

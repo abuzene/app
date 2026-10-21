@@ -943,16 +943,28 @@ export function pipeSpans(drawing: Drawing, nodeInfo: Map<string, NodeInfo>, run
   return spans;
 }
 
+/** One run's share of a length of pipe that runs on through plain points. */
+export interface PipeStretchPart {
+  runId: string;
+  lo: number;
+  hi: number;
+}
+
 /**
- * The length of bare pipe a tap falls on, in a run that holds items: the
- * pipe between two items, or between an item and the run's end (his
- * DESHANIM sheet, 2026-10-21: "the marked pipe should be only between W2
- * and W3, not through the valve and the filter, so I can delete it").
- * The nearest one when the tap falls on an item. Null in a run with none.
+ * The bare pipe a tap falls on, carried on through plain points (a pipe to
+ * pipe weld, nothing else there) into the runs either side, up to whatever
+ * stops it: an item, a fitting, an end, a branch. His DESHANIM sheet,
+ * 2026-10-21 ("tried, still not fixed"): between the regulator's flange and
+ * the reducer lay pipe, a point welded pipe to pipe, and more pipe; the
+ * length picked stopped at the point and the stray weld stayed. In route
+ * order of the parts, from the tapped run's start side. Null when neither
+ * end of it is an item's face (plain pipe between fittings: the run itself
+ * is picked, as before) or the tap is on no pipe.
  */
-export function pipePieceAt(drawing: Drawing, analysis: Analysis, run: Run, offset: number): [number, number] | null {
-  if (!run.inline.some((c) => !isMark(c.kind) && componentTakeout(c.kind, c.dn ?? run.dn, false, c.ff) > 0)) return null;
-  const spans = pipeSpans(drawing, analysis.nodeInfo, run);
+export function pipeStretchAt(drawing: Drawing, analysis: Analysis, run: Run, offset: number): PipeStretchPart[] | null {
+  const spansOf = (r: Run) => pipeSpans(drawing, analysis.nodeInfo, r);
+  const lenOf = (r: Run) => analysis.runLengths.get(r.id)?.centre ?? 0;
+  const spans = spansOf(run);
   let best: [number, number] | null = null;
   let bestGap = Infinity;
   for (const [lo, hi] of spans) {
@@ -962,7 +974,55 @@ export function pipePieceAt(drawing: Drawing, analysis: Analysis, run: Run, offs
       bestGap = gap;
     }
   }
-  return best;
+  if (!best) return null;
+  const hasItem = (r: Run) => r.inline.some((c) => !isMark(c.kind) && componentTakeout(c.kind, c.dn ?? r.dn, false, c.ff) > 0);
+  const defaultJoint = drawing.options.joint ?? 'BW';
+  // Whether an item's face is what a length of pipe stops at, there.
+  const itemBounds = (r: Run, endSide: boolean, at: number) => r.inline.some((c) => {
+    if (isMark(c.kind)) return false;
+    const dn = c.dn ?? r.dn;
+    const half = componentTakeout(c.kind, dn, resolveEnds(c.kind, dn, c.ends, defaultJoint) === 'FLG' && valveFlangeKind(defaultJoint), c.ff);
+    return half > 0 && Math.abs((endSide ? c.offset - half : c.offset + half) - at) < 1;
+  });
+  const plain = (nodeId: string): boolean => {
+    const info = analysis.nodeInfo.get(nodeId);
+    if (!info || info.degree !== 2 || info.fitting !== 'NONE') return false;
+    const node = info.node;
+    if (node.flange || node.terminal || oletMarks(node).length > 0) return false;
+    return !(drawing.equipment ?? []).some((e) => e.stand === nodeId || e.next === nodeId);
+  };
+  // Walk one way from the piece: at a plain point it goes on into the run
+  // beyond while that run's pipe reaches the point; an item there stops it.
+  const walk = (r: Run, atEnd: boolean, piece: [number, number]): { parts: PipeStretchPart[]; item: boolean } => {
+    const parts: PipeStretchPart[] = [];
+    let cur = r;
+    let end = atEnd;
+    let span = piece;
+    for (let guard = 0; guard < 50; guard++) {
+      const len = lenOf(cur);
+      const reaches = end ? span[1] >= len - 0.5 : span[0] <= 0.5;
+      if (!reaches) return { parts, item: itemBounds(cur, end, end ? span[1] : span[0]) };
+      const nodeId = end ? cur.to : cur.from;
+      if (!plain(nodeId)) return { parts, item: false };
+      const next = analysis.nodeInfo.get(nodeId)!.runs.find((x) => x.id !== cur.id);
+      if (!next || next.dn !== cur.dn) return { parts, item: false };
+      const fromHere = next.from === nodeId;
+      const nextSpans = spansOf(next);
+      const nextLen = lenOf(next);
+      const touching = fromHere ? nextSpans.find((s) => s[0] <= 0.5) : nextSpans.find((s) => s[1] >= nextLen - 0.5);
+      // The run beyond starts with an item on the point: the pipe stops at its face.
+      if (!touching) return { parts, item: hasItem(next) };
+      parts.push({ runId: next.id, lo: touching[0], hi: touching[1] });
+      cur = next;
+      end = fromHere;
+      span = touching;
+    }
+    return { parts, item: false };
+  };
+  const back = walk(run, false, best);
+  const on = walk(run, true, best);
+  if (!back.item && !on.item) return null;
+  return [...back.parts.reverse(), { runId: run.id, lo: best[0], hi: best[1] }, ...on.parts];
 }
 
 /**
