@@ -688,6 +688,9 @@ ships, and the decisions already taken, so they are not re-litigated.
   alone it is its pipe's size (`setLineSize` on its line); welded to a
   reducer it sets that end of the reducer, the reducer's far face staying
   and the end piece coming in or out with the reducer's new length.
+  The **3D view** sizes an end flange (and a flanged joint's) by `endDn`,
+  the reducer's end it is welded to, not the run's size (same day: "the
+  flange is 3 and joins a 6 reducer — it must take the size itself").
 - **List names typed over** (Items tab, `[data-bom-name]` inputs;
   `drawing.bomNames[lineKey]`, applied at the end of `analyse` after the
   sort, so item numbers stay put): capitalised, printed on the sheet's

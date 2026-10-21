@@ -11,6 +11,7 @@
  */
 import type { Axis, Drawing, InlineComponent, Run, Vec3 } from '../model/types';
 import {
+  endDn,
   type Analysis,
   isMark,
   isReducer,
@@ -521,7 +522,8 @@ export function buildModel(drawing: Drawing, analysis: Analysis): Model3D {
     if (node.flange) {
       info.runs.forEach((run, i) => {
         const l = legOf(info, i);
-        flangeAt(g, vadd(p, vmul(l, 1.5)), l, run.dn, node.flange === 'FLG_BLIND' ? 'FLG_WN' : node.flange!);
+        // Welded straight to a reducer, a flange is that end's size.
+        flangeAt(g, vadd(p, vmul(l, 1.5)), l, endDn(drawing, run, run.from === node.id), node.flange === 'FLG_BLIND' ? 'FLG_WN' : node.flange!);
       });
     }
 
@@ -532,7 +534,9 @@ export function buildModel(drawing: Drawing, analysis: Analysis): Model3D {
       const out = vmul(into, -1);
       const kind = node.terminal.kind;
       const under = terminalWeldKind(node.terminal);
-      const dn = run.dn;
+      // The size of what it is welded to: a reducer's end, else the pipe
+      // (his DESHANIM sheet, 2026-10-21: "the flange is 3 and joins a 6 reducer").
+      const dn = endDn(drawing, run, run.from === node.id);
       if (under && under.startsWith('FLG_')) flangeAt(g, p, into, dn, under);
       if (kind === 'FLG_BLIND') blindAt(g, p, out, dn);
       if (kind === 'CAP') capAt(g, p, out, dn);
