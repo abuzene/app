@@ -942,6 +942,28 @@ export function pipeSpans(drawing: Drawing, nodeInfo: Map<string, NodeInfo>, run
 }
 
 /**
+ * The length of bare pipe a tap falls on, in a run that holds items: the
+ * pipe between two items, or between an item and the run's end (his
+ * DESHANIM sheet, 2026-10-21: "the marked pipe should be only between W2
+ * and W3, not through the valve and the filter, so I can delete it").
+ * The nearest one when the tap falls on an item. Null in a run with none.
+ */
+export function pipePieceAt(drawing: Drawing, analysis: Analysis, run: Run, offset: number): [number, number] | null {
+  if (!run.inline.some((c) => !isMark(c.kind) && componentTakeout(c.kind, c.dn ?? run.dn, false, c.ff) > 0)) return null;
+  const spans = pipeSpans(drawing, analysis.nodeInfo, run);
+  let best: [number, number] | null = null;
+  let bestGap = Infinity;
+  for (const [lo, hi] of spans) {
+    const gap = offset < lo ? lo - offset : offset > hi ? offset - hi : 0;
+    if (gap < bestGap) {
+      best = [lo, hi];
+      bestGap = gap;
+    }
+  }
+  return best;
+}
+
+/**
  * A header that runs straight on through one or more olets. The olets only
  * sit on it, so it is one length of pipe, dimensioned end to end as one,
  * with each olet placed by its own dimension from the start.

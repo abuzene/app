@@ -5123,6 +5123,65 @@ const couplingsNow = async () => (await drawingNow()).nodes.filter((n) => n.fitt
   check('the line keeps its ends; the pipe after it is 3" again', `${Math.max(...d.nodes.map((n) => n.pos.e))} ${d.runs[d.runs.length - 1].dn}`, (v) => v === '3000 DN80', '3000 DN80');
 }
 
+/* ------------------- one length of pipe picked in a run with valves, deleted */
+
+// "This marked pipe should be only between W2 and W3, not through the valve
+// and the filter, and I should be able to delete it so the reducer is
+// welded straight to the flange" (his DESHANIM sheet, 2026-10-21).
+{
+  await routeLine('3"\nSTD\nORIGIN 0 0 0\nEND FLG\nE 3000\nEND FLG');
+  await page.click('#fit');
+  await page.waitForTimeout(200);
+  const firstRun = (await drawingNow()).runs[0].id;
+  const runHit = page.locator(`#canvas line.hit[data-run="${firstRun}"]`).first();
+  await runHit.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await runHit.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await page.waitForTimeout(300);
+  await page.locator('.tool[data-kind="RED_CONC"]').click();
+  await page.waitForTimeout(300);
+  await page.selectOption('.dialog [data-f="red-small"]', 'DN50');
+  await page.click('.dialog [data-confirm]');
+  await page.waitForTimeout(400);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+  // A regulator along the 2" pipe, with pipe either side of it.
+  const small = (await drawingNow()).runs.find((r) => r.dn === 'DN50' && r.inline.length === 0);
+  const smallHit = page.locator(`#canvas line.hit[data-run="${small.id}"]`).first();
+  await smallHit.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await smallHit.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await page.waitForTimeout(300);
+  await page.locator('.tool[data-kind="REGULATOR"]').click();
+  await page.waitForTimeout(400);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+  // Tap the pipe a little way in from the reducer.
+  const ends = await page.evaluate((id) => {
+    const l = document.querySelector(`#canvas line.hit[data-run="${id}"]`);
+    const m = l.getScreenCTM();
+    const pt = (x, y) => new DOMPoint(x, y).matrixTransform(m);
+    return [pt(+l.getAttribute('x1'), +l.getAttribute('y1')), pt(+l.getAttribute('x2'), +l.getAttribute('y2'))].map((q) => ({ x: q.x, y: q.y }));
+  }, small.id);
+  const tapAt = { x: ends[0].x + (ends[1].x - ends[0].x) * 0.12, y: ends[0].y + (ends[1].y - ends[0].y) * 0.12 };
+  const ev = { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true, clientX: tapAt.x, clientY: tapAt.y };
+  await smallHit.dispatchEvent('pointerdown', ev);
+  await smallHit.dispatchEvent('pointerup', ev);
+  await page.waitForTimeout(300);
+  const picked = await page.evaluate(() => [...document.querySelectorAll('#canvas .pipe.selected')].map((l) => Math.hypot(l.x2.baseVal.value - l.x1.baseVal.value, l.y2.baseVal.value - l.y1.baseVal.value)));
+  const whole = Math.hypot(ends[1].x - ends[0].x, ends[1].y - ends[0].y);
+  check('in a run with a valve only the length of pipe tapped is picked', `${picked.length} ${picked[0] < whole * 0.7}`, (v) => v === '1 true', '1 true');
+  const endBefore = Math.max(...(await drawingNow()).nodes.map((n) => n.pos.e));
+  await page.click('#hud-delete');
+  await page.waitForTimeout(400);
+  const d = await drawingNow();
+  await page.click('#tabs button:has-text("Welds")');
+  await page.waitForTimeout(200);
+  const rows = await page.locator('#tab-body table tbody tr').allInnerTexts();
+  await page.click('#tabs button:has-text("Route")');
+  await page.waitForTimeout(200);
+  check('Delete pipe takes that length out: the regulator is welded straight to the reducer', `${rows.filter((r) => /CON RED 3" X 2" \/ WELD NECK FLANGE/.test(r)).length} ${d.runs.flatMap((r) => r.inline).filter((c) => c.kind === 'REGULATOR').length}`, (v) => v === '1 1', '1 weld, the regulator still there');
+  check('and what lies beyond comes back by that length', Math.max(...d.nodes.map((n) => n.pos.e)) < endBefore - 100, (v) => v === true, 'the far end nearer');
+}
+
 /* ------------- flange, reducer, flange with no pipe; weld numbers run on */
 
 // "W10 and W12: I try to draw flange, reducer, flange joined with no pipe

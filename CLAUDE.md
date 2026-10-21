@@ -670,6 +670,17 @@ ships, and the decisions already taken, so they are not re-litigated.
   first (`CON RED 3" X 2" / WELD NECK FLANGE`), made by the reducer, else
   the one first along the route; two flanged valves face to face are left
   alone. A dimension typed to the flange's length does the same.
+  **One length of pipe picked** (same sheet, 2026-10-21: "the marked pipe
+  should be only between W2 and W3, not through the valve and the filter,
+  and I should be able to delete it"): in a run holding items the tap
+  picks the bare pipe it falls on (`pipePieceAt` in drawing.ts over
+  `pipeSpans`, from the selection's `at`); the renderer draws only that
+  length picked, with no stretch handles, and the HUD's Delete pipe and
+  No pipe — fittings touch take it out (`closePickedPiece` in main.ts →
+  `closePipePiece` in edit.ts): the side the route starts from stays, the
+  items past it and all beyond the run come back by its length, and what
+  meets is welded straight (one weld, above). The panel's Delete pipe —
+  this length only still deletes the run.
 - **List names typed over** (Items tab, `[data-bom-name]` inputs;
   `drawing.bomNames[lineKey]`, applied at the end of `analyse` after the
   sort, so item numbers stay put): capitalised, printed on the sheet's

@@ -1,6 +1,6 @@
 import type { Axis, ComponentKind, Drawing, EndType, Equipment, FlangeKind, InlineComponent, IsoNode, Measure, Run, TerminalKind, Vec3 } from './types';
 import { AXIS_VECTOR, add, axisBetween, direction, equals3, length3, scale3, step, sub } from './iso';
-import { analyse, chainStops, headerTakenOff, dimensionStops, isCoupling, nodeFittingTakeout, pipeSpans, drawnLength, runDrawnFloor, itemHalf, fittingsTouchLength, reducerSides, isReducer, minDrawnLength, isMark, isValve, itemAtEnd, oletEntries, oletLegs, oletMarks, resolveEnds, runGroupIds, terminalTakeoutOf, uid, valveOpenSide, type Analysis } from './drawing';
+import { analyse, routeOrder, chainStops, headerTakenOff, dimensionStops, isCoupling, nodeFittingTakeout, pipeSpans, drawnLength, runDrawnFloor, itemHalf, fittingsTouchLength, reducerSides, isReducer, minDrawnLength, isMark, isValve, itemAtEnd, oletEntries, oletLegs, oletMarks, resolveEnds, runGroupIds, terminalTakeoutOf, uid, valveOpenSide, type Analysis } from './drawing';
 import { componentTakeout, schedulesFor, sizeOf, valveFlangeKind } from './pipe-data';
 
 /** Finds an existing node at a position, so that routes join rather than overlap. */
@@ -1217,6 +1217,33 @@ export function closeUpOnItem(drawing: Drawing, analysis: Analysis, run: Run): b
   }
   comp.offset = backA + half;
   return true;
+}
+
+/**
+ * Takes one length of bare pipe out of a run that holds items, so what is
+ * either side of it meets with no pipe between — a reducer straight on a
+ * valve's flange (his DESHANIM sheet, 2026-10-21). The side the line starts
+ * from stays; the items past the piece and everything beyond the run come
+ * back by its length. Nothing else is cut.
+ */
+export function closePipePiece(drawing: Drawing, runId: string, lo: number, hi: number): boolean {
+  const run = drawing.runs.find((r) => r.id === runId);
+  if (!run) return false;
+  const gap = hi - lo;
+  const len = runLength(drawing, run);
+  if (gap < 0.5 || gap >= len) return false;
+  const keepFrom = !routeOrder(drawing).reversed.has(run.id);
+  const was = new Map(run.inline.map((c) => [c.id, c.offset]));
+  if (keepFrom) {
+    for (const c of run.inline) if (c.offset > lo) c.offset -= gap;
+    if (stretchRun(drawing, run.id, len - gap, 'to', true)) return true;
+  } else if (stretchRun(drawing, run.id, len - gap, 'from', true)) {
+    // Held in place by the stretch; those before the piece go with the start.
+    for (const c of run.inline) if ((was.get(c.id) ?? 0) < hi) c.offset = was.get(c.id)!;
+    return true;
+  }
+  for (const c of run.inline) c.offset = was.get(c.id)!;
+  return false;
 }
 
 /**
