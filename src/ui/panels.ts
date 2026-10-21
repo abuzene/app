@@ -1,11 +1,11 @@
 import type { Axis, CircleNote, ComponentKind, EndType, Equipment, FittingKind, FlangeKind, JointType, TerminalKind } from '../model/types';
 import type { Host, TabId } from './types';
-import { headerTakenOff, COMPONENT_LABEL, DEFAULT_LOGO, ROOT_GAP, TERMINAL_LABEL, fittingLabel, fmtMm, isCoupling, isMark, isReducer, isSupport, isValve, oletLabel, oletLegs, oletMarks, pipeNetAt, reducerName, resolveEnds, suggestWeldCode, runGroupIds, valveOpenSide } from '../model/drawing';
+import { headerTakenOff, COMPONENT_LABEL, DEFAULT_LOGO, ROOT_GAP, TERMINAL_LABEL, fittingLabel, fmtMm, isCoupling, isMark, isReducer, isSupport, isValve, oletLabel, oletLegs, oletMarks, pipeNetAt, reducerName, resolveEnds, suggestWeldCode, runGroupIds, valveOpenSide, itemAtEnd, endDn } from '../model/drawing';
 import { COMMAND_HELP } from '../model/commands';
 import { DN_LIST, SIZE_LABELS, defaultValveEnds, schedulesFor, sizeLabel } from '../model/pipe-data';
 import { AXES, AXIS_VECTOR, axisBetween } from '../model/iso';
 import { projectsOf, sheetNumber } from '../model/library';
-import { applyChainDimension, applyReducer, elbowTurns, turnElbow, freeDimensions, offersAutoCoupling, resetDrawnLength, setAutoCoupling, wantsAutoCoupling, deletePoint, isCouplingPoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, runLength, setGroupLength, setLastFlange, deleteRunGroup, DASHED_NOTE, setLineSize, setRunDashed, setRunDirect, setRunLength, setTerminal, splitRun } from '../model/edit';
+import { applyChainDimension, applyReducer, elbowTurns, turnElbow, freeDimensions, offersAutoCoupling, resetDrawnLength, setAutoCoupling, wantsAutoCoupling, deletePoint, isCouplingPoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, runLength, setGroupLength, setLastFlange, deleteRunGroup, DASHED_NOTE, setLineSize, setRunDashed, setRunDirect, setRunLength, setTerminal, setEndSize, splitRun } from '../model/edit';
 import { setDriveClientId } from '../model/drive';
 import { reducerPreview } from './reducer-preview';
 import { SHEET_STAMPS, sheetStamp } from '../render/sheet';
@@ -205,7 +205,9 @@ function nodeProperties(host: Host, nodeId: string): string {
       ? `flanged joint — ${COMPONENT_LABEL[node.flange!] ?? node.flange}`
       : fitting === 'NONE'
         ? isEnd
-          ? 'line end'
+          ? node.terminal && !['OPEN', 'CONTINUATION', 'EQUIPMENT'].includes(node.terminal.kind)
+            ? `line end — ${TERMINAL_LABEL[node.terminal.kind] ?? node.terminal.kind}`
+            : 'line end'
           : 'joint'
         : fittingLabel(fitting);
 
@@ -219,6 +221,7 @@ function nodeProperties(host: Host, nodeId: string): string {
   ${
     isEnd
       ? `<div class="row"><label>End type</label><select data-f="terminal">${options(TERMINALS, node.terminal?.kind ?? 'OPEN', TERMINAL_LABEL)}</select></div>
+         ${endSizeRow(host, nodeId)}
          <div class="row"><label>End note</label><input type="text" data-f="termnote" value="${esc(node.terminal?.note ?? '')}" placeholder="e.g. TO V-101 N3" /></div>`
       : `<div class="row"><label>Fitting</label><select data-f="fitting">${options(['auto', ...FITTINGS], node.fittingOverride ?? 'auto', { auto: `Automatic (${fittingLabel(fitting) || 'none'})` })}</select></div>`
   }
@@ -266,6 +269,25 @@ function nodeProperties(host: Host, nodeId: string): string {
     ${oletAlone ? `<button class="btn-line danger" data-a="remove-olet">Remove ${node.halfCoupling ? 'half coupling' : 'olet'} — the header runs on whole</button>` : isCouplingPoint(drawing, nodeId) ? `<button class="btn-line danger" data-a="delete-node">Remove ${drawing.nodes.find((n) => n.id === nodeId)?.union ? 'union' : 'coupling'} — the pipe runs straight through</button>` : isPlainPoint(drawing, nodeId) ? '<button class="btn-line danger" data-a="delete-node">Remove point — the pipe runs straight through</button>' : '<button class="btn-line danger" data-a="delete-node">Delete point and its runs</button>'}
   </div>
 </div>`;
+}
+
+/**
+ * The size of a flange, cap or blind on a line's end (his DESHANIM sheet,
+ * 2026-10-21: "let me pick the flange and change its diameter"): its pipe's
+ * size, or the end of the reducer welded straight to it.
+ */
+function endSizeRow(host: Host, nodeId: string): string {
+  const { drawing } = host.state;
+  const node = drawing.nodes.find((n) => n.id === nodeId);
+  const runs = drawing.runs.filter((r) => r.from === nodeId || r.to === nodeId);
+  const kind = node?.terminal?.kind;
+  if (!kind || kind === 'OPEN' || kind === 'CONTINUATION' || kind === 'EQUIPMENT' || runs.length !== 1) return '';
+  const run = runs[0];
+  const meets = itemAtEnd(drawing, run, run.from === nodeId);
+  const dn = endDn(drawing, run, run.from === nodeId);
+  const what = (TERMINAL_LABEL[kind] ?? kind).toLowerCase();
+  return `<div class="row"><label>Size</label><select data-f="end-dn">${options(DN_LIST, dn, SIZE_LABELS)}</select></div>
+    <p class="empty-note">${meets && isReducer(meets.comp.kind) ? `The ${what} is welded straight to the reducer: its end changes with it.` : meets ? `The ${what} is the size of the item welded to it.` : `The ${what} is its pipe's size: the line changes with it, up to the next branch or reducer.`}</p>`;
 }
 
 function componentProperties(host: Host, compId: string): string {
@@ -1051,6 +1073,19 @@ function wire(body: HTMLElement, host: Host): void {
     field('terminal')?.addEventListener('change', (e) => {
       const value = (e.target as HTMLSelectElement).value as TerminalKind;
       host.edit('Set end type', (d) => setTerminal(d, id, value));
+    });
+    field('end-dn')?.addEventListener('change', (e) => {
+      const value = (e.target as HTMLSelectElement).value;
+      const why = setEndSize(JSON.parse(JSON.stringify(host.state.drawing)), id, value);
+      if (why) {
+        host.notify(why);
+        host.select({ kind: 'node', id });
+        return;
+      }
+      host.edit('End size', (d) => {
+        setEndSize(d, id, value);
+      });
+      host.select({ kind: 'node', id });
     });
     field('termnote')?.addEventListener('change', (e) => {
       const value = (e.target as HTMLInputElement).value;

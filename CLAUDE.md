@@ -681,6 +681,13 @@ ships, and the decisions already taken, so they are not re-litigated.
   items past it and all beyond the run come back by its length, and what
   meets is welded straight (one weld, above). The panel's Delete pipe —
   this length only still deletes the run.
+  **A flange on the end, its size** (same sheet: "let me pick the flange
+  and change its diameter"): the end point's panel (headed "line end —
+  WELD NECK FLANGE") has **Size** (`[data-f="end-dn"]`, `endSizeRow` in
+  panels.ts → `setEndSize` in edit.ts) for a flange, cap or blind end:
+  alone it is its pipe's size (`setLineSize` on its line); welded to a
+  reducer it sets that end of the reducer, the reducer's far face staying
+  and the end piece coming in or out with the reducer's new length.
 - **List names typed over** (Items tab, `[data-bom-name]` inputs;
   `drawing.bomNames[lineKey]`, applied at the end of `analyse` after the
   sort, so item numbers stay put): capitalised, printed on the sheet's

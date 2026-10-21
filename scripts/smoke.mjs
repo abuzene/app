@@ -5182,6 +5182,38 @@ const couplingsNow = async () => (await drawingNow()).nodes.filter((n) => n.fitt
   check('and what lies beyond comes back by that length', Math.max(...d.nodes.map((n) => n.pos.e)) < endBefore - 100, (v) => v === true, 'the far end nearer');
 }
 
+/* ------------------------------ a flange on the end picked, its size changed */
+
+// "Let me pick the flange so I can change its diameter" (his DESHANIM sheet,
+// 2026-10-21): the end's panel has its size; alone it is its pipe's size,
+// welded to a reducer it is that end of the reducer.
+{
+  await routeLine('3"\nSTD\nORIGIN 0 0 0\nEND FLG\nE 2000\nEND FLG');
+  await page.click('#fit');
+  await page.waitForTimeout(200);
+  const startId = (await drawingNow()).runs[0].from;
+  await tapNode(startId);
+  check('a flange end\'s panel names the flange and offers its size', `${await page.locator('#tab-body h3').first().innerText()} ${await page.inputValue('#tab-body [data-f="end-dn"]')}`, (v) => /WELD NECK FLANGE/.test(v) && v.endsWith('DN80'), 'POINT — LINE END — WELD NECK FLANGE DN80');
+  await page.selectOption('#tab-body [data-f="end-dn"]', 'DN100');
+  await page.waitForTimeout(400);
+  check('alone, the flange and its pipe take the new size', (await drawingNow()).runs.map((r) => r.dn).join(), (v) => v === 'DN100', 'DN100');
+  await page.locator('.tool[data-kind="RED_CONC"]').click();
+  await page.waitForTimeout(300);
+  await page.click('.dialog [data-confirm]');
+  await page.waitForTimeout(400);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+  await tapNode(startId);
+  await page.selectOption('#tab-body [data-f="end-dn"]', 'DN150');
+  await page.waitForTimeout(400);
+  await page.click('#tabs button:has-text("Welds")');
+  await page.waitForTimeout(200);
+  const rows = await page.locator('#tab-body table tbody tr').allInnerTexts();
+  await page.click('#tabs button:has-text("Route")');
+  await page.waitForTimeout(200);
+  check('welded to a reducer, the reducer\'s end takes the flange\'s new size', rows.filter((r) => /6"\tBW\tCON RED 6" X 4" \/ WELD NECK FLANGE/.test(r)).length, (v) => v === 1, '1 weld 6" CON RED 6" X 4" / WELD NECK FLANGE');
+}
+
 /* ------------- flange, reducer, flange with no pipe; weld numbers run on */
 
 // "W10 and W12: I try to draw flange, reducer, flange joined with no pipe

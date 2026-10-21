@@ -1247,6 +1247,50 @@ export function closePipePiece(drawing: Drawing, runId: string, lo: number, hi: 
 }
 
 /**
+ * The size of the end piece on a line's end — a flange, a cap (his DESHANIM
+ * sheet, 2026-10-21: "let me pick the flange and change its diameter"). A
+ * reducer welded straight to it changes that end to match, its far face
+ * staying where it is and the end coming in or out with its new length;
+ * otherwise the flange is its pipe's size, and the line takes the new size
+ * up to the next branch or reducer. Returns why not, or null.
+ */
+export function setEndSize(drawing: Drawing, nodeId: string, dn: string): string | null {
+  const runs = drawing.runs.filter((r) => r.from === nodeId || r.to === nodeId);
+  const node = drawing.nodes.find((n) => n.id === nodeId);
+  if (runs.length !== 1 || !node?.terminal) return 'Pick the end of a line.';
+  const run = runs[0];
+  const atStart = run.from === nodeId;
+  const meets = itemAtEnd(drawing, run, atStart);
+  if (!meets) {
+    setLineSize(drawing, [run.id], dn);
+    return null;
+  }
+  const comp = meets.comp;
+  if (!isReducer(comp.kind)) return 'The flange is the size of the item welded to it — change that item\'s size.';
+  const sides = reducerSides(comp, run.dn);
+  const other = atStart ? sides.end : sides.start;
+  if (sizeOf(other).od === sizeOf(dn).od) return `The reducer's other end is ${dn.replace('DN', 'DN ')} already: a reducer needs two sizes.`;
+  const total = runLength(drawing, run);
+  const oldHalf = componentTakeout(comp.kind, comp.dn ?? run.dn, false, comp.ff);
+  const far = atStart ? comp.offset + oldHalf : total - comp.offset + oldHalf;
+  const startSize = atStart ? dn : other;
+  const endSize = atStart ? other : dn;
+  const large = sizeOf(startSize).od > sizeOf(endSize).od ? startSize : endSize;
+  const small = large === startSize ? endSize : startSize;
+  const newHalf = componentTakeout(comp.kind, large, false, comp.ff);
+  const back = terminalTakeoutOf(node.terminal.kind, dn);
+  // The far face stays; the end piece comes to the reducer's new near face.
+  const grown = total - far + back + newHalf * 2;
+  if (Math.abs(grown - total) > 0.01 && !stretchRun(drawing, run.id, grown, atStart ? 'from' : 'to', true)) return 'The line has no room for it.';
+  const now = runLength(drawing, run);
+  comp.dn = large;
+  comp.dn2 = small;
+  comp.flip = large === endSize ? true : undefined;
+  comp.offset = atStart ? back + newHalf : now - back - newHalf;
+  return null;
+}
+
+/**
  * A reducer keeps its large end in `dn`: its length is read from it. One
  * picked "large 2 in, small 4 in" was measured as a 2 in reducer, 76 mm for
  * 102, and the flanges closed up on it overlapped it (his HILLEL sheet,
