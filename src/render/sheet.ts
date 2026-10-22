@@ -165,6 +165,103 @@ function fitWithPicture(drawing: Drawing, analysis: Analysis, size: SheetSize): 
     : { fit: under, picture: corners[0], image };
 }
 
+/** The north arrow in the drawing area's top left corner: its middle and its reach, in mm. */
+const COMPASS_AT = 16;
+const COMPASS_REACH = 12.5;
+
+/**
+ * Points along everything the drawing puts on the sheet (lines, outlines,
+ * lettering), in sheet mm: what is really there, where the drawing's box
+ * takes in the empty corners of a diagonal line too.
+ */
+function contentPoints(fit: SheetFit): { x: number; y: number }[] {
+  if (typeof document === 'undefined' || !document.body) return [];
+  const host = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  host.setAttribute('width', '10');
+  host.setAttribute('height', '10');
+  host.style.cssText = 'position:absolute;left:-10000px;top:0;visibility:hidden;pointer-events:none';
+  host.id = 'iso-measure';
+  host.innerHTML = `<style>${scopeCss(contentCss({ k: fit.k, u: 0.24, symbol: fit.symbol }), '#iso-measure')}</style><g transform="translate(${fit.tx} ${fit.ty}) scale(${fit.k})">${fit.content}</g>`;
+  host.querySelectorAll('.hits').forEach((e) => e.remove());
+  document.body.appendChild(host);
+  const out: { x: number; y: number }[] = [];
+  try {
+    for (const el of host.querySelectorAll<SVGGraphicsElement>('line, path, polygon, polyline, circle, rect, ellipse, text')) {
+      const m = el.getCTM();
+      if (!m) continue;
+      const put = (x: number, y: number) => {
+        const q = new DOMPoint(x, y).matrixTransform(m);
+        out.push({ x: q.x, y: q.y });
+      };
+      if (el instanceof SVGTextElement) {
+        const b = el.getBBox();
+        for (let i = 0; i <= 4; i += 1) for (const y of [b.y, b.y + b.height / 2, b.y + b.height]) put(b.x + (b.width * i) / 4, y);
+        continue;
+      }
+      const g = el as unknown as SVGGeometryElement;
+      const len = g.getTotalLength();
+      if (!(len > 0)) continue;
+      // Every millimetre or so on the sheet.
+      const n = Math.min(400, Math.max(1, Math.ceil((len * fit.k) / 1)));
+      for (let i = 0; i <= n; i += 1) {
+        const p = g.getPointAtLength((len * i) / n);
+        put(p.x, p.y);
+      }
+    }
+  } catch {
+    return [];
+  } finally {
+    host.remove();
+  }
+  return out;
+}
+
+/**
+ * The drawing kept off the north arrow (his DESHANIM sheet, 2026-10-22:
+ * "it touches the north mark though there is room below"): fitted to the
+ * whole area, its top left corner could run into the compass. Moved down
+ * or across as little as clears it, where the area has room and the 3D
+ * picture is not in the way; with no room, fitted again beside the
+ * compass, above or below it, whichever leaves it bigger.
+ */
+function clearOfCompass(fit: SheetFit, picture: Area | null, area: Area, refit: (a: Area) => SheetFit): SheetFit {
+  const points = contentPoints(fit);
+  if (!points.length) return fit;
+  const cx = area.x + COMPASS_AT;
+  const cy = area.y + COMPASS_AT;
+  const reach = COMPASS_REACH + 1.5;
+  const onCompass = (pts: { x: number; y: number }[], dx: number, dy: number) =>
+    pts.some((p) => Math.hypot(p.x + dx - cx, p.y + dy - cy) < reach);
+  if (!onCompass(points, 0, 0)) return fit;
+  const onPicture = (dx: number, dy: number) =>
+    !!picture && points.some((p) => p.x + dx > picture.x - 3 && p.x + dx < picture.x + picture.w + 3 && p.y + dy > picture.y - 3 && p.y + dy < picture.y + picture.h + 3);
+  const right = area.x + area.w - fit.box.maxX;
+  const down = area.y + area.h - fit.box.maxY;
+  // Only what lies up and to the left of the compass's far side can come onto it.
+  const near = points.filter((p) => p.x < cx + reach && p.y < cy + reach);
+  // The nearest move first; never further than the compass reaches.
+  const moves: { dx: number; dy: number }[] = [];
+  for (let dy = 0; dy <= Math.min(down, 40); dy += 1) for (let dx = 0; dx <= Math.min(right, 40); dx += 1) moves.push({ dx, dy });
+  moves.sort((a, b) => Math.hypot(a.dx, a.dy) - Math.hypot(b.dx, b.dy));
+  const best = moves.find((m) => !onCompass(near, m.dx, m.dy) && !onPicture(m.dx, m.dy)) ?? null;
+  if (best) {
+    return {
+      ...fit,
+      tx: fit.tx + best.dx,
+      ty: fit.ty + best.dy,
+      box: { minX: fit.box.minX + best.dx, maxX: fit.box.maxX + best.dx, minY: fit.box.minY + best.dy, maxY: fit.box.maxY + best.dy },
+    };
+  }
+  const strip = COMPASS_AT + COMPASS_REACH;
+  const tries = [refit({ ...area, y: area.y + strip, h: area.h - strip }), refit({ ...area, x: area.x + strip, w: area.w - strip })].sort((a, b) => b.k - a.k);
+  for (const t of tries) {
+    const pts = contentPoints(t);
+    const clearPicture = !picture || !pts.some((p) => p.x > picture.x - 3 && p.x < picture.x + picture.w + 3 && p.y > picture.y - 3 && p.y < picture.y + picture.h + 3);
+    if (clearPicture) return t;
+  }
+  return fit;
+}
+
 /**
  * The symbol half-size, in drawing paper units, that the printed sheet
  * will use. Tidy lays out for whichever of this and the screen's is bigger.
@@ -480,7 +577,9 @@ export function renderSheet(drawing: Drawing, analysis: Analysis, size: SheetSiz
   // screen — the way his own sheets are drawn — with the pipe and the
   // symbols in the proportions he sees on screen. The scale is worked out
   // from the fit and noted.
-  const { fit, picture, image } = fitWithPicture(drawing, analysis, size);
+  const placed = fitWithPicture(drawing, analysis, size);
+  const { picture, image } = placed;
+  const fit = clearOfCompass(placed.fit, picture, drawingArea(size), (a) => fitSheet(drawing, analysis, size, a));
   const { k, tx, ty, content, symbol } = fit;
   const pictureSvg =
     picture && image
@@ -551,7 +650,7 @@ ${rect(MARGIN, MARGIN, W - MARGIN * 2, H - MARGIN * 2, 'frame')}
 ${vline(dividerX, MARGIN, H - MARGIN, 'frame')}
 <g transform="translate(${tx.toFixed(3)} ${ty.toFixed(3)}) scale(${k.toFixed(6)})">${content}</g>
 ${pictureSvg}
-${compass(drawing, areaX + 16, areaY + 16, 5)}
+${compass(drawing, areaX + COMPASS_AT, areaY + COMPASS_AT, 5)}
 ${bom.svg}
 ${welds.svg}
 ${list.svg}

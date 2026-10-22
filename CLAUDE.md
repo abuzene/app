@@ -1218,6 +1218,17 @@ ships, and the decisions already taken, so they are not re-litigated.
   is top left), else fits the drawing beside or above it, whichever is
   bigger. "Take off sheet" (`[data-a="v3d-off"]`) deletes it. No WebGL:
   the window says so and the sheet has no picture.
+- **The printed drawing keeps off the compass** (his DESHANIM sheet,
+  2026-10-22: "it touches the north mark though there is room below"):
+  the compass sits `COMPASS_AT` 16 mm into the drawing area's top left,
+  reaching `COMPASS_REACH` 12.5 mm with its N. `clearOfCompass` in
+  sheet.ts samples what is really drawn (`contentPoints`, every mm along
+  each line and outline, lettering by its box — not the drawing's box,
+  which takes in the empty corners of a diagonal) and, when any comes
+  within the reach + 1.5 mm, moves the drawing down or across by the
+  least that clears it (up to 40 mm, within the area, off the 3D
+  picture); with no room it is fitted again below or beside the compass,
+  whichever is bigger.
 
 ## How he actually draws (learned from his sheets)
 

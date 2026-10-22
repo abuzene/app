@@ -5442,6 +5442,62 @@ const couplingsNow = async () => (await drawingNow()).nodes.filter((n) => n.fitt
   check('Tidy: no label on a figure, no two figures together, no dimension line across a symbol', tidyClear, (v) => v === '0 0 0', '0 0 0');
 }
 
+/* ------------------------------ the printed drawing keeps off the compass */
+
+// "I try to print, and see how it comes out touching the north mark,
+// though there is room below" (his DESHANIM sheet, 2026-10-22): the
+// drawing was fitted to the whole area and its top left corner ran onto
+// the compass. It is moved down or across as little as clears it.
+{
+  await page.evaluate((d) => localStorage.setItem('iso-draw.drawing.v1', JSON.stringify(d)), {"version":1,"meta":{"project":"TIDY TEST","sheet":"1 of 1"},"options":{"snap":10,"scale":0.06,"schematic":true,"schematicLength":1500,"showDimensions":true,"showWelds":true,"showItems":true,"showNodeLabels":true,"showGrid":true,"northRotation":2,"joint":"BW","pipeSchedule":"SCH40","fittingThickness":"STD","sheetScale":10,"northArrow":135},"nodes":[{"id":"n2kpsn","pos":{"e":-407,"n":0,"u":0},"terminal":{"kind":"FLG_WN"}},{"id":"n3jgmg","pos":{"e":332,"n":0,"u":0}},{"id":"n6rbyu","pos":{"e":-180,"n":0,"u":0}},{"id":"neixdg","pos":{"e":909,"n":0,"u":0}},{"id":"nhxpva","pos":{"e":493,"n":0,"u":0}},{"id":"nldg8r","pos":{"e":1112,"n":0,"u":0}},{"id":"nnw6aw","pos":{"e":1112,"n":350,"u":0}},{"id":"np8s6i","pos":{"e":1112,"n":350,"u":2240}},{"id":"n1arnfm","pos":{"e":8912,"n":350,"u":2240},"terminal":{"kind":"CONTINUATION","note":"CONT. ON SH.2","dn":"DN80","schedule":"SCH40"}},{"id":"n6zrei","pos":{"e":998,"n":0,"u":0}}],"runs":[{"id":"r49tym","from":"n2kpsn","to":"n6rbyu","dn":"DN80","schedule":"SCH40","inline":[{"id":"c5dksf","kind":"RED_CONC","offset":157,"dn":"DN150","dn2":"DN80"}],"visual":144},{"id":"r7pio6","from":"n6rbyu","to":"n3jgmg","dn":"DN80","schedule":"SCH40","inline":[{"id":"c9vy4s","kind":"BALL","offset":169.5,"bare":1},{"id":"cdzkgu","kind":"FILTER","offset":391.5,"bare":0,"lastFlange":"none"}],"visual":220},{"id":"rfiatp","from":"n3jgmg","to":"nhxpva","dn":"DN80","schedule":"SCH40","inline":[{"id":"c139xua","kind":"SUPPORT","offset":80.5}],"visual":248},{"id":"ri7d1r","from":"nhxpva","to":"neixdg","dn":"DN50","schedule":"SCH40","inline":[{"id":"cgacah","kind":"RED_CONC","offset":44.5,"dn":"DN80","dn2":"DN50"},{"id":"ckr4s3","kind":"REGULATOR","offset":252.5,"dn":"DN50"}],"visual":144},{"id":"rmcdr2","from":"neixdg","to":"n6zrei","dn":"DN50","schedule":"SCH40","inline":[{"id":"c5mwf2","kind":"RED_CONC","offset":44.5,"dn":"DN80","dn2":"DN50","flip":true}],"visual":144},{"id":"r7h1pv","from":"n6zrei","to":"nldg8r","dn":"DN80","schedule":"SCH40","inline":[{"id":"c14r5s5","kind":"SUPPORT","offset":64}],"visual":144},{"id":"roeg4x","from":"nldg8r","to":"nnw6aw","dn":"DN80","schedule":"SCH40","inline":[],"visual":350},{"id":"rqinem","from":"nnw6aw","to":"np8s6i","dn":"DN80","schedule":"SCH40","inline":[],"visual":590},{"id":"rsrrb3","from":"np8s6i","to":"n1arnfm","dn":"DN80","schedule":"SCH40","inline":[],"visual":650}],"weldOverrides":{},"dimOverrides":{"ri7d1r:2":{"hidden":true}},"measures":[{"id":"m1a0ub","a":"n2kpsn","b":"nldg8r"}],"id":"d16mk1","view3d":{"az":-45,"el":30,"welds":false,"size":"M"}});
+  await page.reload();
+  await page.waitForTimeout(700);
+  await page.click('#tidy');
+  await page.waitForTimeout(1200);
+  await page.evaluate(() => {
+    window.print = () => {};
+  });
+  await page.click('#print');
+  await page.waitForTimeout(300);
+  await page.click('[data-x="print"]');
+  await page.waitForTimeout(800);
+  const gap = await page.evaluate(() => {
+    const box = document.createElement('div');
+    box.style.cssText = 'position:absolute;left:0;top:0;width:1587px;height:1123px';
+    box.innerHTML = document.querySelector('#print-root svg').outerHTML.replace(/width="[^"]*mm" height="[^"]*mm"/, 'width="1587" height="1123"');
+    document.body.appendChild(box);
+    const svg = box.querySelector('svg');
+    const ring = svg.querySelector('.compass-ring');
+    const cx = +ring.getAttribute('cx');
+    const cy = +ring.getAttribute('cy');
+    const g = [...svg.children].find((e) => e.tagName === 'g' && /scale/.test(e.getAttribute('transform') || ''));
+    const toSheet = svg.getScreenCTM().inverse();
+    let best = Infinity;
+    for (const el of g.querySelectorAll('line, path, polygon, polyline, circle, rect, text')) {
+      const m = toSheet.multiply(el.getScreenCTM());
+      if (el.tagName === 'text') {
+        const b = el.getBBox();
+        for (const [x, y] of [[b.x, b.y], [b.x + b.width, b.y], [b.x, b.y + b.height], [b.x + b.width, b.y + b.height]]) {
+          const q = new DOMPoint(x, y).matrixTransform(m);
+          best = Math.min(best, Math.hypot(q.x - cx, q.y - cy));
+        }
+        continue;
+      }
+      const len = el.getTotalLength();
+      const n = Math.max(1, Math.ceil(len * 2));
+      for (let i = 0; i <= n; i += 1) {
+        const p = el.getPointAtLength((len * i) / n);
+        const q = new DOMPoint(p.x, p.y).matrixTransform(m);
+        best = Math.min(best, Math.hypot(q.x - cx, q.y - cy));
+      }
+    }
+    box.remove();
+    return Math.round(best * 10) / 10;
+  });
+  check('the printed drawing keeps clear of the north arrow and its N', gap, (v) => v >= 13.5, 'at least 13.5 mm from its middle');
+  await page.keyboard.press('Escape');
+}
+
 // A reducer put along a pipe over a support: the support goes to the pipe
 // beside it, not inside the reducer (it was left there on the same sheet).
 {
