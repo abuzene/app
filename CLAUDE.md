@@ -566,7 +566,15 @@ ships, and the decisions already taken, so they are not re-litigated.
   axis): points, pending olet ways and equipment boxes (those two only by
   quarter turns), refused when it would land on the line. Lengths, items
   and weld keys stay. A horizontal 45° pipe can fall on the screen's
-  vertical in some views: Rotate shows it.
+  vertical in some views: Rotate shows it. The side that stays is the
+  one the line starts from (`routeStart`, else the CONT. FROM end, else
+  the first point). **A tee's branch turns the same way** (his ask,
+  2026-10-26: "as I change an olet's direction, the same for a tee and
+  elbows; these outlets to the other side"): a tee on a straight header
+  (`teeSides`, via `turningSides`) offers **Branch goes** in the same
+  `[data-f="elbow-turn"]` select, the branch and all that hangs off it
+  rolled about the header's line by `turnElbow`; refused when the branch
+  comes back to the header.
 - **Closing a gap**: drawing from an open end and tapping an open end of
   **another piece** (`samePiece`) joins them (`connectNodes` in edit.ts, `onConnect`): one run when they lie
   on a line, else legs round a corner, the way with the fewest turns

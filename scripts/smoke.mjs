@@ -5627,6 +5627,54 @@ const couplingsNow = async () => (await drawingNow()).nodes.filter((n) => n.fitt
   await page.click('#tabs button:has-text("Route")');
 }
 
+/* ------------------------------ a tee's branch turned, like an olet's way */
+
+// "As I can change an olet's direction, I want the same for a tee — and
+// elbows too; these outlets to the other side, 2.58 and 2.56" (his ask,
+// 2026-10-26): a header with a tee near one end, its branch south, and an
+// elbow at the other end going north. Branch goes: North, and the elbow's
+// line after it: South — each flipped, every length and weld kept.
+{
+  await startNewDrawing();
+  await page.click('#tabs button:has-text("Command")');
+  await page.fill('#command-text', '2"\nSCH40\nORIGIN 0 0 0\nEND FLG\nE 500\nMARK t\nE 1840\nN 250\nEND FLG\nGOTO t\nS 250\nEND FLG');
+  await page.click('[data-a="run-commands"]');
+  await page.waitForTimeout(1000);
+  await page.keyboard.press('Escape');
+  await page.click('#tabs button:has-text("Route")');
+  const weldsBefore = await (async () => {
+    await page.click('#tabs button:has-text("Welds")');
+    await page.waitForTimeout(200);
+    const r = await page.locator('#tab-body table tbody tr').allInnerTexts();
+    await page.click('#tabs button:has-text("Route")');
+    return r.map((x) => x.split('\t').slice(3).join(' ')).join(' | ');
+  })();
+  const pickPoint = async (id) => {
+    const dot = page.locator(`#canvas circle.hit-dot[data-node="${id}"]`);
+    await dot.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+    await dot.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+    await page.waitForTimeout(300);
+  };
+  let d = await drawingNow();
+  const tee = d.nodes.find((n) => n.pos.e === 500 && n.pos.n === 0);
+  const elbow = d.nodes.find((n) => n.pos.e === 2340 && n.pos.n === 0);
+  await pickPoint(tee.id);
+  check('a tee offers which way its branch goes', `${await page.locator('#tab-body .row:has([data-f="elbow-turn"]) label').innerText()} ${await page.locator('[data-f="elbow-turn"] option').count()}`, (v) => v === 'Branch goes 8', 'Branch goes 8');
+  await page.selectOption('[data-f="elbow-turn"]', { label: 'North' });
+  await page.waitForTimeout(400);
+  await pickPoint(elbow.id);
+  await page.selectOption('[data-f="elbow-turn"]', { label: 'South' });
+  await page.waitForTimeout(400);
+  d = await drawingNow();
+  const ends = d.nodes.filter((n) => n.terminal && n.pos.e !== 0).map((n) => `${n.pos.e},${n.pos.n}`).sort().join(' ');
+  check('the branch and the elbow\'s leg go to the other side', ends, (v) => v === '2340,-250 500,250', '2340,-250 500,250');
+  await page.click('#tabs button:has-text("Welds")');
+  await page.waitForTimeout(200);
+  const after = (await page.locator('#tab-body table tbody tr').allInnerTexts()).map((x) => x.split('\t').slice(3).join(' ')).join(' | ');
+  check('with every weld and cut length as it was', after, (v) => v === weldsBefore, weldsBefore);
+  await page.click('#tabs button:has-text("Route")');
+}
+
 // A reducer put along a pipe over a support: the support goes to the pipe
 // beside it, not inside the reducer (it was left there on the same sheet).
 {

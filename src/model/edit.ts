@@ -122,9 +122,46 @@ function elbowSides(drawing: Drawing, nodeId: string): ElbowSides | null {
   if (Math.abs(legs[0].e * legs[1].e + legs[0].n * legs[1].n + legs[0].u * legs[1].u + 1) < 1e-6) return null;
   const sides = ends.map((e) => sideFrom(drawing, e!.id, nodeId));
   if ([...sides[0]].some((id) => sides[1].has(id))) return null;
-  const first = drawing.nodes[0]?.id;
+  // The side the line starts from stays: where the gas comes in, else the
+  // end carried on from another sheet, else the first point drawn.
+  const first =
+    drawing.nodes.find((n) => n.id === drawing.routeStart)?.id ??
+    drawing.nodes.find((n) => /FROM/i.test(n.terminal?.note ?? ''))?.id ??
+    drawing.nodes[0]?.id;
   const stay = sides[0].has(first) ? 0 : sides[1].has(first) ? 1 : sides[0].size >= sides[1].size ? 0 : 1;
   return { fixed: legs[stay], moving: legs[1 - stay], points: sides[1 - stay], next: ends[1 - stay]!.id };
+}
+
+/**
+ * A tee's two sides (his ask, 2026-10-26: "as I can change an olet's
+ * direction, the same for a tee"): the header stays, the branch and all
+ * that hangs off it turns about the header's line. Null when the point is
+ * not a tee on a straight header, or the branch comes back to the header.
+ */
+function teeSides(drawing: Drawing, nodeId: string): ElbowSides | null {
+  const node = drawing.nodes.find((n) => n.id === nodeId);
+  const runs = drawing.runs.filter((r) => r.from === nodeId || r.to === nodeId);
+  if (!node || runs.length !== 3) return null;
+  const ends = runs.map((r) => drawing.nodes.find((n) => n.id === (r.from === nodeId ? r.to : r.from)));
+  if (ends.some((e) => !e)) return null;
+  const legs = ends.map((e) => {
+    const d = sub(e!.pos, node.pos);
+    return scale3(d, 1 / (length3(d) || 1));
+  });
+  const dot = (a: Vec3, b: Vec3) => a.e * b.e + a.n * b.n + a.u * b.u;
+  for (let b = 0; b < 3; b += 1) {
+    const [i, j] = [0, 1, 2].filter((x) => x !== b);
+    if (Math.abs(dot(legs[i], legs[j]) + 1) > 1e-6) continue;
+    const points = sideFrom(drawing, ends[b]!.id, nodeId);
+    if (points.has(ends[i]!.id) || points.has(ends[j]!.id)) return null;
+    return { fixed: legs[i], moving: legs[b], points, next: ends[b]!.id };
+  }
+  return null;
+}
+
+/** A corner's sides, or a tee's: what stays and what turns. */
+function turningSides(drawing: Drawing, nodeId: string): ElbowSides | null {
+  return elbowSides(drawing, nodeId) ?? teeSides(drawing, nodeId);
 }
 
 /**
@@ -136,7 +173,7 @@ function elbowSides(drawing: Drawing, nodeId: string): ElbowSides | null {
  * along an axis).
  */
 export function elbowTurns(drawing: Drawing, nodeId: string): { steps: number; way: Vec3; label: string }[] | null {
-  const sides = elbowSides(drawing, nodeId);
+  const sides = turningSides(drawing, nodeId);
   if (!sides) return null;
   const k = sides.fixed;
   if (![k.e, k.n, k.u].every((c) => Math.abs(c) < 1e-6 || Math.abs(Math.abs(c) - 1) < 1e-6)) return null;
@@ -171,9 +208,9 @@ export function elbowTurns(drawing: Drawing, nodeId: string): { steps: number; w
  * left off the axes.
  */
 export function turnElbow(drawing: Drawing, nodeId: string, steps: number): string | null {
-  const sides = elbowSides(drawing, nodeId);
+  const sides = turningSides(drawing, nodeId);
   const node = drawing.nodes.find((n) => n.id === nodeId);
-  if (!sides || !node || !elbowTurns(drawing, nodeId)) return 'Only a corner of two pipes whose other side runs along a line can be turned.';
+  if (!sides || !node || !elbowTurns(drawing, nodeId)) return 'Only an elbow, or a tee on a straight header, whose leg that stays runs along a line can be turned.';
   if (((steps % 8) + 8) % 8 === 0) return null;
   const k = sides.fixed;
   const turn = (p: Vec3): Vec3 => {

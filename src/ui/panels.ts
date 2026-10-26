@@ -175,10 +175,12 @@ function oletAlongHeader(host: Host, nodeId: string): string {
  * with it.
  */
 function elbowTurnRow(host: Host, nodeId: string, fitting: string): string {
-  if (fitting !== 'ELBOW_90' && fitting !== 'ELBOW_45' && fitting !== 'BEND' && fitting !== 'MITRE') return '';
+  // A tee's branch turns the same way about its header (his ask, 2026-10-26).
+  const tee = fitting === 'TEE' || fitting === 'TEE_REDUCING';
+  if (!tee && fitting !== 'ELBOW_90' && fitting !== 'ELBOW_45' && fitting !== 'BEND' && fitting !== 'MITRE') return '';
   const turns = elbowTurns(host.state.drawing, nodeId);
   if (!turns) return '';
-  return `<div class="row"><label>Line after it goes</label><select data-f="elbow-turn">${turns
+  return `<div class="row"><label>${tee ? 'Branch goes' : 'Line after it goes'}</label><select data-f="elbow-turn">${turns
     .map((t) => `<option value="${t.steps}"${t.steps === 0 ? ' selected' : ''}>${esc(t.label)}${t.steps === 0 ? ' (as now)' : ''}</option>`)
     .join('')}</select></div>`;
 }
@@ -1193,11 +1195,12 @@ function wire(body: HTMLElement, host: Host): void {
     nodeEditor.querySelector<HTMLSelectElement>('[data-f="elbow-turn"]')?.addEventListener('change', (e) => {
       const steps = Number((e.target as HTMLSelectElement).value);
       let refused: string | null = null;
-      host.edit('Turn elbow', (d) => {
+      const tee = (host.state.analysis.nodeInfo.get(id)?.degree ?? 0) === 3;
+      host.edit(tee ? 'Turn tee branch' : 'Turn elbow', (d) => {
         refused = turnElbow(d, id, steps);
       });
       if (refused) host.notify(refused);
-      else host.notify('Elbow turned: the line after it goes round with it, every length kept.');
+      else host.notify(tee ? 'Branch turned: all on it goes round with it, every length kept.' : 'Elbow turned: the line after it goes round with it, every length kept.');
     });
     nodeEditor.querySelectorAll<HTMLInputElement>('[data-olet-sheet]').forEach((input) => {
       input.addEventListener('change', () => {
