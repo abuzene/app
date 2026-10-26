@@ -2108,8 +2108,8 @@ function runStations(drawing: Drawing, nodeById: Map<string, IsoNode>): Map<stri
 /** A, B, … Z, then AA, AB, … : the letters the pipes are marked with. */
 /**
  * The order the line is walked in for its weld numbers and pipe letters:
- * from where it starts (the end it carries on from another sheet, else the
- * first point drawn), straight on through each point while it can, along
+ * from where it starts (the point marked as where the gas comes in, else
+ * the end it carries on from another sheet, else the first point drawn), straight on through each point while it can, along
  * the main line to its end, then each branch in the order it was passed,
  * and on to the next piece. `rank` gives each run its place, `reversed`
  * the runs walked from their `to` end (`reversedRank` the same by place).
@@ -2177,6 +2177,7 @@ export function routeOrder(drawing: Drawing): { rank: Map<string, number>; rever
     }
     const nodes = drawing.nodes.filter((n) => piece.has(n.id));
     const start =
+      nodes.find((n) => n.id === drawing.routeStart) ??
       nodes.find((n) => degree(n.id) === 1 && /FROM/i.test(n.terminal?.note ?? '')) ??
       nodes.find((n) => degree(n.id) === 1 && n.id === run.from) ??
       nodes.find((n) => degree(n.id) === 1) ??

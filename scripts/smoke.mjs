@@ -5570,6 +5570,63 @@ const couplingsNow = async () => (await drawingNow()).nodes.filter((n) => n.fitt
   await page.click('#tabs button:has-text("Route")');
 }
 
+/* ------------------------------ weld numbers along the flow of the gas */
+
+// "A button that puts the weld numbers in order with the flow of the gas;
+// I mark where it starts, weld 1 is the one nearest it, and on from there"
+// (his ask, 2026-10-26). A tee line: marked at the far flange, W1 is that
+// flange's weld, then the elbow, the tee, and the branch last.
+{
+  await startNewDrawing();
+  await page.click('#tabs button:has-text("Command")');
+  await page.fill('#command-text', '3"\nSCH40\nORIGIN 0 0 0\nEND FLG\nE 2000\nMARK t\nE 2000\nN 1500\nEND FLG\nGOTO t\nU 1000\nEND FLG');
+  await page.click('[data-a="run-commands"]');
+  await page.waitForTimeout(1000);
+  await page.keyboard.press('Escape');
+  const order = async () => {
+    await page.click('#tabs button:has-text("Welds")');
+    await page.waitForTimeout(200);
+    const rows = await page.locator('#tab-body table tbody tr').allInnerTexts();
+    return rows.map((r) => r.split('\t')[3]?.replace('PIPE / ', '')).join(', ');
+  };
+  const own = await order();
+  // A number typed by hand, which numbering along the flow takes afresh.
+  await page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem('iso-draw.drawing.v1'));
+    const key = Object.keys(d.weldOverrides ?? {})[0];
+    d.weldOverrides = { ...d.weldOverrides, [key ?? 'x']: { ...(d.weldOverrides?.[key] ?? {}), number: 'X9' } };
+    localStorage.setItem('iso-draw.drawing.v1', JSON.stringify(d));
+  });
+  await page.reload();
+  await page.waitForTimeout(700);
+  const d = await drawingNow();
+  const far = d.nodes.filter((n) => n.terminal).sort((a, b) => b.pos.n - a.pos.n)[0];
+  const dot = page.locator(`#canvas circle.hit-dot[data-node="${far.id}"]`);
+  await dot.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await dot.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+  await page.waitForTimeout(300);
+  await page.click('#tabs button:has-text("Route")');
+  await page.waitForTimeout(200);
+  await page.click('#tab-body [data-a="route-start"]');
+  await page.waitForTimeout(300);
+  await page.click('.dialog-backdrop [data-confirm]');
+  await page.waitForTimeout(500);
+  const flow = await order();
+  check('Weld 1 starts here: W1 at the flange marked, then its elbow, the tees, the far end and the branch last', flow, (v) => v === 'WELD NECK FLANGE, 90 ELBOW LR, 90 ELBOW LR, EQUAL TEE, EQUAL TEE, WELD NECK FLANGE, EQUAL TEE, WELD NECK FLANGE', 'flange, elbow, elbow, tee, tee, flange, tee, flange');
+  const numbers = await page.locator('#tab-body table tbody tr td:first-child input').evaluateAll((es) => es.map((e) => e.value).join(' '));
+  check('and numbered afresh, the one typed by hand too', numbers, (v) => v === 'W1 W2 W3 W4 W5 W6 W7 W8', 'W1 … W8');
+  await page.click('#tabs button:has-text("Route")');
+  await page.waitForTimeout(200);
+  check('the start is marked on screen', await page.locator('#canvas .flow-start').count(), (v) => v === 1, '1');
+  await page.keyboard.press('Escape');
+  await page.click('#tabs button:has-text("Welds")');
+  await page.waitForTimeout(200);
+  await page.click('#tab-body [data-a="flow-reset"]');
+  await page.waitForTimeout(400);
+  check('Back to the line\'s own start: the order it had', await order(), (v) => v === own, own);
+  await page.click('#tabs button:has-text("Route")');
+}
+
 // A reducer put along a pipe over a support: the support goes to the pipe
 // beside it, not inside the reducer (it was left there on the same sheet).
 {

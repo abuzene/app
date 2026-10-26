@@ -1300,7 +1300,20 @@ ships, and the decisions already taken, so they are not re-litigated.
   while it can, the main line to its end, then each branch in the order it
   was passed; pipe letters follow the same walk. THD joints and
   skipped ones are marked but unnumbered. A transition is welded on its
-  CS side only. **Numbers run on from the last one typed** (his ask,
+  CS side only. **Along the flow of the gas** (his ask, 2026-10-26: "a
+  button that orders the weld numbers with the flow; I mark the start,
+  weld 1 the nearest to it, and on from there in order"):
+  `drawing.routeStart` (a point id) is where the gas comes in; `routeOrder`
+  walks its piece from it before any other rule, so weld numbers and pipe
+  letters follow (`splitSheet`/`mainLineCuts` start there too; the next
+  sheet starts again at its CONT. FROM). Set by the point panel's **Weld 1
+  starts here** (`[data-a="route-start"]`) or the Welds tab's **Number
+  along the flow from the picked point** (`[data-a="flow-number"]`, a point
+  or an `n:` weld picked), cleared by **Back to the line's own start**
+  (`[data-a="flow-reset"]`), all through `host.numberFrom` → `numberFrom`
+  in main.ts: numbers typed by hand would break the order, so they (and
+  `alone`) are numbered afresh, after a confirmation. On screen only, the
+  point wears a blue ring and START beyond it (`.flow-start`). **Numbers run on from the last one typed** (his ask,
   2026-09-25: "renamed TAR 4.8, the next becomes TAR 4.9"; his sheet read
   W10, -, W12): a typed number ending in digits sets the prefix and the
   count for the welds after it; one with no digits ("-", "FW") is a name

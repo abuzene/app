@@ -266,7 +266,7 @@ export function splitSheet(drawing: Drawing, runId: string, distance: number, he
   const ends = legs.map((r) => (r.from === cut ? r.to : r.from));
   const sides = ends.map((id) => sideFrom(work, id, cut));
   if ([...sides[0]].some((id) => sides[1].has(id))) return 'The line comes round to itself past here: end the sheet where it does not.';
-  const start = work.nodes.find((n) => /FROM/i.test(n.terminal?.note ?? '')) ?? work.nodes[0];
+  const start = work.nodes.find((n) => n.id === work.routeStart) ?? work.nodes.find((n) => /FROM/i.test(n.terminal?.note ?? '')) ?? work.nodes[0];
   const later = sides[0].has(start?.id ?? '') ? 1 : 0;
   const moving = sides[later];
   const outRun = legs[later];
@@ -303,6 +303,8 @@ export function splitSheet(drawing: Drawing, runId: string, distance: number, he
   rest.circles = (rest.circles ?? []).filter((c) => c.node && moving.has(c.node));
   if (rest.circles.length === 0) rest.circles = undefined;
   rest.view3d = undefined;
+  // The gas comes into the next sheet where this one leaves off.
+  rest.routeStart = undefined;
   rest.id = uid('d');
   return { keep, rest };
 }

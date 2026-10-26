@@ -121,6 +121,8 @@ export function contentCss({ k, u, symbol = 4, dark = false }: ContentStyleOptio
 .node-label { fill: ${accent}; font-size: ${t(0.85)}px; font-weight: 600; }
 .node-mark { fill: none; stroke: ${accent}; stroke-width: ${w(2)}; }
 .node-mark.start { stroke-dasharray: ${w(3)} ${w(2)}; }
+.flow-start { fill: none; stroke: ${accent}; stroke-width: ${w(2.4)}; pointer-events: none; }
+.flow-start-text { fill: ${accent}; font-weight: 700; pointer-events: none; }
 .run-handle { fill: ${dark ? '#0d1117' : '#ffffff'}; stroke: ${accent}; stroke-width: ${w(2)}; pointer-events: none; }
 .node.selected .node-label { fill: ${accent}; }
 `;

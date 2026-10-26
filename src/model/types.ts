@@ -455,6 +455,13 @@ export interface Drawing {
    * side drags"), which shifts the piece it belongs to.
    */
   pieceShift?: Record<string, Vec3>;
+  /**
+   * The point the gas comes in at, as he marked it (his ask, 2026-10-26:
+   * "mark where the start is; weld 1 the one nearest it, and on from there
+   * in order"): the route, and so the weld numbers and pipe letters, is
+   * walked from it.
+   */
+  routeStart?: string;
 }
 
 export interface DimOverride {

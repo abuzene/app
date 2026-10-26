@@ -886,6 +886,18 @@ export function renderDrawing(state: RenderState): string {
     else if (state.hitSize !== undefined && (!info || info.degree === 0)) {
       nodes += `<circle class="node-mark start" cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="${(size * 0.8).toFixed(2)}"/>`;
     }
+    // Where the gas comes in, as marked for the weld numbers: on screen only.
+    if (state.hitSize !== undefined && drawing.routeStart === node.id) {
+      // Its word beyond the point, away from the pipe leaving it.
+      const leaving = drawing.runs.find((r) => r.from === node.id || r.to === node.id);
+      const far = leaving ? paper(leaving.from === node.id ? leaving.to : leaving.from) : null;
+      const len = far ? Math.hypot(far.x - p.x, far.y - p.y) : 0;
+      const ux = len > 1e-6 ? (p.x - far!.x) / len : 0;
+      const uy = len > 1e-6 ? (p.y - far!.y) / len : -1;
+      nodes +=
+        `<circle class="flow-start" cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="${(size * 1.25).toFixed(2)}"/>` +
+        `<text class="flow-start-text" x="${(p.x + ux * size * 3.2).toFixed(2)}" y="${(p.y + uy * size * 3.2 + size * 0.3).toFixed(2)}" text-anchor="middle" style="font-size:${(size * 0.9).toFixed(2)}px">START</text>`;
+    }
     nodes += `</g>`;
   }
 

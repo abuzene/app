@@ -336,6 +336,9 @@ const host: Host = {
   divideIntoSheets() {
     void divideIntoSheets();
   },
+  numberFrom(nodeId) {
+    void numberFrom(nodeId);
+  },
   undoDivision() {
     void undoDivision();
   },
@@ -3590,6 +3593,36 @@ function cutSheet(project: string, runId: string, at: number): { here: number; t
   return { here, total, rest: state.drawing.id ?? '' };
 }
 
+/**
+ * The weld numbers put in order along the flow of the gas (his ask,
+ * 2026-10-26): the point picked is where the gas comes in, the route is
+ * walked from it (`drawing.routeStart`, read by `routeOrder`), so weld 1
+ * is the one nearest it and the numbers run on along the line, then down
+ * each branch as it is passed. Numbers typed by hand would break the
+ * order: they are numbered afresh, once he agrees. Null goes back to the
+ * line's own start.
+ */
+async function numberFrom(nodeId: string | null): Promise<void> {
+  const typed = Object.values(state.drawing.weldOverrides ?? {}).filter((o) => (o.number ?? '').trim() !== '').length;
+  if (typed > 0) {
+    const ok = await confirmDialog(
+      'Number the welds along the flow',
+      `${nodeId ? 'Weld 1 goes to the weld nearest the point picked' : 'The numbers go back to the line\'s own start'}, and the rest run on along the flow. The ${typed} number${typed === 1 ? '' : 's'} typed by hand ${typed === 1 ? 'is' : 'are'} numbered afresh too.`,
+      'Number afresh',
+    );
+    if (!ok) return;
+  }
+  host.edit(nodeId ? 'Weld numbers along the flow' : 'Weld numbers from the line\'s start', (d) => {
+    d.routeStart = nodeId ?? undefined;
+    for (const o of Object.values(d.weldOverrides ?? {})) {
+      delete o.number;
+      delete o.alone;
+    }
+  });
+  const first = state.analysis.welds.find((w) => !w.skipped)?.number;
+  host.notify(nodeId ? `Welds numbered along the flow from the point picked${first ? `: ${first} is the one nearest it` : ''}.` : 'Welds numbered from the line\'s own start again.');
+}
+
 /** What a division into sheets undoes to: the project's sheets as they were. */
 const DIVIDE_UNDO_KEY = 'iso-draw.divide.v1';
 interface DivideUndo {
@@ -3617,7 +3650,7 @@ function divideUndo(): DivideUndo | null {
  * with the start side.
  */
 function mainLineCuts(drawing: Drawing): { runId: string; at: number }[] {
-  const start = drawing.nodes.find((n) => /FROM/i.test(n.terminal?.note ?? '')) ?? drawing.nodes[0];
+  const start = drawing.nodes.find((n) => n.id === drawing.routeStart) ?? drawing.nodes.find((n) => /FROM/i.test(n.terminal?.note ?? '')) ?? drawing.nodes[0];
   if (!start) return [];
   const out: { runId: string; at: number }[] = [];
   const used = new Set<string>();

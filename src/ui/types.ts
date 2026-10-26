@@ -73,6 +73,8 @@ export interface Host {
   newSheetInProject(): void;
   /** Ends the sheet at a pipe; all beyond it goes to a new sheet after this one. */
   splitSheetHere(runId: string): void;
+  /** Numbers the welds along the flow from this point (weld 1 nearest it); null goes back to the line's own start. */
+  numberFrom(nodeId: string | null): void;
   /** Divides the drawing on screen into as few sheets as read clearly. */
   divideIntoSheets(): void;
   /** Puts the project's sheets back as they were before the last division. */

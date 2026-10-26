@@ -265,6 +265,7 @@ function nodeProperties(host: Host, nodeId: string): string {
     ${balloonButtons(host, [`node:${nodeId}`, `term:${nodeId}`, ...drawing.runs.filter((r) => r.from === nodeId || r.to === nodeId).map((r) => `flg:${nodeId}:${r.id}`)])}
     ${node.flange ? '<button class="btn-line danger" data-a="remove-flanges">Remove both flanges — join the pipe straight</button>' : ''}
     <button class="btn-line" data-a="measure-from">Dimension from here</button>
+    ${(info?.degree ?? 0) > 0 ? `<button class="btn-line" data-a="route-start" title="The gas comes in here: weld 1 is the one nearest this point, and the numbers run on along the flow">${drawing.routeStart === nodeId ? 'Weld 1 starts here ✓' : 'Weld 1 starts here'}</button>` : ''}
     ${isEnd && (info?.degree ?? 0) === 1 ? '<button class="btn-line" data-a="join-from">Join to another end</button>' : ''}
     ${oletAlone ? `<button class="btn-line danger" data-a="remove-olet">Remove ${node.halfCoupling ? 'half coupling' : 'olet'} — the header runs on whole</button>` : isCouplingPoint(drawing, nodeId) ? `<button class="btn-line danger" data-a="delete-node">Remove ${drawing.nodes.find((n) => n.id === nodeId)?.union ? 'union' : 'coupling'} — the pipe runs straight through</button>` : isPlainPoint(drawing, nodeId) ? '<button class="btn-line danger" data-a="delete-node">Remove point — the pipe runs straight through</button>' : '<button class="btn-line danger" data-a="delete-node">Delete point and its runs</button>'}
   </div>
@@ -660,6 +661,7 @@ function weldNumbering(host: Host): string {
     project: `Across the project: ${example} 3.1, ${example} 1/2.1 …`,
   })}</select></div>
   ${code ? `<div class="row"><label>Project code</label><input type="text" data-f="weld-code" maxlength="3" value="${esc(code)}" /></div>` : ''}
+  ${flowStart(host)}
   <p class="empty-note">${
     code
       ? `Every sheet of ${esc(project)}: the code, the size, then a number per size running on from sheet 1 onwards, along the route. A number typed over by hand stays as typed.`
@@ -668,6 +670,39 @@ function weldNumbering(host: Host): string {
         : 'Name the project in the Title tab to number its welds across all its sheets.'
   }</p>
 </div>`;
+}
+
+/**
+ * Where the weld numbers start: the point the gas comes in at, as he marks
+ * it (his ask, 2026-10-26: "a button that puts the weld numbers in order
+ * with the flow of the gas; I mark the start, weld 1 is the nearest to it,
+ * and on from there in order").
+ */
+function flowStart(host: Host): string {
+  const { drawing, selection } = host.state;
+  const picked = flowPoint(host);
+  const marked = drawing.routeStart && drawing.nodes.some((n) => n.id === drawing.routeStart) ? drawing.routeStart : null;
+  const where = (id: string) => {
+    const p = drawing.nodes.find((n) => n.id === id)?.pos;
+    return p ? `E ${Math.round(p.e)} N ${Math.round(p.n)} U ${Math.round(p.u)}` : '';
+  };
+  return `<div class="row"><label>Gas comes in</label><span>${marked ? `at the point marked, ${where(marked)}` : 'at the line\'s own start'}</span></div>
+  <div class="btn-row">
+    <button class="btn-line${picked ? ' solid' : ''}" data-a="flow-number"${picked ? '' : ' disabled'} title="Weld 1 nearest the picked point, then on along the flow">Number along the flow from the picked ${selection?.kind === 'weld' ? 'weld' : 'point'}</button>
+    ${marked ? '<button class="btn-line" data-a="flow-reset">Back to the line\'s own start</button>' : ''}
+  </div>
+  ${picked ? '' : '<p class="empty-note">Pick the point (or the weld) where the gas comes in, then number along the flow from it.</p>'}`;
+}
+
+/** The point the flow numbering would start at: the point picked, or the point of a weld picked. */
+function flowPoint(host: Host): string | null {
+  const { drawing, selection } = host.state;
+  if (selection?.kind === 'node') return drawing.nodes.some((n) => n.id === selection.id) ? selection.id : null;
+  if (selection?.kind === 'weld' && selection.key.startsWith('n:')) {
+    const id = selection.key.split(':')[1];
+    return drawing.nodes.some((n) => n.id === id) ? id : null;
+  }
+  return null;
 }
 
 /** Every length of pipe by its letter: what to cut, and what it runs between. */
@@ -1138,6 +1173,7 @@ function wire(body: HTMLElement, host: Host): void {
     nodeEditor.querySelector('[data-a="draw-from"]')?.addEventListener('click', () => {
       host.continueFrom(id);
     });
+    nodeEditor.querySelector('[data-a="route-start"]')?.addEventListener('click', () => host.numberFrom(id));
     nodeEditor.querySelector<HTMLInputElement>('[data-f="olet-along"]')?.addEventListener('change', (e) => {
       const value = Math.round(Number((e.target as HTMLInputElement).value));
       if (!(value > 0)) return;
@@ -1507,6 +1543,11 @@ function wire(body: HTMLElement, host: Host): void {
     const project = (e.target as HTMLSelectElement).value === 'project';
     host.setProjectWeldCode(project ? host.state.drawing.meta.weldCode || suggestWeldCode(host.state.drawing.meta.project || '') : null);
   });
+  body.querySelector('[data-a="flow-number"]')?.addEventListener('click', () => {
+    const point = flowPoint(host);
+    if (point) host.numberFrom(point);
+  });
+  body.querySelector('[data-a="flow-reset"]')?.addEventListener('click', () => host.numberFrom(null));
   body.querySelector<HTMLInputElement>('[data-f="weld-code"]')?.addEventListener('change', (e) => {
     const value = (e.target as HTMLInputElement).value.trim();
     if (value) host.setProjectWeldCode(value);
