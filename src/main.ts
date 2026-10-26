@@ -13,7 +13,7 @@ import { initialCommandState, runCommands } from './model/commands';
 import { applyAgainstFree, applyKeepingOthers, closePipeStretch, sheetCutSpot, splitSheet, mergeOlet, applyMeasureOnLine, moveNodes, replaceComponent, addMeasure, applyMeasureToOlet, autoCouplings, DASHED_NOTE, deleteRunGroup, measureTypeable, applyChainDimension, applyDimension, connectNodes, removeMeasure, deletePoint, ensureNode, isCouplingPoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, route, runLength, setLineSize, setRunDashed, setRunDirect, startFromEquipment, straightenBranches, stretchRun, syncEquipment, uncoverPoints } from './model/edit';
 import { DN_LIST, schedulesFor, sizeLabel, sizeOf } from './model/pipe-data';
 import { northArrow, paperOf, renderDrawing, runOffsetAtPaper, symbolSizeFor } from './render/renderer';
-import { SHEET_STAMPS, renderSheet, sheetStamp, sheetSymbolSize, type SheetSize } from './render/sheet';
+import { SHEET_STAMPS, renderSheet, sheetLegibility, sheetStamp, sheetSymbolSize, type SheetSize } from './render/sheet';
 import { Canvas } from './ui/canvas';
 import { esc, fileStem, renderPanel, renderTabs } from './ui/panels';
 import { renderTools } from './ui/tools';
@@ -332,6 +332,16 @@ const host: Host = {
   },
   splitSheetHere(runId) {
     splitSheetHere(runId);
+  },
+  divideIntoSheets() {
+    void divideIntoSheets();
+  },
+  undoDivision() {
+    void undoDivision();
+  },
+  canUndoDivision() {
+    const saved = divideUndo();
+    return !!saved && saved.project === (state.drawing.meta.project || '');
   },
   newSheetInProject() {
     newSheetInProject();
@@ -3528,22 +3538,30 @@ function splitSheetHere(runId: string): void {
     host.notify('No bare pipe there to end the sheet on: pick a pipe with a length of pipe in it.');
     return;
   }
-  const here = sheetNumber(state.drawing.meta.sheet);
-  const trial = splitSheet(state.drawing, runId, at, here);
-  if (typeof trial === 'string') {
-    host.notify(trial);
+  const done = cutSheet(project, runId, at);
+  if (typeof done === 'string') {
+    host.notify(done);
     return;
   }
+  host.notify(`Sheet ${done.here} ends at the cut (CONT. ON SH.${done.here + 1}); the rest is sheet ${done.here + 1} of ${done.total}, open now.`);
+}
+
+/**
+ * The sheet on screen cut at a pipe, `at` mm along it: the start side kept
+ * ending "CONT. ON SH.k+1", the rest a new sheet k+1 after it, open now.
+ * Says why not, else which sheet it was and how many there are now.
+ */
+function cutSheet(project: string, runId: string, at: number): { here: number; total: number; rest: string } | string {
+  const here = sheetNumber(state.drawing.meta.sheet);
+  const trial = splitSheet(state.drawing, runId, at, here);
+  if (typeof trial === 'string') return trial;
   // Room for it first: the sheets after this one move up one.
   keepNow();
   makeRoomAfter(project, here);
   const kept = loadLibrary().find((e) => e.id === state.drawing.id)?.drawing;
   const base = kept ? (JSON.parse(JSON.stringify(kept)) as Drawing) : state.drawing;
   const split = splitSheet(base, runId, at, here);
-  if (typeof split === 'string') {
-    host.notify(split);
-    return;
-  }
+  if (typeof split === 'string') return split;
   const total = loadLibrary().filter((e) => (e.drawing.meta.project || '') === project).length + 1;
   split.keep.meta = { ...split.keep.meta, sheet: `${here} of ${total}` };
   split.rest.meta = { ...split.rest.meta, sheet: `${here + 1} of ${total}`, notes: undefined, stamp: split.keep.meta.stamp };
@@ -3569,7 +3587,176 @@ function splitSheetHere(runId: string): void {
   state.selection = null;
   recompute();
   render();
-  host.notify(`Sheet ${here} ends at the cut (CONT. ON SH.${here + 1}); the rest is sheet ${here + 1} of ${total}, open now.`);
+  return { here, total, rest: state.drawing.id ?? '' };
+}
+
+/** What a division into sheets undoes to: the project's sheets as they were. */
+const DIVIDE_UNDO_KEY = 'iso-draw.divide.v1';
+interface DivideUndo {
+  project: string;
+  /** The sheet that was on screen. */
+  onScreen: string;
+  sheets: Drawing[];
+  /** The sheets the division made. */
+  made: string[];
+}
+
+function divideUndo(): DivideUndo | null {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(DIVIDE_UNDO_KEY) ?? 'null') as DivideUndo | null;
+    return parsed && Array.isArray(parsed.sheets) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Where the line on screen could end its sheet: spots on bare pipe along
+ * the main line, from the line's start (as `splitSheet` reckons it) to its
+ * far end, in that order. What hangs off the main line before a spot stays
+ * with the start side.
+ */
+function mainLineCuts(drawing: Drawing): { runId: string; at: number }[] {
+  const start = drawing.nodes.find((n) => /FROM/i.test(n.terminal?.note ?? '')) ?? drawing.nodes[0];
+  if (!start) return [];
+  const out: { runId: string; at: number }[] = [];
+  const used = new Set<string>();
+  let node = start.id;
+  let inbound: { e: number; n: number; u: number } | null = null;
+  const pos = (id: string) => drawing.nodes.find((n) => n.id === id)!.pos;
+  for (let guard = 0; guard < 2000; guard += 1) {
+    const open = drawing.runs.filter((r) => !used.has(r.id) && (r.from === node || r.to === node));
+    if (open.length === 0) break;
+    const way = (r: Run) => {
+      const a = pos(node);
+      const b = pos(r.from === node ? r.to : r.from);
+      const l = Math.hypot(b.e - a.e, b.n - a.n, b.u - a.u) || 1;
+      return { e: (b.e - a.e) / l, n: (b.n - a.n) / l, u: (b.u - a.u) / l };
+    };
+    const run = (inbound && open.find((r) => { const d = way(r); return d.e * inbound!.e + d.n * inbound!.n + d.u * inbound!.u > 0.999; })) || open[0];
+    used.add(run.id);
+    const forward = run.from === node;
+    const total = runLength(drawing, run);
+    const items = run.inline.filter((c) => !isMark(c.kind)).sort((x, y) => x.offset - y.offset);
+    const gaps: [number, number][] = [];
+    let cursor = 0;
+    for (const comp of items) {
+      const half = itemHalf(drawing, run, comp);
+      if (comp.offset - half > cursor) gaps.push([cursor, comp.offset - half]);
+      cursor = Math.max(cursor, comp.offset + half);
+    }
+    if (total > cursor) gaps.push([cursor, total]);
+    const spots = gaps.filter(([a, b]) => b - a > 60).map(([a, b]) => Math.round((a + b) / 2));
+    for (const at of forward ? spots : spots.reverse()) out.push({ runId: run.id, at });
+    inbound = way(run);
+    node = forward ? run.to : run.from;
+  }
+  return out;
+}
+
+/** Whether a drawing reads clearly on its printed sheet. */
+function readsClearly(drawing: Drawing): boolean {
+  return sheetLegibility(drawing, analyse(drawing)).clear;
+}
+
+/**
+ * Divides the drawing on screen into as few sheets as read clearly (his
+ * ask, 2026-10-26: "a button that divides the drawing into sheets so each
+ * sheet is seen clearly, as few sheets as possible, and a way back if the
+ * division does not suit me"). Along the main line, each sheet is ended as
+ * far on as it still reads clearly (`sheetLegibility`: its lists fit the
+ * column, its lettering is not crowded), found by halving the spots on
+ * bare pipe, and cut there as End the sheet here does; the rest is weighed
+ * up again. The project's sheets as they were are kept for Undo division.
+ */
+async function divideIntoSheets(): Promise<void> {
+  const project = state.drawing.meta.project || '';
+  if (!project) {
+    host.notify('Name the project in the Title tab first: its sheets are numbered together.');
+    return;
+  }
+  if (readsClearly(state.drawing)) {
+    host.notify('This sheet reads clearly as it is: no need to divide it.');
+    return;
+  }
+  host.notify('Dividing into sheets…');
+  await new Promise((r) => setTimeout(r, 30));
+  keepNow();
+  const before: DivideUndo = {
+    project,
+    onScreen: state.drawing.id ?? '',
+    sheets: loadLibrary()
+      .filter((e) => (e.drawing.meta.project || '') === project)
+      .map((e) => JSON.parse(JSON.stringify(e.drawing)) as Drawing),
+    made: [],
+  };
+  const first = state.drawing.id ?? '';
+  let crowded = false;
+  for (let guard = 0; guard < 30; guard += 1) {
+    if (readsClearly(state.drawing)) break;
+    const here = sheetNumber(state.drawing.meta.sheet);
+    const cuts = mainLineCuts(state.drawing).filter((c) => typeof splitSheet(state.drawing, c.runId, c.at, here) !== 'string');
+    if (cuts.length === 0) {
+      crowded = true;
+      break;
+    }
+    // The furthest spot whose start side still reads clearly.
+    let lo = 0;
+    let hi = cuts.length - 1;
+    let best = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      const trial = splitSheet(state.drawing, cuts[mid].runId, cuts[mid].at, here);
+      if (typeof trial !== 'string' && readsClearly(trial.keep)) {
+        best = mid;
+        lo = mid + 1;
+      } else hi = mid - 1;
+    }
+    if (best < 0) {
+      // Not even the first piece reads clearly on its own: cut there anyway, so the rest can.
+      best = 0;
+      crowded = true;
+    }
+    const done = cutSheet(project, cuts[best].runId, cuts[best].at);
+    if (typeof done === 'string') break;
+    before.made.push(done.rest);
+  }
+  if (before.made.length === 0) {
+    host.notify('The line cannot be divided along its main line: there is no bare pipe to end a sheet on.');
+    return;
+  }
+  try {
+    localStorage.setItem(DIVIDE_UNDO_KEY, JSON.stringify(before));
+  } catch {
+    // Too big to keep: the division stands, with no way back but by hand.
+  }
+  const sheets = before.made.length + 1;
+  const firstSheet = loadLibrary().find((e) => e.id === first)?.drawing;
+  if (firstSheet) takeUp(JSON.parse(JSON.stringify(firstSheet)) as Drawing);
+  render();
+  host.notify(
+    `Divided into ${sheets} sheets, each ending CONT. ON the next${crowded ? ' (one piece still reads tight on its own)' : ''}. Not right? Undo division in the Projects tab puts the sheets back as they were.`,
+  );
+}
+
+/** Puts the project's sheets back as they were before the division. */
+async function undoDivision(): Promise<void> {
+  const saved = divideUndo();
+  if (!saved) return;
+  const ok = await confirmDialog('Undo division', `Put the sheets of ${saved.project} back as they were before the division? Changes made to them since are lost.`, 'Put back');
+  if (!ok) return;
+  for (const id of saved.made) removeDrawing(id);
+  for (const sheet of saved.sheets) upsertDrawing(sheet);
+  localStorage.removeItem(DIVIDE_UNDO_KEY);
+  const back = saved.sheets.find((d) => d.id === saved.onScreen);
+  undoStack.length = 0;
+  redoStack.length = 0;
+  if (back) takeUp(JSON.parse(JSON.stringify(back)) as Drawing);
+  render();
+  host.notify(`The sheets of ${saved.project} are back as they were before the division.`);
+  // The sheets it made go from Drive and the folder too.
+  if (folderStatus().connected) void runFolderSync();
+  if (driveStatus().connected) void runDriveSync();
 }
 
 /**

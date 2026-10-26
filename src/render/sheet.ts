@@ -4,6 +4,7 @@ import { SYMBOL_MM, contentBounds, escapeText, renderDrawing, symbolSizeFor, typ
 import { sizeLabel } from '../model/pipe-data';
 import { northArrowDir } from '../model/iso';
 import { contentCss, scopeCss } from './style';
+import type { LayoutSpecs } from './tidy';
 import { render3dImage } from './view3d';
 
 export type SheetSize = 'A4' | 'A3' | 'A2';
@@ -137,7 +138,7 @@ const INSET_SHARE = { S: 0.26, M: 0.34, L: 0.44 };
  * right, top right — the compass is top left), else beside or under the
  * drawing, whichever leaves the drawing bigger.
  */
-function fitWithPicture(drawing: Drawing, analysis: Analysis, size: SheetSize): { fit: SheetFit; picture: Area | null; image: string | null } {
+function fitWithPicture(drawing: Drawing, analysis: Analysis, size: SheetSize, measureOnly = false): { fit: SheetFit; picture: Area | null; image: string | null } {
   const area = drawingArea(size);
   const view = drawing.view3d;
   if (!view) return { fit: fitSheet(drawing, analysis, size, area), picture: null, image: null };
@@ -145,8 +146,9 @@ function fitWithPicture(drawing: Drawing, analysis: Analysis, size: SheetSize): 
   const h = Math.min(w * 0.72, area.h * 0.5);
   // Ten dots a millimetre: 254 dpi, as fine as the PDF is made.
   const dots = Math.min(10, 1600 / w);
-  const image = render3dImage(drawing, analysis, view, Math.round(w * dots), Math.round(h * dots), 2.3 * dots);
-  if (!image) return { fit: fitSheet(drawing, analysis, size, area), picture: null, image: null };
+  // Only the room it takes, when the sheet is only being weighed up.
+  const image = measureOnly ? '' : render3dImage(drawing, analysis, view, Math.round(w * dots), Math.round(h * dots), 2.3 * dots);
+  if (image === null) return { fit: fitSheet(drawing, analysis, size, area), picture: null, image: null };
   const gap = 3;
   const full = fitSheet(drawing, analysis, size, area);
   const bottom = area.y + area.h - h;
@@ -261,6 +263,63 @@ function clearOfCompass(fit: SheetFit, picture: Area | null, area: Area, refit: 
   }
   return fit;
 }
+
+/** The right hand column's tables: how many lines of the material list and the weld list a sheet has room for. */
+function columnRoom(drawing: Drawing, analysis: Analysis, size: SheetSize): { bomRows: number; weldRows: number } {
+  const { h: H } = SHEETS[size];
+  const { dividerX, col } = drawingArea(size);
+  const tbY = H - MARGIN - 50;
+  const stampY = tbY - 13 - 3;
+  const bomRows = Math.floor((stampY - MARGIN - 34) / 4.2);
+  const bomH = 5 + 4.2 * Math.max(Math.min(analysis.bom.length, bomRows), 1);
+  const weldsH = weldTable(analysis, dividerX, MARGIN + bomH, col).height;
+  const noteWidth = Math.floor((col - 2.4) / (1.95 * 0.56));
+  const notes = sheetNotes(drawing.meta.notes, noteWidth).length + 3;
+  const noteY = stampY - 4 - notes * 3.2;
+  const listRoom = noteY - 5 - (MARGIN + bomH + weldsH);
+  return { bomRows, weldRows: Math.floor((listRoom - 8.4) / LIST_ROW) };
+}
+
+/** How far the printed sheet's symbols may stand larger against the pipe than on screen and still read clearly. */
+export const SHEET_CROWD_LIMIT = 1.25;
+
+/**
+ * Whether a sheet reads clearly when printed (his ask, 2026-10-26:
+ * "divide the drawing into sheets so each reads clearly, as few sheets as
+ * can be"): its whole material list and weld list fit the column, and the
+ * drawing fits the area without its symbols blown up against the pipe
+ * beyond `SHEET_CROWD_LIMIT` times their size on screen (a long line
+ * squeezed onto one sheet keeps its lettering legible only by crowding
+ * it). `crowd` is that factor.
+ */
+export function sheetLegibility(drawing: Drawing, analysis: Analysis, size: SheetSize = 'A3'): { clear: boolean; crowd: number; spacing: number; bom: boolean; welds: boolean } {
+  const { fit } = fitWithPicture(drawing, analysis, size, true);
+  const screen = symbolSizeFor(drawing, analysis);
+  const crowd = fit.symbol / screen;
+  const room = columnRoom(drawing, analysis, size);
+  const bom = analysis.bom.length <= room.bomRows;
+  const welds = analysis.welds.length <= room.weldRows;
+  // How close two welds of different things come, in printed symbols: a
+  // long line to scale may print with big symbols and still read, its
+  // welds far apart; where they close up, it does not.
+  const specs: LayoutSpecs = { size: screen, centroid: { x: 0, y: 0 }, pipes: [], points: [], texts: [], dims: [], tags: [], balloons: [], letters: [], notes: [] };
+  renderDrawing({ drawing: { ...drawing, options: { ...drawing.options, showWelds: true } }, analysis, view: { x: 0, y: 0, w: 1, h: 1 }, selection: null, symbol: screen, collect: specs });
+  const owner = (key: string) => key.split(':').slice(0, 2).join(':');
+  let spacing = Infinity;
+  for (let i = 0; i < specs.tags.length; i += 1) {
+    for (let j = i + 1; j < specs.tags.length; j += 1) {
+      const a = specs.tags[i];
+      const b = specs.tags[j];
+      if (owner(a.key) === owner(b.key)) continue;
+      spacing = Math.min(spacing, Math.hypot(a.at.x - b.at.x, a.at.y - b.at.y) / fit.symbol);
+    }
+  }
+  const room2 = crowd <= SHEET_CROWD_LIMIT || spacing >= SHEET_WELD_SPACING;
+  return { clear: bom && welds && room2, crowd, spacing, bom, welds };
+}
+
+/** Welds of two different things printed closer than this, in symbols, crowd each other. */
+export const SHEET_WELD_SPACING = 1.6;
 
 /**
  * The symbol half-size, in drawing paper units, that the printed sheet

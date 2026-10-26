@@ -73,6 +73,12 @@ export interface Host {
   newSheetInProject(): void;
   /** Ends the sheet at a pipe; all beyond it goes to a new sheet after this one. */
   splitSheetHere(runId: string): void;
+  /** Divides the drawing on screen into as few sheets as read clearly. */
+  divideIntoSheets(): void;
+  /** Puts the project's sheets back as they were before the last division. */
+  undoDivision(): void;
+  /** Whether the project on screen has a division to undo. */
+  canUndoDivision(): boolean;
   /** Takes the length of pipe picked out, the items either side meeting; false when none is picked. */
   closePickedPiece(): boolean;
   /** The print dialog for a project, all its sheets picked. */

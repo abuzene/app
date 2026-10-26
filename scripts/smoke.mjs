@@ -5498,6 +5498,78 @@ const couplingsNow = async () => (await drawingNow()).nodes.filter((n) => n.fitt
   await page.keyboard.press('Escape');
 }
 
+/* ----------------------------------------- a butt weld every 6 m, at once */
+
+// "A button that adds a weld every 6 m on BW pipe running longer than 6 m,
+// on every piece of the drawing at once" (his ask, 2026-10-26).
+{
+  await startNewDrawing();
+  await page.click('#tabs button:has-text("Command")');
+  await page.fill('#command-text', '3"\nSCH40\nORIGIN 0 0 0\nE 15000\nN 8000\nEND FLG');
+  await page.click('[data-a="run-commands"]');
+  await page.waitForTimeout(800);
+  await page.keyboard.press('Escape');
+  await page.click('#tabs button:has-text("Welds")');
+  await page.waitForTimeout(200);
+  await page.click('[data-a="stock-welds"]');
+  await page.waitForTimeout(500);
+  await page.click('#tabs button:has-text("Route")');
+  await page.click('#tabs button:has-text("Welds")');
+  await page.waitForTimeout(200);
+  const rows = await page.locator('#tab-body table tbody tr').allInnerTexts();
+  const nets = (await drawingNow()) && rows.flatMap((r) => [...r.matchAll(/[A-Z] (\d+(?:\.\d+)?)/g)].map((m) => Number(m[1])));
+  check('Weld every 6 m: the 15 m and 8 m pipes are cut, no length over 6 m', `${rows.filter((r) => /PIPE \/ PIPE/.test(r)).length} ${Math.max(...nets) <= 6000}`, (v) => v === '3 true', '3 true');
+  await page.click('[data-a="stock-welds"]');
+  await page.waitForTimeout(400);
+  const again = await page.locator('#tab-body table tbody tr').count();
+  check('and pressed again it adds none', again, (v) => v === rows.length, String(rows.length));
+  await page.click('#tabs button:has-text("Route")');
+}
+
+/* -------------------------------- divided into as few sheets as read well */
+
+// "A button that divides the drawings into sheets so each sheet is seen
+// clearly, as few sheets as possible, and a way back if the division does
+// not suit me" (his ask, 2026-10-26). A line of 40 lengths, its weld list
+// too long for one sheet's column, goes on two, and Undo division puts the
+// one sheet back.
+{
+  await startNewDrawing();
+  await page.click('#tabs button:has-text("Title")');
+  await page.fill('[data-meta="project"]', 'DIV TEST');
+  await page.locator('[data-meta="project"]').blur();
+  await page.waitForTimeout(300);
+  const legs = Array.from({ length: 40 }, (_, i) => (i % 2 ? 'N 1000' : 'E 1000')).join('\n');
+  await page.click('#tabs button:has-text("Command")');
+  await page.fill('#command-text', `3"\nSCH40\nORIGIN 0 0 0\n${legs}\nEND FLG`);
+  await page.click('[data-a="run-commands"]');
+  await page.waitForTimeout(1500);
+  await page.keyboard.press('Escape');
+  await page.click('#tabs button:has-text("Projects")');
+  await page.waitForTimeout(200);
+  await page.click('[data-a="divide-sheets"]');
+  await page.waitForFunction(() => /Divided into/.test(document.body.innerText), null, { timeout: 60000 }).catch(() => {});
+  const sheetsOf = () =>
+    page.evaluate(() =>
+      JSON.parse(localStorage.getItem('iso-draw.library.v1') || '[]')
+        .filter((e) => e.drawing.meta.project === 'DIV TEST')
+        .map((e) => `${e.drawing.meta.sheet}|${e.drawing.runs.length}|${e.drawing.nodes.map((n) => n.terminal?.note ?? '').filter(Boolean).join('/')}`)
+        .sort(),
+    );
+  const divided = await sheetsOf();
+  check('Divide into sheets: two sheets, the first ending CONT. ON SH.2, the second carrying on from SH.1', divided.map((x) => x.replace(/\|\d+\|/, '|')).join(' '), (v) => v === '1 of 2|CONT. ON SH.2 2 of 2|CONT. FROM SH.1', '1 of 2|CONT. ON SH.2 2 of 2|CONT. FROM SH.1');
+  check('and the sheet on screen is the first', await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).meta.sheet), (v) => v === '1 of 2', '1 of 2');
+  await page.click('#tabs button:has-text("Route")');
+  await page.click('#tabs button:has-text("Projects")');
+  await page.waitForTimeout(200);
+  await page.click('[data-a="undo-divide"]');
+  await page.waitForTimeout(300);
+  await page.click('.dialog-backdrop [data-confirm]');
+  await page.waitForTimeout(600);
+  check('Undo division puts the one sheet back, all 40 lengths on it', `${(await sheetsOf()).join(' ')} ${(await drawingNow()).runs.length}`, (v) => v === '1 of 1|40| 40', '1 of 1|40| 40');
+  await page.click('#tabs button:has-text("Route")');
+}
+
 // A reducer put along a pipe over a support: the support goes to the pipe
 // beside it, not inside the reducer (it was left there on the same sheet).
 {

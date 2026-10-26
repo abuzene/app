@@ -72,6 +72,25 @@ ships, and the decisions already taken, so they are not re-litigated.
   every later sheet and every CONT. note past k up one; `retargetFrom`
   makes the sheet a moved "CONT. ON" end goes to read "FROM SH.k+1". The
   new sheet opens, to be cut again. Needs a project name.
+  **Divide into sheets** (his ask, 2026-10-26: "divide the drawings into
+  sheets so each is seen clearly, as few sheets as possible, and a way
+  back if it does not suit me"): Projects tab `[data-a="divide-sheets"]` →
+  `divideIntoSheets` in main.ts. A sheet **reads clearly**
+  (`sheetLegibility` in sheet.ts) when its whole material list and weld
+  list fit the column (`columnRoom`, the same sums as `renderSheet`) and
+  its lettering is not crowded: the printed symbols at most
+  `SHEET_CROWD_LIMIT` 1.25 × their size against the pipe on screen, or,
+  bigger than that (a long line to scale), no two welds of different
+  things nearer than `SHEET_WELD_SPACING` 1.6 printed symbols. Along the
+  main line (`mainLineCuts`: from the start `splitSheet` keeps, straight
+  on where it can, spots in the middle of each bare gap over 60 mm) the
+  furthest spot whose start side still reads clearly is found by halving
+  and cut with `cutSheet` (the core of End the sheet here), and the rest
+  weighed up again. The project's sheets as they were are kept in
+  localStorage `iso-draw.divide.v1`; **Undo division**
+  (`[data-a="undo-divide"]`, shown while one is kept for the project on
+  screen, asks first) removes the sheets it made (tombstoned, so Drive
+  and the folder lose them) and puts the others back.
 
 ## Before every push
 
@@ -478,6 +497,15 @@ ships, and the decisions already taken, so they are not re-litigated.
   turns them on/off along the line (`setAutoCoupling`). 2" and over: never
   automatic, by hand only (his word: "on 2" only the option to put it in
   by hand"); `wantsAutoCoupling`/`offersAutoCoupling` are small bore only.
+  **A butt weld every 6 m** (his ask, 2026-10-26: "a button that adds a
+  weld every 6 m on BW pipe running longer than 6 m, on every piece at
+  once"): Welds tab **Weld every 6 m** (`[data-a="stock-welds"]`) →
+  `addStockWelds` in edit.ts: every length of pipe as cut
+  (`analysis.pieces`) longer than `PIPE_STOCK` on a butt-welded line (both
+  ends' `nodeJoint` BW, not dashed) is cut 6 m from the end the route
+  comes from (`stockCutSpot`, through an olet on a header too, never
+  within 100 mm of it) at a plain point welded pipe to pipe, again until
+  none is longer; one undo step; pressed again it adds none.
   **Threaded union** (his ask, 2026-09-30: "add a threaded union; show it
   to me before adding it"; three symbols shown, he picked the book one
   and corrected it): a coupling point with `node.union` (palette

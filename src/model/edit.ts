@@ -735,6 +735,96 @@ export function addComponent(
 
 /** Pipe comes in 6 m lengths. */
 export const PIPE_STOCK = 6000;
+/** No weld put closer than this to an olet on its header. */
+const STOCK_CLEAR = 100;
+
+/**
+ * A butt weld every 6 m (his ask, 2026-10-26: "a button that adds a weld
+ * every 6 m on BW welded pipe running longer than 6 m, on every piece of
+ * the drawing at once"): each length of pipe as cut (`analysis.pieces`)
+ * longer than the stock, on a butt welded line, is cut 6 m from the end
+ * the route comes from, at a plain point welded pipe to pipe, and again
+ * until no piece is longer. Never on dashed pipe, never within 100 mm of
+ * an olet on a header; small bore joined by couplings is left to them.
+ * Returns how many welds went in.
+ */
+export function addStockWelds(drawing: Drawing): number {
+  let added = 0;
+  const skip = new Set<string>();
+  for (let guard = 0; guard < 400; guard += 1) {
+    const analysis = analyse(drawing);
+    const route = routeOrder(drawing);
+    const butt = (run: Run) => analysis.nodeJoint.get(run.from) === 'BW' && analysis.nodeJoint.get(run.to) === 'BW';
+    const piece = analysis.pieces.find((p) => {
+      if (p.length <= PIPE_STOCK + 0.5 || skip.has(p.key)) return false;
+      const runs = p.runIds.map((id) => drawing.runs.find((r) => r.id === id));
+      return runs.every((r) => !!r && butt(r) && !r.dashed);
+    });
+    if (!piece) break;
+    const spot = stockCutSpot(drawing, analysis, route, piece);
+    const cut = spot ? splitRun(drawing, spot.runId, spot.offset) : null;
+    const node = cut ? drawing.nodes.find((n) => n.id === cut) : undefined;
+    if (!node) {
+      skip.add(piece.key);
+      continue;
+    }
+    node.fittingOverride = undefined;
+    node.joint = 'BW';
+    added += 1;
+  }
+  return added;
+}
+
+/** Where a piece of pipe longer than the stock is cut: 6 m along it from the end the route comes from. */
+function stockCutSpot(
+  drawing: Drawing,
+  analysis: Analysis,
+  route: ReturnType<typeof routeOrder>,
+  piece: Analysis['pieces'][number],
+): { runId: string; offset: number } | null {
+  const keyed = piece.key.match(/^piece:(.+):(\d+)$/);
+  if (!keyed) return null;
+  // The piece's lengths of pipe, run by run: the one its key names, and
+  // through an olet the header's span on the run beyond, the one touching it.
+  const segs: { runId: string; lo: number; hi: number; len: number; back: boolean; rank: number }[] = [];
+  for (const id of piece.runIds) {
+    const run = drawing.runs.find((r) => r.id === id);
+    if (!run) return null;
+    const spans = pipeSpans(drawing, analysis.nodeInfo, run);
+    const len = runLength(drawing, run);
+    let span: [number, number] | undefined;
+    if (id === keyed[1]) span = spans[Number(keyed[2])];
+    else {
+      const olet = piece.runIds.length > 1 ? drawing.runs.find((r) => r.id === keyed[1]) : undefined;
+      const atFrom = !!olet && (olet.from === run.from || olet.to === run.from);
+      span = atFrom ? spans[0] : spans[spans.length - 1];
+    }
+    if (!span) return null;
+    segs.push({ runId: id, lo: span[0], hi: span[1], len, back: route.reversed.has(id), rank: route.rank.get(id) ?? 0 });
+  }
+  segs.sort((a, b) => a.rank - b.rank);
+  let remaining = PIPE_STOCK;
+  for (let i = 0; i < segs.length; i += 1) {
+    const seg = segs[i];
+    const size = seg.hi - seg.lo;
+    if (remaining >= size - 0.5) {
+      remaining -= size;
+      continue;
+    }
+    // Clear of the olet at either end of this length of it.
+    const startsOnOlet = i > 0;
+    const endsOnOlet = i < segs.length - 1;
+    if (startsOnOlet && remaining < STOCK_CLEAR) {
+      const prev = segs[i - 1];
+      return { runId: prev.runId, offset: prev.back ? prev.lo + STOCK_CLEAR : prev.hi - STOCK_CLEAR };
+    }
+    const along = endsOnOlet ? Math.min(remaining, size - STOCK_CLEAR) : remaining;
+    if (along <= 0.5) return null;
+    return { runId: seg.runId, offset: seg.back ? seg.hi - along : seg.lo + along };
+  }
+  return null;
+}
+
 /** Small bore: 1 1/2" and under is joined by couplings, not welded pipe to pipe. */
 const SMALL_BORE_OD = 48.3 + 0.01;
 /**

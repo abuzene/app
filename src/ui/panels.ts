@@ -5,7 +5,7 @@ import { COMMAND_HELP } from '../model/commands';
 import { DN_LIST, SIZE_LABELS, defaultValveEnds, schedulesFor, sizeLabel } from '../model/pipe-data';
 import { AXES, AXIS_VECTOR, axisBetween } from '../model/iso';
 import { projectsOf, sheetNumber } from '../model/library';
-import { applyChainDimension, applyReducer, elbowTurns, turnElbow, freeDimensions, offersAutoCoupling, resetDrawnLength, setAutoCoupling, wantsAutoCoupling, deletePoint, isCouplingPoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, runLength, setGroupLength, setLastFlange, deleteRunGroup, DASHED_NOTE, setLineSize, setRunDashed, setRunDirect, setRunLength, setTerminal, setEndSize, splitRun } from '../model/edit';
+import { applyChainDimension, applyReducer, elbowTurns, turnElbow, freeDimensions, offersAutoCoupling, resetDrawnLength, setAutoCoupling, wantsAutoCoupling, deletePoint, isCouplingPoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, runLength, setGroupLength, setLastFlange, deleteRunGroup, DASHED_NOTE, setLineSize, setRunDashed, setRunDirect, setRunLength, setTerminal, setEndSize, splitRun, addStockWelds } from '../model/edit';
 import { setDriveClientId } from '../model/drive';
 import { reducerPreview } from './reducer-preview';
 import { SHEET_STAMPS, sheetStamp } from '../render/sheet';
@@ -638,6 +638,7 @@ function weldsTab(host: Host): string {
   </div>
   <div class="btn-row">
     <button class="btn-line" data-a="copy-welds">Copy list</button>
+    <button class="btn-line" data-a="stock-welds" title="Every length of butt-welded pipe over 6 m is cut every 6 m and welded pipe to pipe">Weld every 6 m</button>
   </div>
 </div>`;
 }
@@ -805,6 +806,8 @@ function projectsTab(host: Host): string {
   }</p>
   <div class="btn-row">
     <button class="btn-line solid" data-a="new-sheet">New sheet in this project</button>
+    ${name ? '<button class="btn-line" data-a="divide-sheets" title="As few sheets as read clearly: each ends CONT. ON the next">Divide into sheets</button>' : ''}
+    ${host.canUndoDivision() ? '<button class="btn-line" data-a="undo-divide" title="The sheets back as they were before the division">Undo division</button>' : ''}
   </div>
   <p class="empty-note">${
     pickedEnd
@@ -908,6 +911,8 @@ function wire(body: HTMLElement, host: Host): void {
 
   // Projects.
   body.querySelector('[data-a="new-sheet"]')?.addEventListener('click', () => host.newSheetInProject());
+  body.querySelector('[data-a="divide-sheets"]')?.addEventListener('click', () => host.divideIntoSheets());
+  body.querySelector('[data-a="undo-divide"]')?.addEventListener('click', () => host.undoDivision());
   body.querySelectorAll<HTMLElement>('[data-project-pdf]').forEach((button) => {
     button.addEventListener('click', () => host.printProject(button.dataset.projectPdf ?? ''));
   });
@@ -1508,6 +1513,18 @@ function wire(body: HTMLElement, host: Host): void {
   });
   body.querySelector('[data-a="copy-welds"]')?.addEventListener('click', () => {
     host.copy('Weld schedule', weldCsv());
+  });
+  // A butt weld every 6 m on every length over the stock (his ask, 2026-10-26).
+  body.querySelector('[data-a="stock-welds"]')?.addEventListener('click', () => {
+    const count = addStockWelds(JSON.parse(JSON.stringify(host.state.drawing)));
+    if (count === 0) {
+      host.notify('No length of butt-welded pipe on this sheet is over 6 m.');
+      return;
+    }
+    host.edit('Weld every 6 m', (d) => {
+      addStockWelds(d);
+    });
+    host.notify(`${count} weld${count === 1 ? '' : 's'} put in, pipe to pipe, so no length of butt-welded pipe is over 6 m. Undo takes ${count === 1 ? 'it' : 'them'} out.`);
   });
 
   // Pipe and fitting thickness.
