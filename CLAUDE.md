@@ -746,7 +746,17 @@ ships, and the decisions already taken, so they are not re-litigated.
   happened), is first joined on to the run beyond its moving end (else its
   other end), through a plain point. The panel's Delete pipe — this length
   only does the same when a length is picked (`host.closePickedPiece`);
-  otherwise it deletes the run. A reducer
+  otherwise it deletes the run.
+  **A run with no pipe left and nothing in it** (his HAM-LET sheet 1,
+  2026-11-04: "I delete pipe I and a piece of pipe always stays" — the
+  elbow at the riser's foot onto the 4" x 3" reducer): not to scale it is
+  drawn only as long as its end symbols reach (`noPipeReach` in
+  drawing.ts, from `drawnLength`: 1.4 symbols for a fitting or end piece,
+  none at a plain face point), the elbow's sweep reaches all of it
+  (`trimInto` in the renderer; `towards` no longer stops half way), and
+  its one weld sits on the face (the `d:` joint at the end with no
+  take-out). It used to be held to six symbols, pipe drawn where none was.
+  A reducer
   put along a pipe over a support moves the support to the longer pipe
   beside it (`placeReducer`; one was left inside the reducer).
   **A flange on the end, its size** (same sheet: "let me pick the flange

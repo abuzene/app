@@ -5675,6 +5675,67 @@ const couplingsNow = async () => (await drawingNow()).nodes.filter((n) => n.fitt
   await page.click('#tabs button:has-text("Route")');
 }
 
+/* ------------------------------ a pipe deleted between an elbow and a reducer */
+
+// "I try to delete pipe I but a piece of pipe always stays; I want it gone
+// and the reducer straight on the elbow" (his HAM-LET sheet 1, 2026-11-04):
+// not to scale a run with no pipe left was still drawn six symbols long.
+{
+  await routeLine('3"\nSTD\nORIGIN 0 0 0\nS 1500\nE 2000');
+  await inViewMenu(() => page.check('#opt-schematic'));
+  await page.click('#fit');
+  await page.waitForTimeout(200);
+  const east = (await drawingNow()).runs[1];
+  const eastHit = page.locator(`#canvas line.hit[data-run="${east.id}"]`).first();
+  const tap = { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true };
+  await eastHit.dispatchEvent('pointerdown', tap);
+  await eastHit.dispatchEvent('pointerup', tap);
+  await page.waitForTimeout(300);
+  await page.locator('.tool[data-kind="RED_CONC"]').click();
+  await page.waitForTimeout(300);
+  await page.selectOption('.dialog [data-f="red-small"]', 'DN50');
+  await page.click('.dialog [data-confirm]');
+  await page.waitForTimeout(400);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+  // The pipe between the elbow and the reducer.
+  const before = await drawingNow();
+  const corner = before.nodes.find((n) => n.pos.e === 0 && n.pos.n === -1500).id;
+  const pipeI = before.runs.find((r) => (r.from === corner || r.to === corner) && r.inline.length === 0 && r.id !== before.runs[0].id);
+  const iHit = page.locator(`#canvas line.hit[data-run="${pipeI.id}"]`).first();
+  const mid = await page.evaluate((id) => {
+    const l = document.querySelector(`#canvas line.hit[data-run="${id}"]`);
+    const q = new DOMPoint((+l.getAttribute('x1') + +l.getAttribute('x2')) / 2, (+l.getAttribute('y1') + +l.getAttribute('y2')) / 2).matrixTransform(l.getScreenCTM());
+    return { clientX: q.x, clientY: q.y };
+  }, pipeI.id);
+  await iHit.dispatchEvent('pointerdown', { ...tap, ...mid });
+  await iHit.dispatchEvent('pointerup', { ...tap, ...mid });
+  await page.waitForTimeout(300);
+  await page.click('#hud-delete');
+  await page.waitForTimeout(400);
+  const d = await drawingNow();
+  const left = d.runs.find((r) => (r.from === corner || r.to === corner) && r.inline.length === 0 && r.id !== d.runs[0].id);
+  const face = left.from === corner ? left.to : left.from;
+  // The elbow's sweep ends on the reducer's face: no pipe drawn between.
+  const gap = await page.evaluate(([c, f]) => {
+    const dot = (id) => { const e = document.querySelector(`#canvas circle.hit-dot[data-node="${id}"]`); return { x: +e.getAttribute('cx'), y: +e.getAttribute('cy') }; };
+    const at = dot(f);
+    const ends = [...document.querySelectorAll('#canvas path.pipe')].flatMap((p) => {
+      const m = p.getAttribute('d').match(/M ([-\d.]+) ([-\d.]+) Q [-\d.]+ [-\d.]+ ([-\d.]+) ([-\d.]+)/);
+      return m ? [{ x: +m[1], y: +m[2] }, { x: +m[3], y: +m[4] }] : [];
+    });
+    return Math.min(...ends.map((e) => Math.hypot(e.x - at.x, e.y - at.y)));
+  }, [corner, face]);
+  check('pipe I deleted: the elbow sweeps right up to the reducer, no pipe drawn between', gap < 0.5, (v) => v === true, 'the arc ends on the face');
+  await page.click('#tabs button:has-text("Welds")');
+  await page.waitForTimeout(200);
+  const rows = await page.locator('#tab-body table tbody tr').allInnerTexts();
+  await page.click('#tabs button:has-text("Route")');
+  await page.waitForTimeout(200);
+  check('and one weld, the elbow welded straight to the reducer', rows.filter((r) => /90 ELBOW LR \/ CON RED 3" X 2"/.test(r)).length, (v) => v === 1, '1');
+  await inViewMenu(() => page.uncheck('#opt-schematic'));
+}
+
 // A reducer put along a pipe over a support: the support goes to the pipe
 // beside it, not inside the reducer (it was left there on the same sheet).
 {

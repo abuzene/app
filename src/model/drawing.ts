@@ -664,7 +664,58 @@ export function drawnLength(drawing: Drawing, run: Run, trueLength: number): num
       return Math.max(SYMBOL_MM * (drawing.options.sheetScale ?? 15), segs.reduce((sum, seg) => sum + seg.min, 0));
     }
   }
+  // No pipe left at all, and nothing in it: an elbow straight on a reducer's
+  // face, two fittings touching. Drawn as long as the symbols at its ends
+  // reach and no longer: held to six symbols, a length of pipe showed
+  // between the elbow and the reducer though there was none (his HAM-LET
+  // sheet 1, 2026-11-04: "I delete pipe I and a piece of pipe always stays").
+  const bare = noPipeReach(drawing, run, trueLength);
+  if (bare !== null) return bare;
   return Math.max(runDrawnFloor(drawing, run), chosen ?? Math.min(trueLength, cap));
+}
+
+/** A point's fitting and runs, worked out on its own (as `analyse` does for all of them). */
+function nodeInfoOf(drawing: Drawing, nodeId: string): NodeInfo | undefined {
+  const node = drawing.nodes.find((n) => n.id === nodeId);
+  if (!node) return undefined;
+  const runs = drawing.runs.filter((r) => r.from === nodeId || r.to === nodeId);
+  const legs: Vec3[] = [];
+  for (const run of runs) {
+    const other = drawing.nodes.find((n) => n.id === (run.from === nodeId ? run.to : run.from));
+    const dir = other ? direction(node.pos, other.pos) : null;
+    if (dir) legs.push(dir);
+  }
+  return { node, runs, legs, fitting: inferFitting(legs, runs, node.fittingOverride, oletMarks(node).length > 0), degree: runs.length };
+}
+
+/**
+ * How long a run with nothing in it and no pipe left (its ends' take-outs
+ * use it all, or its fittings are marked as touching) is drawn not to
+ * scale: what its end symbols reach into it — an elbow's sweep, a fitting,
+ * an end piece — and nothing at a plain point, where an item's face sits.
+ * Null for any other run.
+ */
+export function noPipeReach(drawing: Drawing, run: Run, trueLength: number): number | null {
+  if (run.dashed || run.inline.some((c) => !isMark(c.kind))) return null;
+  const a = drawing.nodes.find((n) => n.id === run.from);
+  const b = drawing.nodes.find((n) => n.id === run.to);
+  if (!a || !b) return null;
+  const fromInfo = nodeInfoOf(drawing, run.from);
+  const toInfo = nodeInfoOf(drawing, run.to);
+  const ends =
+    endTakeout(fromInfo, run, endDn(drawing, run, true)) +
+    endTakeout(toInfo, run, endDn(drawing, run, false)) +
+    terminalTakeout(a, endDn(drawing, run, true)) +
+    terminalTakeout(b, endDn(drawing, run, false));
+  if (!run.direct && (trueLength - ends > 0.5 || ends <= 0.5)) return null;
+  const s = SYMBOL_MM * (drawing.options.sheetScale ?? 15);
+  const reach = (info: NodeInfo | undefined, node: IsoNode): number => {
+    if (node.terminal && node.terminal.kind !== 'OPEN') return END_SYMBOLS * s;
+    if (node.flange) return END_SYMBOLS * s;
+    if (info && info.fitting !== 'NONE') return END_SYMBOLS * s;
+    return 0;
+  };
+  return Math.max(0.3 * s, reach(fromInfo, a) + reach(toInfo, b));
 }
 
 /** The shortest a run is drawn not to scale: six symbols, so its fittings fit on it. */
@@ -1343,7 +1394,10 @@ export function analyse(drawing: Drawing): Analysis {
       // The weld is where the two meet: the first one's take-out along the
       // run, or half way when that does not fall inside it.
       const meet = endTakeout(nodeInfo.get(run.from), run, endDn(drawing, run, true)) + terminalTakeout(a, endDn(drawing, run, true));
-      const at = meet > 0.5 && meet < total - 0.5 ? meet : total / 2;
+      // One end with no take-out at all (a plain point an item's face sits
+      // on): the weld is on that face, not half way into the elbow's sweep.
+      const back = endTakeout(nodeInfo.get(run.to), run, endDn(drawing, run, false)) + terminalTakeout(b, endDn(drawing, run, false));
+      const at = meet > 0.5 && meet < total - 0.5 ? meet : !run.direct && meet <= 0.5 && back > 0.5 ? 0 : !run.direct && meet >= total - 0.5 && back <= 0.5 ? total : total / 2;
       pushJoint(
         `d:${run.id}`,
         pointJoint(a),

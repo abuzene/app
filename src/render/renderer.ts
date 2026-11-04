@@ -385,10 +385,24 @@ export function renderDrawing(state: RenderState): string {
   // is: drawn to scale a big valve stretched right across the sheet.
   const faceReach = (trueHalf: number, paperPerMm: number): number =>
     drawing.options.schematic ? size * 1.2 : Math.min(size * 1.2, Math.max(trueHalf * paperPerMm, size * 0.8));
+  /**
+   * How far an elbow's sweep reaches into a run from `nodeId`: its set
+   * reach, shared with the other end when the run is shorter than both, and
+   * all of a run whose far end has no sweep (an elbow straight on a
+   * reducer's face, his HAM-LET sheet 1, 2026-11-04) — half of it left a
+   * stub of pipe drawn where there was none.
+   */
+  const trimInto = (run: Run, nodeId: string, at: Pt, far: Pt): number => {
+    const here = trimAt(nodeId);
+    if (here <= 0) return 0;
+    const len = Math.hypot(far.x - at.x, far.y - at.y);
+    const there = trimAt(run.from === nodeId ? run.to : run.from);
+    return here + there <= len ? here : there > 0 ? (len * here) / (here + there) : Math.min(here, len);
+  };
   const couplings = new Set(drawing.runs.flatMap((r) => r.inline.filter((c) => isCoupling(c.kind)).map((c) => c.id)));
   const towards = (from: Pt, to: Pt, by: number): Pt => {
     const len = Math.hypot(to.x - from.x, to.y - from.y) || 1;
-    return { x: from.x + ((to.x - from.x) / len) * Math.min(by, len / 2), y: from.y + ((to.y - from.y) / len) * Math.min(by, len / 2) };
+    return { x: from.x + ((to.x - from.x) / len) * Math.min(by, len), y: from.y + ((to.y - from.y) / len) * Math.min(by, len) };
   };
 
   // Supports are numbered along the line, in the order they were placed,
@@ -423,8 +437,8 @@ export function renderDrawing(state: RenderState): string {
     const paperPerMm = total > 0 ? Math.hypot(b.x - a.x, b.y - a.y) / total : 0;
 
     // The straight pipe, stopping where an elbow takes over at either end.
-    const pa = towards(a, b, trimAt(run.from));
-    const pb = towards(b, a, trimAt(run.to));
+    const pa = towards(a, b, trimInto(run, run.from, a, b));
+    const pb = towards(b, a, trimInto(run, run.to, b, a));
     // In a run that holds items, the length of pipe tapped is what is picked,
     // not the whole run through its valves (his DESHANIM sheet, 2026-10-21).
     const piece = stretch && selected ? stretch : null;
@@ -788,7 +802,7 @@ export function renderDrawing(state: RenderState): string {
       const q = paper(otherId);
       const other = analysis.nodeById.get(otherId);
       if (!q || !other) continue;
-      ends.push(towards(c, q, FITTING_REACH));
+      ends.push(towards(c, q, trimInto(run, nodeId, c, q)));
     }
     if (ends.length !== 2) continue;
     const dashedBend = info.runs.every((run) => run.dashed);
