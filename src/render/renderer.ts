@@ -739,7 +739,8 @@ export function renderDrawing(state: RenderState): string {
       if (label) {
         comps += `<text class="tag" x="${(f.cx + f.nx * size * 2.2).toFixed(2)}" y="${(f.cy + f.ny * size * 2.2).toFixed(2)}">${escapeText(label)}</text>`;
       }
-      comps += `<circle class="hit-dot" data-component="${comp.id}" cx="${f.cx.toFixed(2)}" cy="${f.cy.toFixed(2)}" r="${hitR.toFixed(2)}"/>`;
+      // Tidy traces the item's shapes with this one among them: kept for it.
+      if (state.hitSize !== undefined || state.collect) comps += `<circle class="hit-dot" data-component="${comp.id}" cx="${f.cx.toFixed(2)}" cy="${f.cy.toFixed(2)}" r="${hitR.toFixed(2)}"/>`;
       comps += `</g>`;
     }
   }
@@ -892,7 +893,7 @@ export function renderDrawing(state: RenderState): string {
       nodes += `<text class="node-label" x="${(p.x + size * 1.2).toFixed(2)}" y="${(p.y - size * 1.2).toFixed(2)}">${escapeText(node.label)}</text>`;
     }
 
-    nodes += `<circle class="hit-dot" data-node="${node.id}" cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="${hitR.toFixed(2)}"/>`;
+    if (state.hitSize !== undefined) nodes += `<circle class="hit-dot" data-node="${node.id}" cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="${hitR.toFixed(2)}"/>`;
     if (selected) nodes += `<circle class="node-mark" cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="${(size * 0.8).toFixed(2)}"/>`;
     // A point with no pipe yet (the first one put down, the pencil since put
     // away) is shown on screen, so it can be seen and drawn on from; it used
@@ -1365,7 +1366,24 @@ export function renderDrawing(state: RenderState): string {
   // drag starting on a point is never swallowed by the run beneath it.
   // Dimension targets sit under the things on the pipe, so a figure close to
   // a valve never takes the tap meant for the valve.
-  return grid + dims + pipes + `<g class="hits">${equipmentHits}${dimHits}${hits}</g>` + comps + nodes + welds + handles + `<g class="hits">${weldHits}</g>` + preview;
+  // The touch targets are the screen's only. On the sheet they are invisible
+  // shapes all the same, and a Windows printer driver given them flattened
+  // their transparency into coarse images: weld numbers came out with
+  // characters missing and balloons in grey haloes (his HAM-LET print,
+  // 2026-11-04: "the preview looks good, the print does not").
+  const touch = state.hitSize !== undefined;
+  return (
+    grid +
+    dims +
+    pipes +
+    (touch ? `<g class="hits">${equipmentHits}${dimHits}${hits}</g>` : '') +
+    comps +
+    nodes +
+    welds +
+    handles +
+    (touch ? `<g class="hits">${weldHits}</g>` : '') +
+    preview
+  );
 }
 
 /**

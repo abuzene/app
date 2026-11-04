@@ -1152,6 +1152,19 @@ ships, and the decisions already taken, so they are not re-litigated.
   last one's lettering sizes were used on all. `renderSheet` gives the
   sheet an id (`iso-sheet-n`) and sets its CSS under it (`scopeCss` in
   style.ts); `measureContent` does the same (`#iso-measure`).
+  **Printed from the preview** (his ask, 2026-11-04: "a button to print
+  from this view instead of going back and printing unseen"): View sheet
+  first's overlay has a bar kept at its top (`.preview-bar`, sticky in
+  `.dialog.previewing`) with Print (`[data-preview="print"]`, the same
+  `printSheet` as the dialog's) and PDF sheet (`[data-preview="pdf"]`).
+  **No touch targets on the sheet** (same day: "the preview looks good,
+  the print does not" — his office PC printed through a Windows
+  PostScript driver): the renderer leaves out the `.hits` groups and the
+  point hit-dots unless `hitSize` is set (the screen), and an item's
+  hit-dot unless the screen or Tidy (`collect`, whose `symbolOutlines`
+  traces it) draws. Their transparent fill made Chrome hand the driver
+  transparency, flattened into 150 ppi tiles: weld numbers lost
+  characters ("HML ▯.8") and balloons sat in grey haloes.
 - The toolbar pads for the iPad status bar (`env(safe-area-inset-top)`).
 - **Only the drawing zooms** (his ask, 2026-09-26: "zoom in/out only the
   sheet, without moving the bars round it"): the viewport has

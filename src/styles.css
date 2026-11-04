@@ -394,6 +394,11 @@ tr.selected { background: var(--accent-soft); }
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
 }
 .dialog.wide { width: min(980px, 100%); max-height: 88vh; overflow-y: auto; }
+/* The preview's own Print / PDF buttons stay in sight however far it is scrolled. */
+.dialog.previewing { padding-top: 0; }
+.dialog.previewing h3 { padding-top: 16px; }
+.preview-bar { position: sticky; top: 0; z-index: 1; display: flex; gap: 8px; flex-wrap: wrap; background: #fff;
+  padding: 10px 0; margin-bottom: 6px; border-bottom: 1px solid var(--line); }
 .sheet-preview { background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 8px; margin-bottom: 10px; }
 .sheet-preview svg { display: block; width: 100%; height: auto; }
 .dialog h3 { margin: 0 0 4px; font-size: 15px; }

@@ -1955,6 +1955,41 @@ check('with its end marked as going on to sheet 2', await page.evaluate(() => JS
   check('Print with all the sheets goes to the printer dialog, a page each', `${await page.evaluate(() => window.__printed)} ${await page.locator('#print-root .print-page').count()}`, (v) => v === '1 2', '1 2');
   check('and prints on two pages at the sheet\'s own size', pdfPages(await page.pdf({ preferCSSPageSize: true })), (v) => v === 2, '2');
   check('and on two pages of A4', pdfPages(await page.pdf({ format: 'A4', landscape: true })), (v) => v === 2, '2');
+
+  // "A button to print from this view, instead of going back and printing
+  // unseen" (his HAM-LET sheets, 2026-11-04): the preview of all the sheets
+  // has Print and PDF at its top, in sight however far it is scrolled.
+  await page.evaluate(() => { window.__printed = 0; });
+  await page.click('#print');
+  await page.waitForTimeout(250);
+  await page.selectOption('#sheet-pages', 'all');
+  await page.click('.dialog-backdrop [data-x="preview"]');
+  await page.waitForTimeout(600);
+  await page.evaluate(() => { const d = document.querySelector('.dialog.previewing'); d.scrollTop = d.scrollHeight; });
+  await page.waitForTimeout(150);
+  const bar = await page.evaluate(() => {
+    const d = document.querySelector('.dialog.previewing').getBoundingClientRect();
+    const b = document.querySelector('.preview-bar [data-preview="print"]').getBoundingClientRect();
+    return b.top >= d.top - 1 && b.bottom <= d.bottom;
+  });
+  check('the preview of the sheets has its Print button in sight, scrolled to the end', bar, (v) => v === true, 'true');
+  await page.click('.preview-bar [data-preview="print"]');
+  await page.waitForTimeout(600);
+  check('and Print there sends the sheets as seen to the printer dialog', `${await page.evaluate(() => window.__printed)} ${await page.locator('#print-root .print-page').count()} ${await page.locator('.dialog-backdrop').count()}`, (v) => v === '1 2 0', '1 2 0');
+
+  // "The preview looks good, the print does not" (same day): the sheet
+  // carried the screen's invisible touch targets, whose transparency a
+  // Windows printer driver flattened into coarse images over the weld
+  // numbers. The sheet has none.
+  const targets = await page.evaluate(() => {
+    let n = 0;
+    for (const el of document.querySelectorAll('#print-root svg *')) {
+      const cs = getComputedStyle(el);
+      if (el.matches('.hit, .hit-dot, .hit-box, .hits') || /rgba\(0, 0, 0, 0\)|transparent/.test(cs.fill + cs.stroke) || cs.opacity !== '1') n += 1;
+    }
+    return n;
+  });
+  check('the printed sheets carry nothing see-through, no touch targets', targets, (v) => v === 0, '0');
 }
 // "I have 3 sheets, not 4" (2026-09-30): sheets 1, 2 and 4 of 4 were left
 // after sheet 3 was removed. The sheets left are numbered 1…n again, the

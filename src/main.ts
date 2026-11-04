@@ -2820,11 +2820,26 @@ function openPrintDialog(ask: { project?: string; all?: boolean } = {}): void {
         return;
       }
       if (what === 'preview') {
-        openOverlay(
+        // Printed from the preview itself (his ask, 2026-11-04: "a button to
+        // print from this view instead of going back and printing unseen"):
+        // a bar kept in sight at the top, with the sheets as seen below it.
+        const tablet = tabletPrinter;
+        const overlay = openOverlay(
           rendered.length > 1 ? `${rendered.length} sheets` : 'Sheet preview',
-          rendered.map((sheet) => `<div class="sheet-preview">${sheet}</div>`).join(''),
+          `<div class="preview-bar">
+            <button class="btn-line${tablet ? '' : ' solid'}" data-preview="print">Print${rendered.length > 1 ? ` all ${rendered.length}` : ''}</button>
+            <button class="btn-line${tablet ? ' solid' : ''}" data-preview="pdf">PDF sheet${rendered.length > 1 ? 's' : ''}</button>
+            <button class="btn-line" data-close>Close</button>
+          </div>` + rendered.map((sheet) => `<div class="sheet-preview">${sheet}</div>`).join(''),
           true,
         );
+        overlay.querySelector('.dialog')?.classList.add('previewing');
+        const fromPreview = (how: string) => {
+          overlay.remove();
+          if (how === 'pdf') void makePdfSheet(rendered, sheetSize(), fileName);
+          else printSheet(rendered, sheetSize(), upright(), pick === 'all' ? fileName.replace(/\.pdf$/, '') : undefined);
+        };
+        overlay.querySelectorAll<HTMLButtonElement>('[data-preview]').forEach((b) => b.addEventListener('click', () => fromPreview(b.dataset.preview ?? 'print')));
       } else {
         printSheet(rendered, sheetSize(), upright(), pick === 'all' ? fileName.replace(/\.pdf$/, '') : undefined);
       }
