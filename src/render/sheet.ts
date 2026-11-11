@@ -37,22 +37,23 @@ function sheetSymbolAt(drawing: Drawing, analysis: Analysis, k: number): number 
   return Math.min(Math.max(screen, sheetSymbolFloor(drawing) / k), SHEET_SYMBOL_MAX_MM / k);
 }
 
-/** The smallest a symbol is printed, in mm: never under this, however small it reads. */
-const SHEET_SYMBOL_LEAST_MM = SYMBOL_MM * 0.85;
+/** The smallest a symbol is printed, in mm, set smaller than standard: lettering still reads. */
+const SHEET_SYMBOL_LEAST_MM = SYMBOL_MM * 0.65;
 
 /**
- * The least symbol half-size on the paper, in mm: SHEET_SYMBOL_MM at the
- * standard symbol size (100%) and over, and that much smaller when the
- * symbols are set smaller (View → Symbols, the print dialog), down to
- * SHEET_SYMBOL_LEAST_MM. Held at SHEET_SYMBOL_MM whatever was set, his
- * DESHANIM sheet at 67% printed its symbols and lettering 1.7 times as big
- * against the pipe as on screen, every figure and weld number on another
- * (2026-11-11: "I try to print the DESHANIM sheets and it does not come
- * out well"), and choosing smaller symbols changed nothing on paper.
+ * The least symbol half-size on the paper, in mm. At the standard symbol
+ * size (100%) and over, SHEET_SYMBOL_MM, a third up on the screen's (his
+ * ask). Set smaller (View → Symbols, the print dialog), the sheet keeps the
+ * screen's own proportions, down to SHEET_SYMBOL_LEAST_MM only: anything
+ * printed bigger against the pipe than on screen puts the weld tags and
+ * figures he laid out clear of each other on top of each other. His
+ * DESHANIM sheet at 67% printed its symbols 1.7 times as big against the
+ * pipe as on screen (2026-11-11: "see how tidy it all is in the program,
+ * and how ugly when printed"); a floor following the chosen size (two
+ * thirds of SHEET_SYMBOL_MM) still printed them 1.15 to 1.65 times as big.
  */
 function sheetSymbolFloor(drawing: Drawing): number {
-  const chosen = (drawing.options.sheetScale ?? 15) / 15;
-  return Math.max(SHEET_SYMBOL_LEAST_MM, SHEET_SYMBOL_MM * Math.min(1, chosen));
+  return (drawing.options.sheetScale ?? 15) >= 15 ? SHEET_SYMBOL_MM : SHEET_SYMBOL_LEAST_MM;
 }
 
 /** The sheet's drawing area, in mm. */

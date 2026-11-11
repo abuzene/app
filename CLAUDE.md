@@ -121,12 +121,15 @@ ships, and the decisions already taken, so they are not re-litigated.
   symbol size (`sheetSymbolAt`), clamped on the paper to at least
   `SHEET_SYMBOL_MM` (1.35 × `SYMBOL_MM`, ≈3.2 mm; a long line once
   printed with tiny symbols) and at most `SHEET_SYMBOL_MAX_MM` (1.7 ×
-  that). **That least follows the symbol size he chose** (his DESHANIM
-  sheets, 2026-11-11: "it does not come out well" — at Symbols 67% the
-  sheet still printed at the 100% least, 1.7 times as big against the
-  pipe as on screen, figures and weld tags on top of each other):
-  `sheetSymbolFloor` is `SHEET_SYMBOL_MM` × the chosen size up to 100%,
-  never under `SHEET_SYMBOL_LEAST_MM` (0.85 × `SYMBOL_MM`). **Weld numbers
+  that). **Symbols set under 100% print in the screen's own
+  proportions** (his DESHANIM sheets, 2026-11-11: "see how tidy it all is
+  in the program, and how ugly when printed" — at Symbols 67% the sheet
+  printed at the 100% least, 1.7 times as big against the pipe as on
+  screen, and the weld tags he had laid out clear sat on each other; a
+  least following the chosen size still printed them 1.15–1.65 times as
+  big): `sheetSymbolFloor` is `SHEET_SYMBOL_MM` at 100% and over, else
+  only `SHEET_SYMBOL_LEAST_MM` (0.65 × `SYMBOL_MM`, ≈1.6 mm). A dense sheet
+  then prints small on A4: A3 it is, or Divide into sheets. **Weld numbers
   are always printed** (`showWelds: true` on the sheet; View → Weld nos is
   the screen's only — his sheet 1 printed a list of DSH numbers and none
   on the drawing). It fits **everything drawn** to the area — labels, dimensions,
