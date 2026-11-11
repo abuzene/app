@@ -34,7 +34,25 @@ const SHEET_SYMBOL_MAX_MM = SHEET_SYMBOL_MM * 1.7;
  */
 function sheetSymbolAt(drawing: Drawing, analysis: Analysis, k: number): number {
   const screen = symbolSizeFor(drawing, analysis);
-  return Math.min(Math.max(screen, SHEET_SYMBOL_MM / k), SHEET_SYMBOL_MAX_MM / k);
+  return Math.min(Math.max(screen, sheetSymbolFloor(drawing) / k), SHEET_SYMBOL_MAX_MM / k);
+}
+
+/** The smallest a symbol is printed, in mm: never under this, however small it reads. */
+const SHEET_SYMBOL_LEAST_MM = SYMBOL_MM * 0.85;
+
+/**
+ * The least symbol half-size on the paper, in mm: SHEET_SYMBOL_MM at the
+ * standard symbol size (100%) and over, and that much smaller when the
+ * symbols are set smaller (View → Symbols, the print dialog), down to
+ * SHEET_SYMBOL_LEAST_MM. Held at SHEET_SYMBOL_MM whatever was set, his
+ * DESHANIM sheet at 67% printed its symbols and lettering 1.7 times as big
+ * against the pipe as on screen, every figure and weld number on another
+ * (2026-11-11: "I try to print the DESHANIM sheets and it does not come
+ * out well"), and choosing smaller symbols changed nothing on paper.
+ */
+function sheetSymbolFloor(drawing: Drawing): number {
+  const chosen = (drawing.options.sheetScale ?? 15) / 15;
+  return Math.max(SHEET_SYMBOL_LEAST_MM, SHEET_SYMBOL_MM * Math.min(1, chosen));
 }
 
 /** The sheet's drawing area, in mm. */
@@ -96,7 +114,10 @@ interface Area {
  */
 function fitSheet(drawing: Drawing, analysis: Analysis, size: SheetSize, area: Area = drawingArea(size)): SheetFit {
   const nodes = contentBounds(drawing, analysis);
-  const sheetDrawing = { ...drawing, options: { ...drawing.options, showGrid: false } };
+  // The weld numbers are always on the sheet: the weld list beside it goes
+  // by them. View → Weld nos is the screen's only (his DESHANIM sheet 1,
+  // 2026-11-11, printed with a list of DSH numbers and none on the drawing).
+  const sheetDrawing = { ...drawing, options: { ...drawing.options, showGrid: false, showWelds: true } };
   const draw = (k: number, bounds: Bounds) => {
     const symbol = sheetSymbolAt(drawing, analysis, k);
     const tx = area.x + area.w / 2 - ((bounds.minX + bounds.maxX) / 2) * k;

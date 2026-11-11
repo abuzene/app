@@ -2732,7 +2732,7 @@ function openPrintDialog(ask: { project?: string; all?: boolean } = {}): void {
       .map((r) => `<option value="${r}"${(state.drawing.options.sheetScale ?? 15) === r ? ' selected' : ''}>${r === 0 ? 'Fit to the sheet' : `${Math.round((r / 15) * 100)}%`}</option>`)
       .join('')}
   </select></div>
-  <p class="empty-note" data-here-only>The sheet fits the whole drawing to the page, with the pipe and the symbols in the proportions you see on screen (View → Symbols sets them too); lettering is never printed smaller than the standard size.</p>
+  <p class="empty-note" data-here-only>The sheet fits the whole drawing to the page, with the pipe and the symbols in the proportions you see on screen (View → Symbols sets them too); on a long line the lettering is printed at least at the size chosen here, never too small to read.</p>
   <div class="btn-row">
     <button class="btn-line${tabletPrinter ? ' solid' : ''}" data-x="pdf">PDF sheet</button>
     <button class="btn-line${tabletPrinter ? '' : ' solid'}" data-x="print">Print / Save as PDF</button>

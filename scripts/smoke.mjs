@@ -5771,6 +5771,43 @@ const couplingsNow = async () => (await drawingNow()).nodes.filter((n) => n.fitt
   await inViewMenu(() => page.uncheck('#opt-schematic'));
 }
 
+/* ------------------------------ the DESHANIM sheets printed */
+
+// "I try to print the DESHANIM sheets and it does not come out well"
+// (2026-11-11): sheet 1, with View → Weld nos off, printed a weld list of
+// DSH numbers and none on the drawing; and at Symbols 67% the sheet still
+// printed its symbols at the 100% least, 1.7 times as big against the pipe
+// as on screen, figures and tags on top of each other.
+{
+  await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 3000\nN 3000\nE 3000\nN 3000\nE 3000\nN 3000\nE 3000\nN 3000');
+  const lettering = async () => {
+    await page.click('#print');
+    await page.waitForTimeout(250);
+    await page.click('.dialog-backdrop [data-x="preview"]');
+    await page.waitForTimeout(500);
+    const got = await page.evaluate(() => {
+      const svg = document.querySelector('.sheet-preview svg');
+      const t = svg.querySelector('.dim-text');
+      return { font: t ? parseFloat(getComputedStyle(t).fontSize) : 0, welds: svg.querySelectorAll('.weld-no').length };
+    });
+    await page.click('.dialog [data-close]');
+    await page.waitForTimeout(200);
+    return got;
+  };
+  // Whatever the sheet before left set: through another size, so 100% takes.
+  await inViewMenu(() => page.selectOption('#opt-symbols', '18'));
+  await inViewMenu(() => page.selectOption('#opt-symbols', '15'));
+  const standard = await lettering();
+  check('the sheet is at Symbols 100% to begin with', (await drawingNow()).options.sheetScale, (v) => v === 15, '15');
+  await inViewMenu(() => page.selectOption('#opt-symbols', '10'));
+  await inViewMenu(() => page.uncheck('#opt-welds'));
+  const smaller = await lettering();
+  check('weld numbers are printed with View → Weld nos off', smaller.welds, (v) => v >= 7, 'the weld numbers');
+  check('symbols set at 67% print smaller than at 100% on a long line', `${smaller.font.toFixed(2)} < ${standard.font.toFixed(2)}`, () => smaller.font > 0 && smaller.font < standard.font * 0.8, 'about two thirds');
+  await inViewMenu(() => page.check('#opt-welds'));
+  await inViewMenu(() => page.selectOption('#opt-symbols', '15'));
+}
+
 // A reducer put along a pipe over a support: the support goes to the pipe
 // beside it, not inside the reducer (it was left there on the same sheet).
 {
