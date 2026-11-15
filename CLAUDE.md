@@ -1368,6 +1368,14 @@ ships, and the decisions already taken, so they are not re-litigated.
   the line carried on under a figure slid past the ends); `ps:<plate>`
   slides the plate itself (`shift`). One undo step a drag; **Put this
   sheet back as drawn** clears the layouts.
+  **A quantity per type** (his ask, same day: "more than one of the same
+  shape — enter a quantity and count it in the total weight"):
+  `SupportType.qty`, typed in the Supports tab row (`[data-support-qty]`,
+  "= n kg") or the editor (`[data-st="qty"]`, its picture's caption says
+  "n off = kg"); unset, as many as the supports on the line of it.
+  `supportQty` gives the count every weight uses (`supportMaterial`, the
+  detail sheet's "PS-1 — 5 OFF" and "n OFF · kg EACH · kg IN ALL");
+  `supportUses` stays the supports on the line.
 - **The printed drawing keeps off the compass** (his DESHANIM sheet,
   2026-10-22: "it touches the north mark though there is room below"):
   the compass sits `COMPASS_AT` 16 mm into the drawing area's top left,

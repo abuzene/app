@@ -8,7 +8,7 @@ import { projectsOf, sheetNumber } from '../model/library';
 import { applyChainDimension, applyReducer, setFlangeStd, elbowTurns, turnElbow, freeDimensions, offersAutoCoupling, resetDrawnLength, setAutoCoupling, wantsAutoCoupling, deletePoint, isCouplingPoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, runLength, setGroupLength, setLastFlange, deleteRunGroup, DASHED_NOTE, setLineSize, setRunDashed, setRunDirect, setRunLength, setTerminal, setEndSize, splitRun, addStockWelds } from '../model/edit';
 import { setDriveClientId } from '../model/drive';
 import { reducerPreview } from './reducer-preview';
-import { SUPPORT_SHAPES, supportMarks, supportMaterial, supportParts, supportSheetGroups, supportUses, type SupportShape } from '../model/supports';
+import { SUPPORT_SHAPES, supportMarks, supportMaterial, supportParts, supportQty, supportSheetGroups, supportUses, type SupportShape } from '../model/supports';
 
 const supportShapeName = (shape: SupportShape) => SUPPORT_SHAPES.find((x) => x.id === shape)?.name ?? shape;
 import { SHEET_STAMPS, sheetStamp } from '../render/sheet';
@@ -856,13 +856,16 @@ function supportsTab(host: Host): string {
     const these = onLine.filter((m) => m.type === id).map((m) => m.name);
     return these.length ? ` (${these.join(', ')})` : '';
   };
+  const made = supportQty(drawing);
   const rows = types
     .map((t) => {
       const n = uses.get(t.id) ?? 0;
+      const q = made.get(t.id) ?? 0;
       const kg = supportParts(t).reduce((a, p) => a + p.kg, 0);
       return `<div class="sheet-row" data-support-type="${esc(t.id)}">
       <div class="sheet-main"><strong>${esc(t.name)}</strong> · ${esc(supportShapeName(t.shape))} · ${esc(sizeLabel(t.dn))} pipe</div>
       <div class="sheet-sub">${n} on the line${names(t.id)} · ${kg.toFixed(1)} kg each · detail sheet ${sheetOf.get(t.id) ?? '—'}</div>
+      <label class="support-qty">Quantity <input type="number" inputmode="numeric" min="0" step="1" data-support-qty="${esc(t.id)}" value="${t.qty ?? ''}" placeholder="${n}" /> = <strong>${(kg * q).toFixed(1)} kg</strong></label>
       <button class="sheet-remove" data-remove-support="${esc(t.id)}" type="button" title="Delete this support type">×</button>
     </div>`;
     })
@@ -1047,7 +1050,7 @@ function wire(body: HTMLElement, host: Host): void {
   // Supports.
   body.querySelectorAll<HTMLElement>('[data-support-type]').forEach((row) =>
     row.addEventListener('click', (event) => {
-      if ((event.target as HTMLElement).closest('[data-remove-support]')) return;
+      if ((event.target as HTMLElement).closest('[data-remove-support], .support-qty')) return;
       host.editSupportType(row.dataset.supportType!);
     }),
   );
@@ -1061,6 +1064,19 @@ function wire(body: HTMLElement, host: Host): void {
         d.supportTypes = (d.supportTypes ?? []).filter((x) => x.id !== id);
         if (d.supportTypes.length === 0) delete d.supportTypes;
         for (const r of d.runs) for (const c of r.inline) if (c.supportType === id) delete c.supportType;
+      });
+    }),
+  );
+  // How many of a type are made, counted in every weight; cleared, as many as on the line.
+  body.querySelectorAll<HTMLInputElement>('[data-support-qty]').forEach((field) =>
+    field.addEventListener('change', () => {
+      const id = field.dataset.supportQty!;
+      const v = Math.round(Number(field.value));
+      host.edit('Support quantity', (d) => {
+        const t = d.supportTypes?.find((x) => x.id === id);
+        if (!t) return;
+        if (field.value.trim() === '' || !(v >= 0)) delete t.qty;
+        else t.qty = v;
       });
     }),
   );

@@ -15,7 +15,7 @@ import {
   profileOf,
   supportMaterial,
   supportParts,
-  supportUses,
+  supportQty,
   uBoltRod,
   SUPPORT_SHAPES,
   type Profile,
@@ -614,7 +614,7 @@ export function renderSupportDetailSheet(drawing: Drawing, types: SupportType[],
   if (rows > 1 && last) views += vline(area.x + last * cw, area.y + (rows - 1) * ch, area.y + area.h, 'cell-rule');
 
   // The column.
-  const uses = supportUses(drawing);
+  const uses = supportQty(drawing);
   const rowH = types.length > 2 ? 3.5 : 4.2;
   const headH = 5;
   let y = MARGIN;
@@ -687,8 +687,8 @@ export function renderSupportDetailSheet(drawing: Drawing, types: SupportType[],
     [0.07, 0.5, 0.21, 0.09, 0.13],
     partsRows,
     single
-      ? `${uses.get(single.id) ?? 0} OFF ON THIS SHEET · ${oneKg.toFixed(1)} KG EACH · ${(oneKg * (uses.get(single.id) ?? 0)).toFixed(1)} KG IN ALL`
-      : `THESE ${types.length} TYPES ON THE LINE · ${all.toFixed(1)} KG IN ALL`,
+      ? `${uses.get(single.id) ?? 0} OFF · ${oneKg.toFixed(1)} KG EACH · ${(oneKg * (uses.get(single.id) ?? 0)).toFixed(1)} KG IN ALL`
+      : `THESE ${types.length} TYPES · ${all.toFixed(1)} KG IN ALL`,
     noteY - 5 - y - materialRoom - 3,
   );
   y += 3;

@@ -80,6 +80,12 @@ export interface SupportType {
    * plate's flat view, `b:<mark>` a balloon, `dim:<key>` a dimension.
    */
   layout?: Record<string, { dx: number; dy: number }>;
+  /**
+   * How many to make (his ask, 2026-11-16: "more than one of the same
+   * shape — let me enter a quantity and count it in the total weight");
+   * unset, as many as the supports on the line of this type.
+   */
+  qty?: number;
 }
 
 /** A section's dimensions: depth h, width b, wall/flange thickness t, mass kg/m. */
@@ -268,6 +274,14 @@ export function supportUses(drawing: Drawing): Map<string, number> {
   return out;
 }
 
+/** How many of each type are made: the quantity typed, else the supports on the line of it. */
+export function supportQty(drawing: Drawing): Map<string, number> {
+  const uses = supportUses(drawing);
+  const out = new Map<string, number>();
+  for (const t of drawing.supportTypes ?? []) out.set(t.id, t.qty !== undefined && t.qty >= 0 ? t.qty : uses.get(t.id) ?? 0);
+  return out;
+}
+
 /** The next free name: PS-1, PS-2 … */
 export function nextSupportName(drawing: Drawing): string {
   const taken = new Set((drawing.supportTypes ?? []).map((t) => t.name));
@@ -278,7 +292,7 @@ export function nextSupportName(drawing: Drawing): string {
 
 /** The sheet's support material, all types together, times the supports of each. */
 export function supportMaterial(drawing: Drawing): { description: string; size: string; qty: number; kg: number }[] {
-  const uses = supportUses(drawing);
+  const uses = supportQty(drawing);
   const rows = new Map<string, { description: string; size: string; qty: number; kg: number; length: number }>();
   for (const t of drawing.supportTypes ?? []) {
     const n = uses.get(t.id) ?? 0;

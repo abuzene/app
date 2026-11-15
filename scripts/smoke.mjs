@@ -5943,7 +5943,7 @@ await page.click('.dialog [data-x="preview"]');
 await page.waitForTimeout(600);
 const supSheets = await page.evaluate(() => [...document.querySelectorAll('.sheet-preview svg')].map((s) => s.textContent));
 check('supports: a detail sheet for each type', supSheets.length, (v) => v === 2, '2');
-check('supports: the sheet has its parts, plates with holes and the U-bolt', supSheets[0] ?? '', (t) => /PARTS LIST — PS-1/.test(t) && /POST UPN 120/.test(t) && /L=790/.test(t) && /BEAM UPN 100/.test(t) && /4 HOLES Ø22/.test(t) && /U-BOLT M12 DIN 3570/.test(t) && /1 OFF ON THIS SHEET/.test(t), 'parts of PS-1');
+check('supports: the sheet has its parts, plates with holes and the U-bolt', supSheets[0] ?? '', (t) => /PARTS LIST — PS-1/.test(t) && /POST UPN 120/.test(t) && /L=790/.test(t) && /BEAM UPN 100/.test(t) && /4 HOLES Ø22/.test(t) && /U-BOLT M12 DIN 3570/.test(t) && /1 OFF · 16.9 KG EACH · 16.9 KG IN ALL/.test(t), 'parts of PS-1');
 check('supports: the braced arm\'s sheet has its brace and wall plate', supSheets[1] ?? '', (t) => /BRACE L 50x50x5/.test(t) && /WALL PLATE/.test(t) && /SUPPORT PS-2/.test(t), 'brace, wall plate');
 await page.click('.dialog [data-close]');
 await page.waitForTimeout(200);
@@ -6021,6 +6021,40 @@ supD = await drawingNow();
 check('supports 2: put back as drawn', !supD.supportTypes[0].layout && !supD.supportTypes[1].layout, (v) => v === true, 'true');
 await page.click('[data-editor="support-arrange"] [data-ar="close"]');
 await page.waitForTimeout(200);
+
+// A quantity per support type (his ask, 2026-11-16: "more than one of the
+// same shape — let me enter a quantity and count it in the total weight"):
+// typed, it stands for the supports on the line in every weight.
+await page.click('#tabs button:has-text("Supports")');
+await page.waitForTimeout(200);
+supD = await drawingNow();
+const qtyId = supD.supportTypes[0].id;
+const qtyKgEach = Number((await page.locator(`#tab-body [data-support-type="${qtyId}"] .sheet-sub`).innerText()).match(/([\d.]+) kg each/)[1]);
+const totalBefore = Number((await page.locator('#tab-body table.support-material tr.total td').last().innerText()));
+await page.fill(`#tab-body [data-support-qty="${qtyId}"]`, '5');
+await page.locator(`#tab-body [data-support-qty="${qtyId}"]`).dispatchEvent('change');
+await page.waitForTimeout(300);
+supD = await drawingNow();
+check('support quantity: kept with the type', supD.supportTypes[0].qty, (v) => v === 5, '5');
+const totalAfter = Number((await page.locator('#tab-body table.support-material tr.total td').last().innerText()));
+check('support quantity: the total weight counts 5 of it, not the 2 on the line', Math.round((totalAfter - totalBefore) * 10) / 10, (v) => Math.abs(v - qtyKgEach * 3) < 0.25, `${(qtyKgEach * 3).toFixed(1)}`);
+check('support quantity: the row says what 5 weigh', await page.locator(`#tab-body [data-support-type="${qtyId}"] .support-qty`).innerText(), (t) => t.includes((qtyKgEach * 5).toFixed(1)), `${(qtyKgEach * 5).toFixed(1)} kg`);
+await page.locator(`#tab-body [data-support-type="${qtyId}"] .sheet-main`).click();
+await page.waitForTimeout(250);
+check('support quantity: the editor shows it and the weight of all', [await page.locator('[data-editor="support-type"] [data-st="qty"]').inputValue(), await page.locator('[data-editor="support-type"] .st-picture').innerText()].join(' | '), (t) => t.startsWith('5 |') && /5 off =/.test(t), '5, 5 off = …');
+await page.click('[data-editor="support-type"] [data-cancel]');
+await page.waitForTimeout(200);
+await page.click('#tab-body [data-a="print-supports"]');
+await page.waitForTimeout(250);
+await page.click('.dialog [data-x="preview"]');
+await page.waitForTimeout(600);
+check('support quantity: the detail sheet counts 5 off', await page.locator('.sheet-preview svg').first().textContent(), (t) => /PS-1 — 5 OFF/.test(t), 'PS-1 — 5 OFF');
+await page.click('.dialog [data-close]');
+await page.waitForTimeout(200);
+await page.fill(`#tab-body [data-support-qty="${qtyId}"]`, '');
+await page.locator(`#tab-body [data-support-qty="${qtyId}"]`).dispatchEvent('change');
+await page.waitForTimeout(300);
+check('support quantity: cleared, as many as on the line again', (await drawingNow()).supportTypes[0].qty, (v) => v === undefined, 'undefined');
 
 // A reducer put along a pipe over a support: the support goes to the pipe
 // beside it, not inside the reducer (it was left there on the same sheet).

@@ -15,7 +15,7 @@ import { DN_LIST, schedulesFor, sizeLabel, sizeOf } from './model/pipe-data';
 import { northArrow, paperOf, renderDrawing, runOffsetAtPaper, symbolSizeFor } from './render/renderer';
 import { SHEET_STAMPS, renderSheet, sheetLegibility, sheetStamp, sheetSymbolSize, type SheetSize } from './render/sheet';
 import { renderSupportDetailSheet, renderSupportSheets, supportPreview } from './render/support-sheet';
-import { PROFILES, SUPPORT_SHAPES, defaultPlate, membersOf, newSupportType, nextSupportName, supportMarks, supportParts, supportSheetGroups, uBoltRod, type SupportShape, type SupportType } from './model/supports';
+import { PROFILES, SUPPORT_SHAPES, defaultPlate, membersOf, newSupportType, nextSupportName, supportMarks, supportParts, supportSheetGroups, supportUses, uBoltRod, type SupportShape, type SupportType } from './model/supports';
 import { Canvas } from './ui/canvas';
 import { esc, fileStem, renderPanel, renderTabs } from './ui/panels';
 import { renderTools } from './ui/tools';
@@ -3373,6 +3373,10 @@ function supportTypeDialog(id: string | null, forComp?: string, shape?: SupportS
           })
           .join('')}</div></div>`
       : '';
+  const weighs = (kg: number) => {
+    const n = t.qty ?? supportUses(d).get(t.id) ?? 0;
+    return `${supportParts(t).length} parts · ${kg.toFixed(1)} kg each · ${n} off = <strong>${(kg * n).toFixed(1)} kg</strong>`;
+  };
   const form = () => {
     const m = membersOf(t.shape);
     const kg = supportParts(t).reduce((a, p) => a + p.kg, 0);
@@ -3397,10 +3401,11 @@ function supportTypeDialog(id: string | null, forComp?: string, shape?: SupportS
       ${m.base ? plateRows('basePlate', 'Base plate', 'None — welded to existing steel', 'Off the post centre, mm (+ right)') : ''}${m.top ? plateRows('topPlate', 'Top plate', 'None — the pipe on the post', 'Off the post centre, mm (+ right)') : ''}${m.wall ? plateRows('wallPlate', 'Wall plate', 'None — welded to existing steel', 'Off its place, mm (+ up)') : ''}
       <div class="row"><label>U-bolt</label><select data-st="uBolt"><option value="1"${t.uBolt ? ' selected' : ''}>Yes — M${uBoltRod(t.dn)} DIN 3570</option><option value="0"${t.uBolt ? '' : ' selected'}>No — the pipe rests on it</option></select></div>
       <div class="row"><label>Note</label><input type="text" data-st="note" value="${esc(t.note ?? '')}" placeholder="printed on its detail sheet" /></div>
+      <div class="row"><label>Quantity to make</label><input type="number" inputmode="numeric" min="0" step="1" data-st="qty" value="${t.qty ?? ''}" placeholder="as on the line (${supportUses(d).get(t.id) ?? 0})" /></div>
       <div class="row"><label>Detail sheet No.</label><input type="number" inputmode="numeric" min="0" data-st="sheet" value="${t.sheet ?? ''}" placeholder="its own sheet" /></div>
       ${markRows()}
     </div>
-    <div class="st-picture">${supportPreview(t)}<p class="empty-note">${supportParts(t).length} parts · ${kg.toFixed(1)} kg each</p></div>
+    <div class="st-picture">${supportPreview(t)}<p class="empty-note">${weighs(kg)}</p></div>
   </div>
   <div class="btn-row">
     <button class="btn-line solid" data-confirm>${old ? 'Save' : comp ? 'Make it and give it to this support' : 'Make support type'}</button>
@@ -3423,6 +3428,12 @@ function supportTypeDialog(id: string | null, forComp?: string, shape?: SupportS
         t.topPlate.w = Math.max(t.topPlate.w, Math.ceil((sizeOf(t.dn).od + 2 * rod + 40) / 10) * 10);
       }
       return true;
+    }
+    if (path === 'qty') {
+      const v = Math.round(Number(el.value));
+      t.qty = el.value.trim() && v >= 0 ? v : undefined;
+      refreshPicture();
+      return false;
     }
     if (path === 'sheet') {
       const v = Math.round(Number(el.value));
@@ -3450,7 +3461,7 @@ function supportTypeDialog(id: string | null, forComp?: string, shape?: SupportS
   const refreshPicture = () => {
     const pic = backdrop.querySelector('.st-picture');
     const kg = supportParts(t).reduce((a, p) => a + p.kg, 0);
-    if (pic) pic.innerHTML = `${supportPreview(t)}<p class="empty-note">${supportParts(t).length} parts · ${kg.toFixed(1)} kg each</p>`;
+    if (pic) pic.innerHTML = `${supportPreview(t)}<p class="empty-note">${weighs(kg)}</p>`;
   };
   const wireForm = () => {
     backdrop.querySelectorAll<HTMLSelectElement>('[data-st-plate]').forEach((el) =>
