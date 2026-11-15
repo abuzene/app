@@ -1385,8 +1385,12 @@ ships, and the decisions already taken, so they are not re-litigated.
   and **Billed** rows; on each detail sheet a **SUPPORT SCHEDULE —
   QUANTITIES** table first (every type of the line: type, shape, qty, kg
   each, kg billed with "(MIN)"), foot "n SUPPORTS · BILLED x KG (MIN 5 KG
-  EACH)"; each box's subtitle starts "n OFF"; the material foot "TOTAL
-  STEEL · BILLED". The column's rows close up (down to 2.8 mm, smaller
+  EACH)"; the material foot "TOTAL STEEL · BILLED". **How many, big at
+  the foot of each box** (his marked-up sheet, same day: the small "3 OFF"
+  in the subtitle crossed out, "QTY X 3" written large under the support):
+  a 9 mm strip along the box's foot carries `QTY X n` (`.sd-qty`, 5 mm
+  bold, underlined, bottom right), draggable in the arrange view (`qty`,
+  kept inside the box); the subtitle no longer says it. The column's rows close up (down to 2.8 mm, smaller
   type) so the three tables fit above the notes.
   **A rib (gusset)** (same day: "a triangular rib between two profiles"):
   `SupportType.gusset {leg, t}`, the editor's **Rib (gusset)**

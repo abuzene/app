@@ -6167,7 +6167,7 @@ await page.click('.dialog [data-x="preview"]');
 await page.waitForTimeout(700);
 const allSheet = (await page.locator('.sheet-preview svg').first().textContent()) ?? '';
 const lightName = light.name;
-check('quantities: the sheet of all the supports has the schedule, each with its quantity', allSheet, (t) => /SUPPORT SCHEDULE — QUANTITIES/.test(t) && new RegExp(`${lightName}ARM FROM WALL3[\\d.]+15\\.0 \\(MIN\\)`).test(t) && /BILLED [\d.]+ KG \(MIN 5 KG EACH\)/.test(t) && /3 OFF ·/.test(t), `${lightName} 3 off, 15.0 (MIN), billed total`);
+check('quantities: the sheet of all the supports has the schedule, each with its quantity', allSheet, (t) => /SUPPORT SCHEDULE — QUANTITIES/.test(t) && new RegExp(`${lightName}ARM FROM WALL3[\\d.]+15\\.0 \\(MIN\\)`).test(t) && /BILLED [\d.]+ KG \(MIN 5 KG EACH\)/.test(t) && /QTY X 3/.test(t), `${lightName} QTY X 3, 15.0 (MIN), billed total`);
 check('rib: on the parts list, a triangle', allSheet, (t) => /GUSSET PL 8 TRIANGLE100x100/.test(t), 'GUSSET PL 8 TRIANGLE 100x100');
 await page.click('.dialog [data-close]');
 await page.waitForTimeout(200);

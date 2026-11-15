@@ -575,6 +575,7 @@ const SUPPORT_CSS = (k = 1) => `
 .sd-balloon-text { font-size: ${2.4 * k}px; font-weight: 700; font-family: "Helvetica Neue", Arial, sans-serif; }
 .sd-view-title { font-size: 2.6px; font-weight: 700; letter-spacing: 0.05em; text-decoration: underline; }
 .sd-view-scale { font-size: 1.9px; fill: #3d4756; }
+.sd-qty { font-size: 5px; font-weight: 700; letter-spacing: 0.06em; text-decoration: underline; font-family: "Helvetica Neue", Arial, sans-serif; }
 `;
 
 let supportSheetSeq = 0;
@@ -597,7 +598,12 @@ function usedOn(drawing: Drawing, t: SupportType): string {
  * where he dragged it (`t.layout`) and tagged so the arrange view can take
  * hold of it.
  */
-function supportCell(drawing: Drawing, t: SupportType, box: Box, wide: boolean, grid: string): string {
+function supportCell(drawing: Drawing, t: SupportType, whole: Box, wide: boolean, grid: string): string {
+  // A strip along the box's foot for how many are made, large (his marked-up
+  // sheet, 2026-11-16: "QTY X 3" written big under the support, not small
+  // in its subtitle); the drawing takes the rest.
+  const QTY_STRIP = 9;
+  const box: Box = { ...whole, h: whole.h - QTY_STRIP };
   // An arrangement belongs to the sheet's layout it was made on: dragged on a
   // sheet of its own, it says nothing of where things go in a grid of six.
   // Keys with no layout in front were made on a sheet of its own.
@@ -641,7 +647,7 @@ function supportCell(drawing: Drawing, t: SupportType, box: Box, wide: boolean, 
   pen.close();
   const shapeName = SUPPORT_SHAPES.find((x) => x.id === t.shape)?.name.toUpperCase() ?? t.shape;
   let out = text(box.x + elevW / 2, box.y + 3.2, wide ? `${t.name} — ${shapeName}, LOOKING ALONG THE PIPE` : `${t.name} — ${shapeName}`, 'sd-view-title', 'middle');
-  out += text(box.x + elevW / 2, box.y + 6.6, `${supportQty(drawing).get(t.id) ?? 0} OFF · ${usedOn(drawing, t)} · SCALE 1:${n}`, 'sd-view-scale', 'middle');
+  out += text(box.x + elevW / 2, box.y + 6.6, `${usedOn(drawing, t)} · SCALE 1:${n}`, 'sd-view-scale', 'middle');
   out += pen.out;
 
   // Each plate flat, down the right of the box, where he put it.
@@ -679,6 +685,18 @@ function supportCell(drawing: Drawing, t: SupportType, box: Box, wide: boolean, 
       pp.close();
       out += pp.out;
     });
+  }
+  // How many are made, big at the foot of the box; it drags like the rest,
+  // kept inside the box.
+  {
+    const label = `QTY X ${supportQty(drawing).get(t.id) ?? 0}`;
+    const w = label.length * 3.1;
+    const hx = whole.x + whole.w - 3;
+    const hy = whole.y + whole.h - 2.5;
+    const mv = lay('qty');
+    const dx = clamp(mv.dx, whole.x + w + 2 - hx, 0);
+    const dy = clamp(mv.dy, whole.y + 8 - hy, 0);
+    out += `<g data-sd="${t.id}|qty"${dx || dy ? ` transform="translate(${dx.toFixed(2)} ${dy.toFixed(2)})"` : ''}>${text(hx, hy, label, 'sd-qty', 'end')}</g>`;
   }
   return out;
 }
