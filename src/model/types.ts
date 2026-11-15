@@ -117,6 +117,8 @@ export interface InlineComponent {
    * drawing (his ask, 2026-09-24); unset, the table's for its size.
    */
   ff?: number;
+  /** The standard of this valve's flanges; unset, the sheet's (`DrawingOptions.flangeStd`). */
+  flangeStd?: 'ASA' | 'DIN';
 }
 
 export interface Terminal {
@@ -133,6 +135,8 @@ export interface Terminal {
    * 2026-09-27: "adding a blind took away the flange's weld").
    */
   under?: 'FLG_WN' | 'FLG_SW' | 'FLG_THD';
+  /** The standard of the flange on this end; unset, the sheet's. */
+  std?: 'ASA' | 'DIN';
 }
 
 export interface IsoNode {
@@ -149,6 +153,8 @@ export interface IsoNode {
    * never part way along a run.
    */
   flange?: FlangeKind;
+  /** The standard of the flanged joint's flanges; unset, the sheet's. */
+  flangeStd?: 'ASA' | 'DIN';
   /** Overrides the fitting inferred from connectivity. */
   fittingOverride?: FittingKind;
   /**
@@ -398,6 +404,11 @@ export interface DrawingOptions {
   northArrow?: number;
   /** How fittings are joined unless a point says otherwise. */
   joint: JointType;
+  /**
+   * The standard flanges are made to unless one says otherwise: ASA
+   * (ASME B16.5 class 150), the default, or DIN (DIN 2633 PN16).
+   */
+  flangeStd?: 'ASA' | 'DIN';
   /** The schedule new runs take, and what "set every run" applies. */
   pipeSchedule: string;
   /**

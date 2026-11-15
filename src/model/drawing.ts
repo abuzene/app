@@ -17,7 +17,7 @@ import type {
   WeldReach,
 } from './types';
 import { AXIS_VECTOR, add, angleBetween, direction, equals3, length3, scale3, sub } from './iso';
-import { componentTakeout, defaultValveEnds, fittingTakeout, oletTakeout, sizeLabel, valveFlangeKind } from './pipe-data';
+import { componentTakeout, defaultValveEnds, fittingTakeout, flangeStdSuffix, oletTakeout, sizeLabel, valveFlangeKind, type FlangeStd } from './pipe-data';
 import { flangeJoint, isFlange } from '../render/symbols';
 import platinumLogo from '../assets/platinum-logo.png';
 
@@ -87,6 +87,8 @@ export interface NodeInfo {
   legs: Vec3[];
   fitting: FittingKind;
   degree: number;
+  /** The standard of a flanged joint's flanges here: the point's own, else the sheet's. */
+  flangeStd?: FlangeStd;
 }
 
 /** One thing on the drawing, carrying the material list number it balloons to. */
@@ -294,8 +296,16 @@ export function inlineLabel(comp: InlineComponent, runDn: string): string {
 }
 
 /** What a line's end piece takes off the pipe: a flange's length, a transition's stub. */
-export function terminalTakeoutOf(kind: string | undefined, dn: string): number {
-  return kind === 'FLG_WN' || kind === 'FLG_SO' || kind === 'TRANSITION' ? componentTakeout(kind, dn) : 0;
+export function terminalTakeoutOf(kind: string | undefined, dn: string, std: FlangeStd = 'ASA'): number {
+  return kind === 'FLG_WN' || kind === 'FLG_SO' || kind === 'TRANSITION' ? componentTakeout(kind, dn, false, undefined, std) : 0;
+}
+
+/**
+ * The standard a flange is made to: its own (`comp.flangeStd`,
+ * `terminal.std`, `node.flangeStd`), else the sheet's, else ASA.
+ */
+export function stdOf(drawing: Drawing, own?: FlangeStd): FlangeStd {
+  return own ?? drawing.options.flangeStd ?? 'ASA';
 }
 
 /**
@@ -317,13 +327,13 @@ export function itemAtEnd(
   for (const comp of run.inline) {
     const dn = comp.dn ?? run.dn;
     const ends = resolveEnds(comp.kind, dn, comp.ends, defaultJoint);
-    const half = componentTakeout(comp.kind, dn, ends === 'FLG' && valveFlangeKind(defaultJoint), comp.ff);
+    const half = componentTakeout(comp.kind, dn, ends === 'FLG' && valveFlangeKind(defaultJoint), comp.ff, stdOf(drawing, comp.flangeStd));
     if (half <= 0) continue;
     const sides = reducerSides(comp, run.dn);
     const sideDn = isReducer(comp.kind) ? (atStart ? sides.start : sides.end) : dn;
     const face = atStart ? comp.offset - half : total - comp.offset - half;
     // Against the end piece, or the flange of a flanged joint on the point.
-    const back = node.terminal ? terminalTakeoutOf(node.terminal.kind, sideDn) : node.flange ? componentTakeout(node.flange, sideDn) : 0;
+    const back = node.terminal ? terminalTakeoutOf(node.terminal.kind, sideDn, stdOf(drawing, node.terminal.std)) : node.flange ? componentTakeout(node.flange, sideDn, false, undefined, stdOf(drawing, node.flangeStd)) : 0;
     if (Math.abs(face - back) < 0.5) return { comp, dn: sideDn, face };
   }
   return null;
@@ -335,7 +345,7 @@ export function itemHalf(drawing: Drawing, run: Run, comp: InlineComponent): num
   const dn = comp.dn ?? run.dn;
   const joint = drawing.options.joint ?? 'BW';
   const ends = resolveEnds(comp.kind, dn, comp.ends, joint);
-  return componentTakeout(comp.kind, dn, ends === 'FLG' && valveFlangeKind(joint), comp.ff);
+  return componentTakeout(comp.kind, dn, ends === 'FLG' && valveFlangeKind(joint), comp.ff, stdOf(drawing, comp.flangeStd));
 }
 
 /**
@@ -352,7 +362,7 @@ export function valveOpenSide(drawing: Drawing, run: Run, comp: InlineComponent)
   const b = drawing.nodes.find((n) => n.id === run.to);
   if (!a || !b) return null;
   const total = length3(sub(b.pos, a.pos));
-  const half = componentTakeout(comp.kind, dn, valveFlangeKind(joint), comp.ff);
+  const half = componentTakeout(comp.kind, dn, valveFlangeKind(joint), comp.ff, stdOf(drawing, comp.flangeStd));
   const open = (node: IsoNode) =>
     drawing.runs.filter((r) => r.from === node.id || r.to === node.id).length === 1 && (!node.terminal || node.terminal.kind === 'OPEN');
   if (comp.offset + half >= total - 0.5 && open(b)) return 1;
@@ -461,14 +471,14 @@ export function fittingsTouchLength(drawing: Drawing, analysis: Analysis, run: R
   return (
     endTakeout(analysis.nodeInfo.get(run.from), run, endDn(drawing, run, true)) +
     endTakeout(analysis.nodeInfo.get(run.to), run, endDn(drawing, run, false)) +
-    (a ? terminalTakeout(a, endDn(drawing, run, true)) : 0) +
-    (b ? terminalTakeout(b, endDn(drawing, run, false)) : 0)
+    (a ? terminalTakeout(drawing, a, endDn(drawing, run, true)) : 0) +
+    (b ? terminalTakeout(drawing, b, endDn(drawing, run, false)) : 0)
   );
 }
 
 /** What a line's end piece takes off the pipe: a flange's length, a transition's stub. */
-function terminalTakeout(node: IsoNode, dn: string): number {
-  return terminalTakeoutOf(terminalWeldKind(node.terminal), dn);
+function terminalTakeout(drawing: Drawing, node: IsoNode, dn: string): number {
+  return terminalTakeoutOf(terminalWeldKind(node.terminal), dn, stdOf(drawing, node.terminal?.std));
 }
 
 export function fittingLabel(kind: FittingKind): string {
@@ -685,7 +695,7 @@ function nodeInfoOf(drawing: Drawing, nodeId: string): NodeInfo | undefined {
     const dir = other ? direction(node.pos, other.pos) : null;
     if (dir) legs.push(dir);
   }
-  return { node, runs, legs, fitting: inferFitting(legs, runs, node.fittingOverride, oletMarks(node).length > 0), degree: runs.length };
+  return { node, runs, legs, fitting: inferFitting(legs, runs, node.fittingOverride, oletMarks(node).length > 0), degree: runs.length, flangeStd: stdOf(drawing, node.flangeStd) };
 }
 
 /**
@@ -705,8 +715,8 @@ export function noPipeReach(drawing: Drawing, run: Run, trueLength: number): num
   const ends =
     endTakeout(fromInfo, run, endDn(drawing, run, true)) +
     endTakeout(toInfo, run, endDn(drawing, run, false)) +
-    terminalTakeout(a, endDn(drawing, run, true)) +
-    terminalTakeout(b, endDn(drawing, run, false));
+    terminalTakeout(drawing, a, endDn(drawing, run, true)) +
+    terminalTakeout(drawing, b, endDn(drawing, run, false));
   if (!run.direct && (trueLength - ends > 0.5 || ends <= 0.5)) return null;
   const s = SYMBOL_MM * (drawing.options.sheetScale ?? 15);
   const reach = (info: NodeInfo | undefined, node: IsoNode): number => {
@@ -765,7 +775,7 @@ function drawnPieces(drawing: Drawing, run: Run, trueLength: number) {
     const dn = comp.dn ?? run.dn;
     const face = componentTakeout(comp.kind, dn, false, comp.ff);
     const flanged = resolveEnds(comp.kind, dn, comp.ends, joint) === 'FLG' && (isValve(comp.kind) || isReducer(comp.kind));
-    const flangeLen = flanged ? componentTakeout(comp.kind, dn, valveFlangeKind(joint), comp.ff) - face : 0;
+    const flangeLen = flanged ? componentTakeout(comp.kind, dn, valveFlangeKind(joint), comp.ff, stdOf(drawing, comp.flangeStd)) - face : 0;
     const open = flanged ? valveOpenSide(drawing, run, comp) : null;
     const hasFlange = (side: 0 | 1) => flanged && comp.bare !== side && !(comp.lastFlange && open === side);
     const trueLo = face + (hasFlange(0) ? flangeLen : 0);
@@ -954,7 +964,7 @@ function endTakeout(info: NodeInfo | undefined, run: Run, dn = run.dn): number {
   // A flanged joint: the pipe stops at the flange face, and the flange itself
   // is what fills the length from there to the weld — at the size of the
   // item's end when an item (a reducer) is welded straight to it.
-  if (info.node.flange) return componentTakeout(info.node.flange, dn);
+  if (info.node.flange) return componentTakeout(info.node.flange, dn, false, undefined, info.flangeStd);
   if (info.fitting !== 'OLET') return nodeFittingTakeout(info, run.dn);
   const legs = oletLegs(info);
   if (!legs) return 0;
@@ -972,7 +982,7 @@ export function pipeSpans(drawing: Drawing, nodeInfo: Map<string, NodeInfo>, run
   if (!a || !b) return [];
   const defaultJoint = drawing.options.joint ?? 'BW';
   const total = length3(sub(b.pos, a.pos));
-  const terminalBack = (node: IsoNode) => terminalTakeout(node, endDn(drawing, run, node.id === run.from));
+  const terminalBack = (node: IsoNode) => terminalTakeout(drawing, node, endDn(drawing, run, node.id === run.from));
   const start = endTakeout(nodeInfo.get(run.from), run, endDn(drawing, run, true)) + terminalBack(a);
   const finish = total - endTakeout(nodeInfo.get(run.to), run, endDn(drawing, run, false)) - terminalBack(b);
   const taken: [number, number][] = [];
@@ -980,7 +990,7 @@ export function pipeSpans(drawing: Drawing, nodeInfo: Map<string, NodeInfo>, run
     if (skip?.(comp)) continue;
     const dn = comp.dn ?? run.dn;
     const ends = resolveEnds(comp.kind, dn, comp.ends, defaultJoint);
-    const half = componentTakeout(comp.kind, dn, ends === 'FLG' && valveFlangeKind(defaultJoint), comp.ff);
+    const half = componentTakeout(comp.kind, dn, ends === 'FLG' && valveFlangeKind(defaultJoint), comp.ff, stdOf(drawing, comp.flangeStd));
     if (half > 0) taken.push([comp.offset - half, comp.offset + half]);
   }
   taken.sort((x, y) => x[0] - y[0]);
@@ -1032,7 +1042,7 @@ export function pipeStretchAt(drawing: Drawing, analysis: Analysis, run: Run, of
   const itemBounds = (r: Run, endSide: boolean, at: number) => r.inline.some((c) => {
     if (isMark(c.kind)) return false;
     const dn = c.dn ?? r.dn;
-    const half = componentTakeout(c.kind, dn, resolveEnds(c.kind, dn, c.ends, defaultJoint) === 'FLG' && valveFlangeKind(defaultJoint), c.ff);
+    const half = componentTakeout(c.kind, dn, resolveEnds(c.kind, dn, c.ends, defaultJoint) === 'FLG' && valveFlangeKind(defaultJoint), c.ff, stdOf(drawing, c.flangeStd));
     return half > 0 && Math.abs((endSide ? c.offset - half : c.offset + half) - at) < 1;
   });
   const plain = (nodeId: string): boolean => {
@@ -1218,7 +1228,7 @@ export function analyse(drawing: Drawing): Analysis {
       if (dir) legs.push(dir);
     }
     const fitting = inferFitting(legs, runs, node.fittingOverride, oletMarks(node).length > 0);
-    nodeInfo.set(node.id, { node, runs, legs, fitting, degree: runs.length });
+    nodeInfo.set(node.id, { node, runs, legs, fitting, degree: runs.length, flangeStd: stdOf(drawing, node.flangeStd) });
     if (runs.length > 4) warnings.push(`Node ${node.label ?? node.id} has ${runs.length} connections.`);
   }
 
@@ -1267,11 +1277,11 @@ export function analyse(drawing: Drawing): Analysis {
     let cut = centre - endTakeout(fromInfo, run, endDn(drawing, run, true)) - endTakeout(toInfo, run, endDn(drawing, run, false));
     // Fittings joined to each other directly: there is no pipe to cut.
     if (run.direct) cut = -1;
-    cut -= terminalTakeout(a, endDn(drawing, run, true)) + terminalTakeout(b, endDn(drawing, run, false));
+    cut -= terminalTakeout(drawing, a, endDn(drawing, run, true)) + terminalTakeout(drawing, b, endDn(drawing, run, false));
     for (const comp of run.inline) {
       const dn = comp.dn ?? run.dn;
       const ends = resolveEnds(comp.kind, dn, comp.ends, drawing.options.joint ?? 'BW');
-      const half = componentTakeout(comp.kind, dn, ends === 'FLG' && valveFlangeKind(drawing.options.joint ?? 'BW'), comp.ff);
+      const half = componentTakeout(comp.kind, dn, ends === 'FLG' && valveFlangeKind(drawing.options.joint ?? 'BW'), comp.ff, stdOf(drawing, comp.flangeStd));
       // A valve on the open end may reach past it (its last flange taken
       // off, the end brought in to its face): only what lies on the run counts.
       const open = valveOpenSide(drawing, run, comp) !== null;
@@ -1285,7 +1295,7 @@ export function analyse(drawing: Drawing): Analysis {
     // Nothing left to cut between two fittings: they meet, and there is one
     // weld between them — whether the run was marked so or is simply that
     // short. Two welds on one spot, one to be struck off by hand, is no use.
-    const ends = endTakeout(fromInfo, run, endDn(drawing, run, true)) + endTakeout(toInfo, run, endDn(drawing, run, false)) + terminalTakeout(a, endDn(drawing, run, true)) + terminalTakeout(b, endDn(drawing, run, false));
+    const ends = endTakeout(fromInfo, run, endDn(drawing, run, true)) + endTakeout(toInfo, run, endDn(drawing, run, false)) + terminalTakeout(drawing, a, endDn(drawing, run, true)) + terminalTakeout(drawing, b, endDn(drawing, run, false));
     // A support or other mark on it is no pipe to cut either.
     if (run.direct || (run.inline.every((c) => isMark(c.kind)) && cut <= 0.5 && ends > 0.5)) touching.add(run.id);
     if (cut < 0) {
@@ -1349,7 +1359,7 @@ export function analyse(drawing: Drawing): Analysis {
       const cDn = c.dn ?? run.dn;
       const flanged = resolveEnds(c.kind, cDn, c.ends, defaultJoint) === 'FLG' && !isFlange(c.kind) && !isReducer(c.kind);
       if (flanged && c.bare === (atStart ? 0 : 1)) continue;
-      const half = componentTakeout(c.kind, cDn, flanged && valveFlangeKind(defaultJoint), c.ff);
+      const half = componentTakeout(c.kind, cDn, flanged && valveFlangeKind(defaultJoint), c.ff, stdOf(drawing, c.flangeStd));
       if (half <= 0) continue;
       const face = atStart ? c.offset - half : total - c.offset - half;
       if (Math.abs(face - takeout) >= 0.5) continue;
@@ -1393,10 +1403,10 @@ export function analyse(drawing: Drawing): Analysis {
       };
       // The weld is where the two meet: the first one's take-out along the
       // run, or half way when that does not fall inside it.
-      const meet = endTakeout(nodeInfo.get(run.from), run, endDn(drawing, run, true)) + terminalTakeout(a, endDn(drawing, run, true));
+      const meet = endTakeout(nodeInfo.get(run.from), run, endDn(drawing, run, true)) + terminalTakeout(drawing, a, endDn(drawing, run, true));
       // One end with no take-out at all (a plain point an item's face sits
       // on): the weld is on that face, not half way into the elbow's sweep.
-      const back = endTakeout(nodeInfo.get(run.to), run, endDn(drawing, run, false)) + terminalTakeout(b, endDn(drawing, run, false));
+      const back = endTakeout(nodeInfo.get(run.to), run, endDn(drawing, run, false)) + terminalTakeout(drawing, b, endDn(drawing, run, false));
       const at = meet > 0.5 && meet < total - 0.5 ? meet : !run.direct && meet <= 0.5 && back > 0.5 ? 0 : !run.direct && meet >= total - 0.5 && back <= 0.5 ? total : total / 2;
       pushJoint(
         `d:${run.id}`,
@@ -1442,7 +1452,7 @@ export function analyse(drawing: Drawing): Analysis {
           // one weld, named for the two, the size of the item's end.
           const meets = itemAtEnd(drawing, run, atStart);
           const dnAt = meets?.dn ?? run.dn;
-          const back = isFlange(terminal) || terminal === 'TRANSITION' ? componentTakeout(terminal, dnAt) : 0;
+          const back = isFlange(terminal) || terminal === 'TRANSITION' ? componentTakeout(terminal, dnAt, false, undefined, stdOf(drawing, node.terminal?.std)) : 0;
           const at = atStart ? back : total - back;
           pushJoint(
             `n:${node.id}:term`,
@@ -1515,7 +1525,7 @@ export function analyse(drawing: Drawing): Analysis {
           // face): one weld between them, named for both, at its end's size.
           const meets = itemAtEnd(drawing, run, atStart);
           const dnAt = meets?.dn ?? run.dn;
-          const back = componentTakeout(node.flange, dnAt);
+          const back = componentTakeout(node.flange, dnAt, false, undefined, info.flangeStd);
           const at = atStart ? back : total - back;
           pushJoint(
             `n:${node.id}:flg:${run.id}`,
@@ -1570,7 +1580,7 @@ export function analyse(drawing: Drawing): Analysis {
       const joint = componentJoint(comp, defaultJoint, dn);
       if (!joint) continue;
       const ends = resolveEnds(comp.kind, dn, comp.ends, defaultJoint);
-      const takeout = componentTakeout(comp.kind, dn, ends === 'FLG' && valveFlangeKind(defaultJoint), comp.ff);
+      const takeout = componentTakeout(comp.kind, dn, ends === 'FLG' && valveFlangeKind(defaultJoint), comp.ff, stdOf(drawing, comp.flangeStd));
       const faceHalf = componentTakeout(comp.kind, dn, false, comp.ff);
       const centre = add(a.pos, scale3(dir, comp.offset));
       const reach: WeldReach = { kind: 'valve', trueHalf: faceHalf, flange: ends === 'FLG' && !isFlange(comp.kind) ? valveFlangeKind(defaultJoint) : undefined, comp: comp.id };
@@ -1610,7 +1620,7 @@ export function analyse(drawing: Drawing): Analysis {
         for (const c of run.inline) {
           if (c.id === comp.id || isMark(c.kind) || c.bare === (side === 0 ? 1 : 0)) continue;
           const cDn = c.dn ?? run.dn;
-          const cHalf = componentTakeout(c.kind, cDn, resolveEnds(c.kind, cDn, c.ends, defaultJoint) === 'FLG' && valveFlangeKind(defaultJoint), c.ff);
+          const cHalf = componentTakeout(c.kind, cDn, resolveEnds(c.kind, cDn, c.ends, defaultJoint) === 'FLG' && valveFlangeKind(defaultJoint), c.ff, stdOf(drawing, c.flangeStd));
           if (cHalf <= 0) continue;
           const face = side === 0 ? c.offset + cHalf : c.offset - cHalf;
           if (Math.abs(face - at) < 0.5) other = { comp: c, run, first: side === 1 };
@@ -1990,12 +2000,12 @@ export function analyse(drawing: Drawing): Analysis {
       for (const run of info.runs) {
         const other = nodeById.get(run.from === info.node.id ? run.to : run.from);
         const dir = other ? direction(info.node.pos, other.pos) : null;
-        const back = componentTakeout(info.node.flange, run.dn) * 0.5;
+        const back = componentTakeout(info.node.flange, run.dn, false, undefined, info.flangeStd) * 0.5;
         instances.push({
           key: `flg:${info.node.id}:${run.id}`,
           bomKey: tally({
             category: 'FLANGE',
-            description: COMPONENT_LABEL[info.node.flange],
+            description: COMPONENT_LABEL[info.node.flange] + flangeStdSuffix(info.flangeStd),
             dn: run.dn,
             schedule: fittingThickness,
             unit: 'off',
@@ -2015,7 +2025,9 @@ export function analyse(drawing: Drawing): Analysis {
             category: kind === 'CAP' || kind === 'TRANSITION' ? 'FITTING' : 'FLANGE',
             // A blind closes the line by bolting to a flange on the pipe, so
             // the pipe end wears a weld neck and the blind is counted as well.
-            description: TERMINAL_LABEL[terminalWeldKind(info.node.terminal) ?? kind],
+            description:
+              TERMINAL_LABEL[terminalWeldKind(info.node.terminal) ?? kind] +
+              (kind === 'CAP' || kind === 'TRANSITION' ? '' : flangeStdSuffix(stdOf(drawing, info.node.terminal?.std))),
             dn,
             schedule: fittingThickness,
             unit: 'off',
@@ -2028,8 +2040,8 @@ export function analyse(drawing: Drawing): Analysis {
           const out = other ? direction(other.pos, info.node.pos) : null;
           instances.push({
             key: `blind:${info.node.id}`,
-            bomKey: tally({ category: 'FLANGE', description: TERMINAL_LABEL.FLG_BLIND, dn, schedule: fittingThickness, unit: 'off' }),
-            pos: out ? add(info.node.pos, scale3(out, componentTakeout('FLG_WN', dn) * 0.6)) : info.node.pos,
+            bomKey: tally({ category: 'FLANGE', description: TERMINAL_LABEL.FLG_BLIND + flangeStdSuffix(stdOf(drawing, info.node.terminal?.std)), dn, schedule: fittingThickness, unit: 'off' }),
+            pos: out ? add(info.node.pos, scale3(out, componentTakeout('FLG_WN', dn, false, undefined, stdOf(drawing, info.node.terminal?.std)) * 0.6)) : info.node.pos,
           });
         }
       }
@@ -2063,7 +2075,7 @@ export function analyse(drawing: Drawing): Analysis {
       const ends = resolveEnds(comp.kind, dn, comp.ends, drawing.options.joint ?? 'BW');
       if (ends === 'FLG' && !isFlange(comp.kind)) {
         const flange = valveFlangeKind(drawing.options.joint ?? 'BW');
-        const takeout = componentTakeout(comp.kind, dn, flange, comp.ff);
+        const takeout = componentTakeout(comp.kind, dn, flange, comp.ff, stdOf(drawing, comp.flangeStd));
         const lastSide = comp.lastFlange ? valveOpenSide(drawing, run, comp) : null;
         for (const side of [-1, 1] as const) {
           if (comp.bare !== undefined && side === (comp.bare === 0 ? -1 : 1)) continue;
@@ -2072,7 +2084,7 @@ export function analyse(drawing: Drawing): Analysis {
             if (comp.lastFlange === 'blind') {
               instances.push({
                 key: `comp:${comp.id}:blind`,
-                bomKey: tally({ category: 'FLANGE', description: TERMINAL_LABEL.FLG_BLIND, dn, schedule: fittingThickness, unit: 'off' }),
+                bomKey: tally({ category: 'FLANGE', description: TERMINAL_LABEL.FLG_BLIND + flangeStdSuffix(stdOf(drawing, comp.flangeStd)), dn, schedule: fittingThickness, unit: 'off' }),
                 pos: a && dir ? add(a.pos, scale3(dir, comp.offset + side * takeout * 0.75)) : at,
               });
             }
@@ -2080,7 +2092,7 @@ export function analyse(drawing: Drawing): Analysis {
           }
           const bomKey = tally({
             category: 'FLANGE',
-            description: COMPONENT_LABEL[flange],
+            description: COMPONENT_LABEL[flange] + flangeStdSuffix(stdOf(drawing, comp.flangeStd)),
             dn,
             schedule: fittingThickness,
             unit: 'off',

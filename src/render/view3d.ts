@@ -21,11 +21,12 @@ import {
   pipeSpans,
   reducerSides,
   resolveEnds,
+  stdOf,
   terminalWeldKind,
   valveOpenSide,
   nodeFittingTakeout,
 } from '../model/drawing';
-import { halfCouplingLength, componentTakeout, flangeLength, reducerLength, sizeOf, valveFlangeKind } from '../model/pipe-data';
+import { DIN_FLANGE_OD, halfCouplingLength, componentTakeout, flangeLength, reducerLength, sizeOf, valveFlangeKind, type FlangeStd } from '../model/pipe-data';
 import { AXIS_VECTOR, direction, length3, scale3, sub } from '../model/iso';
 
 type RGB = [number, number, number];
@@ -50,12 +51,12 @@ const FLANGE_OD: Record<string, number> = {
   DN125: 254, DN150: 279, DN200: 343, DN250: 406, DN300: 483, DN350: 533, DN400: 597, DN450: 635, DN500: 699, DN600: 813,
 };
 
-function flangeOd(dn: string): number {
-  return FLANGE_OD[dn] ?? sizeOf(dn).od * 1.6 + 50;
+function flangeOd(dn: string, std: FlangeStd = 'ASA'): number {
+  return (std === 'DIN' ? DIN_FLANGE_OD[dn] : FLANGE_OD[dn]) ?? sizeOf(dn).od * 1.6 + 50;
 }
 
-function flangeThick(dn: string): number {
-  return Math.max(11, flangeOd(dn) * 0.085);
+function flangeThick(dn: string, std: FlangeStd = 'ASA'): number {
+  return Math.max(11, flangeOd(dn, std) * 0.085);
 }
 
 /** A thing to write beside the model: a weld number, a box's name. */
@@ -260,10 +261,10 @@ class Builder {
 const od = (dn: string) => sizeOf(dn).od;
 
 /** A flange on a pipe: its face at `face`, the hub going back along `back` into the pipe. */
-function flangeAt(g: Builder, face: V, back: V, dn: string, kind: string): void {
-  const F = flangeOd(dn);
-  const t = flangeThick(dn);
-  const length = kind === 'FLG_WN' ? flangeLength(dn) : Math.max(t * 1.6, componentTakeout('FLG_SO', dn));
+function flangeAt(g: Builder, face: V, back: V, dn: string, kind: string, std: FlangeStd = 'ASA'): void {
+  const F = flangeOd(dn, std);
+  const t = flangeThick(dn, std);
+  const length = kind === 'FLG_WN' ? flangeLength(dn, std) : Math.max(t * 1.6, componentTakeout('FLG_SO', dn));
   g.tube(face, vadd(face, vmul(back, t)), F / 2, F / 2, FLANGE, [true, true]);
   const hubStart = vadd(face, vmul(back, t));
   const hubEnd = vadd(face, vmul(back, Math.max(length, t + 2)));
@@ -272,9 +273,9 @@ function flangeAt(g: Builder, face: V, back: V, dn: string, kind: string): void 
 }
 
 /** A blind plate on a face, standing out from it along `out`. */
-function blindAt(g: Builder, face: V, out: V, dn: string): void {
-  const t = flangeThick(dn) * 1.1;
-  g.tube(face, vadd(face, vmul(out, t)), flangeOd(dn) / 2, flangeOd(dn) / 2, FLANGE, [true, true]);
+function blindAt(g: Builder, face: V, out: V, dn: string, std: FlangeStd = 'ASA'): void {
+  const t = flangeThick(dn, std) * 1.1;
+  g.tube(face, vadd(face, vmul(out, t)), flangeOd(dn, std) / 2, flangeOd(dn, std) / 2, FLANGE, [true, true]);
 }
 
 function valveAt(g: Builder, drawing: Drawing, run: Run, comp: InlineComponent, c: V, d: V): void {
@@ -284,7 +285,8 @@ function valveAt(g: Builder, drawing: Drawing, run: Run, comp: InlineComponent, 
   const flanged = ends === 'FLG';
   const ff = componentTakeout(comp.kind, dn, false, comp.ff) * 2;
   const pipe = od(dn) / 2;
-  const F = flangeOd(dn);
+  const std = stdOf(drawing, comp.flangeStd);
+  const F = flangeOd(dn, std);
   const half = Math.max(ff / 2, pipe * 1.2);
   const faceA = vadd(c, vmul(d, -half));
   const faceB = vadd(c, vmul(d, half));
@@ -307,10 +309,10 @@ function valveAt(g: Builder, drawing: Drawing, run: Run, comp: InlineComponent, 
       if (comp.bare === s) continue;
       if (open === s && comp.lastFlange === 'none') continue;
       if (open === s && comp.lastFlange === 'blind') {
-        blindAt(g, face, out, dn);
+        blindAt(g, face, out, dn, std);
         continue;
       }
-      flangeAt(g, vadd(face, vmul(out, 1.5)), out, dn, kind);
+      flangeAt(g, vadd(face, vmul(out, 1.5)), out, dn, kind, std);
     }
   } else {
     // Screwed or socket welded: a forged body with hex ends.
@@ -356,7 +358,7 @@ function valveAt(g: Builder, drawing: Drawing, run: Run, comp: InlineComponent, 
     const flow = vmul(d, comp.flip ? -1 : 1);
     const lineR = Math.max(4, pipe * 0.1);
     const start = vadd(vadd(stemTop, vmul(up, R * 0.17)), vmul(flow, R));
-    const far = half + flangeLength(dn) + Math.max(150, F * 0.8);
+    const far = half + flangeLength(dn, std) + Math.max(150, F * 0.8);
     const over = vadd(vadd(c, vmul(flow, far)), vmul(up, vdot(vsub(start, c), up)));
     const tap = vadd(vadd(c, vmul(flow, far)), vmul(up, pipe));
     g.tube(start, over, lineR, lineR, HANDLE);
@@ -523,7 +525,7 @@ export function buildModel(drawing: Drawing, analysis: Analysis): Model3D {
       info.runs.forEach((run, i) => {
         const l = legOf(info, i);
         // Welded straight to a reducer, a flange is that end's size.
-        flangeAt(g, vadd(p, vmul(l, 1.5)), l, endDn(drawing, run, run.from === node.id), node.flange === 'FLG_BLIND' ? 'FLG_WN' : node.flange!);
+        flangeAt(g, vadd(p, vmul(l, 1.5)), l, endDn(drawing, run, run.from === node.id), node.flange === 'FLG_BLIND' ? 'FLG_WN' : node.flange!, stdOf(drawing, node.flangeStd));
       });
     }
 
@@ -537,8 +539,9 @@ export function buildModel(drawing: Drawing, analysis: Analysis): Model3D {
       // The size of what it is welded to: a reducer's end, else the pipe
       // (his DESHANIM sheet, 2026-10-21: "the flange is 3 and joins a 6 reducer").
       const dn = endDn(drawing, run, run.from === node.id);
-      if (under && under.startsWith('FLG_')) flangeAt(g, p, into, dn, under);
-      if (kind === 'FLG_BLIND') blindAt(g, p, out, dn);
+      const std = stdOf(drawing, node.terminal.std);
+      if (under && under.startsWith('FLG_')) flangeAt(g, p, into, dn, under, std);
+      if (kind === 'FLG_BLIND') blindAt(g, p, out, dn, std);
       if (kind === 'CAP') capAt(g, p, out, dn);
       if (kind === 'TRANSITION') {
         // The steel stub to its weld, then the PE pipe going on.

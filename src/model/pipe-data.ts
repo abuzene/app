@@ -183,6 +183,30 @@ const FLANGE_LEN: Record<string, Record<string, number>> = {
   SO: { DN15: 14, DN20: 14, DN25: 17, DN32: 21, DN40: 22, DN50: 25, DN65: 29, DN80: 30, DN100: 33, DN125: 36, DN150: 40, DN200: 44, DN250: 49, DN300: 56, DN350: 57, DN400: 64, DN450: 68, DN500: 73, DN600: 83 },
 };
 
+/**
+ * Which standard a flange is made to (his ask, 2026-11-15: "I have a lot of
+ * DIN flanges — let me choose ASA or DIN"): ASA, ASME B16.5 class 150, the
+ * tables above; DIN, DIN 2633 / EN 1092-1 type 11, PN16.
+ */
+export type FlangeStd = 'ASA' | 'DIN';
+
+/** DIN 2633 (EN 1092-1 type 11) PN16 weld neck flange, length through hub, mm. */
+const DIN_WN_LEN: Record<string, number> = {
+  DN15: 38, DN20: 40, DN25: 40, DN32: 42, DN40: 45, DN50: 45, DN65: 45, DN80: 50, DN100: 52, DN125: 55, DN150: 55,
+  DN200: 62, DN250: 70, DN300: 78, DN350: 82, DN400: 85, DN450: 83, DN500: 84, DN600: 88,
+};
+
+/** DIN PN16 flange outside diameters, mm (for the 3D view). */
+export const DIN_FLANGE_OD: Record<string, number> = {
+  DN15: 95, DN20: 105, DN25: 115, DN32: 140, DN40: 150, DN50: 165, DN65: 185, DN80: 200, DN100: 220, DN125: 250, DN150: 285,
+  DN200: 340, DN250: 405, DN300: 460, DN350: 520, DN400: 580, DN450: 640, DN500: 715, DN600: 840,
+};
+
+/** What a flange of this standard adds to its name on the list: nothing for ASA (as ever), DIN PN16 for DIN. */
+export function flangeStdSuffix(std: FlangeStd | undefined): string {
+  return std === 'DIN' ? ' DIN PN16' : '';
+}
+
 /** Interpolates a missing DN by falling back to the nearest tabulated size. */
 function lookup(table: Record<string, number>, dn: string): number | undefined {
   if (dn in table) return table[dn];
@@ -211,8 +235,8 @@ export function defaultValveEnds(dn: string): 'FLG' | 'THD' {
 }
 
 /** Length one flange adds beyond the component it is bolted to. */
-export function flangeLength(dn: string): number {
-  return lookup(FLANGE_LEN.WN, dn) ?? 0;
+export function flangeLength(dn: string, std: FlangeStd = 'ASA'): number {
+  return lookup(std === 'DIN' ? DIN_WN_LEN : FLANGE_LEN.WN, dn) ?? 0;
 }
 
 /**
@@ -233,8 +257,8 @@ export function valveFlangeKind(joint: string): 'FLG_WN' | 'FLG_SW' | 'FLG_THD' 
  * `flanged` names the flange the item is bolted between, whose length is
  * added to the take-out; `true` is a weld neck flange.
  */
-export function componentTakeout(kind: string, dn: string, flanged: boolean | string = false, ff?: number): number {
-  if (kind === 'FLG_WN' || kind === 'FLG_BLIND') return lookup(FLANGE_LEN.WN, dn) ?? 0;
+export function componentTakeout(kind: string, dn: string, flanged: boolean | string = false, ff?: number, std: FlangeStd = 'ASA'): number {
+  if (kind === 'FLG_WN' || kind === 'FLG_BLIND') return flangeLength(dn, std);
   if (kind === 'FLG_SO') return lookup(FLANGE_LEN.SO, dn) ?? 0;
   if (kind === 'SPECTACLE') return 0;
   if (kind === 'RED_CONC' || kind === 'RED_ECC') return reducerLength(dn, dn) / 2;
@@ -253,7 +277,7 @@ export function componentTakeout(kind: string, dn: string, flanged: boolean | st
   if (table) {
     const flange = flanged === true ? 'FLG_WN' : flanged;
     // A socket weld or threaded flange is a short hub, like a slip-on.
-    const extra = !flange ? 0 : flange === 'FLG_WN' ? flangeLength(dn) : (lookup(FLANGE_LEN.SO, dn) ?? 0);
+    const extra = !flange ? 0 : flange === 'FLG_WN' ? flangeLength(dn, std) : (lookup(FLANGE_LEN.SO, dn) ?? 0);
     // A face-to-face typed over for this valve wins over the table's.
     return ((ff && ff > 0 ? ff : lookup(table, dn)) ?? 0) / 2 + extra;
   }

@@ -441,6 +441,24 @@ ships, and the decisions already taken, so they are not re-litigated.
   panel's Joint select reads "Automatic — Threaded, as its line from the
   threadolet" and can set the point on its own. SW marks' lips point back over the pipe. In SW/THD mode
   a flanged valve gets SW/THD flanges (`valveFlangeKind`).
+- **ASA or DIN flanges** (his ask, 2026-11-15: "I have a lot of DIN
+  flanges — let me choose ASA or DIN"; he chose a sheet default with each
+  flange settable, DIN at PN16 only): `options.flangeStd` (unset = ASA),
+  set by the **ASA | DIN switch under Flanges** in the palette
+  (`[data-flange-std]`, kept when a new sheet is started), and per flange
+  in its panel's **Standard** select (`[data-f="flange-std"]`: As the
+  sheet / ASA / DIN) on an end flange (`terminal.std`), a flanged joint
+  (`node.flangeStd`) and a flanged valve (`comp.flangeStd`, both its
+  flanges); all through `setFlangeStd` in edit.ts, which keeps an item
+  welded straight to an end flange against it (the end point comes in or
+  out by the difference). `stdOf(drawing, own)` resolves it;
+  `componentTakeout(…, ff, std)`, `terminalTakeoutOf(kind, dn, std)`,
+  `flangeLength(dn, std)` and `NodeInfo.flangeStd` carry it. DIN is DIN
+  2633 / EN 1092-1 type 11 PN16 (`DIN_WN_LEN`, 3": 50 against ASA's 68;
+  `DIN_FLANGE_OD` for 3D); SW/THD flanges keep the ASA hub lengths. On the
+  list a DIN flange reads `WELD NECK FLANGE DIN PN16` (`flangeStdSuffix`),
+  an ASA one as ever; weld names stay `PIPE / WELD NECK FLANGE`. Valve
+  face-to-face stays ASME (typed over where a DIN valve differs).
 - **A blind keeps its flange's weld** (his complaint, 2026-09-27: "adding
   a blind takes away the weld between the flange and the pipe"): a
   `FLG_BLIND` end is a blind bolted to a flange welded on the pipe,

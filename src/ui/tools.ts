@@ -1,7 +1,7 @@
 import type { Axis, ComponentKind, FlangeKind, JointType, Run, TerminalKind } from '../model/types';
 import type { Host } from './types';
-import { COMPONENT_LABEL, COUPLING_REACH, UNION_REACH, TERMINAL_LABEL, chainStops, isCoupling, nodeFittingTakeout, dimensionStops, isMark, itemHalf, isValve, oletEntries, oletLegs, oletMarks, resolveEnds, terminalTakeoutOf, valveOpenSide } from '../model/drawing';
-import { addComponent, arrivalAt, route45, isCouplingPoint, isPlainPoint, placeCoupling, addEquipment, addFlangeJoint, flangeOnItemFace, applyReducer, reducerOnValveFace, valveOnItemFace, boltValveOnEnd, runLength, setLastFlange, setTerminal, splitRun } from '../model/edit';
+import { COMPONENT_LABEL, COUPLING_REACH, UNION_REACH, TERMINAL_LABEL, chainStops, isCoupling, nodeFittingTakeout, dimensionStops, isMark, itemHalf, isValve, oletEntries, oletLegs, oletMarks, resolveEnds, terminalTakeoutOf, stdOf, valveOpenSide } from '../model/drawing';
+import { addComponent, arrivalAt, route45, isCouplingPoint, isPlainPoint, placeCoupling, addEquipment, addFlangeJoint, flangeOnItemFace, applyReducer, reducerOnValveFace, valveOnItemFace, boltValveOnEnd, runLength, setFlangeStd, setLastFlange, setTerminal, splitRun } from '../model/edit';
 import { AXIS_VECTOR, add, axisBetween, direction, scale3 } from '../model/iso';
 import { DN_LIST, componentTakeout, sizeLabel, valveFlangeKind } from '../model/pipe-data';
 import { isFlange } from '../render/symbols';
@@ -321,7 +321,7 @@ async function placeReducer(host: Host, kind: 'RED_CONC' | 'RED_ECC'): Promise<v
       // end inward unless expanding. Its near face is a point of its own, so
       // the line can be picked up at either end of it.
       const atStart = target.from === endNode.id;
-      const back = terminalTakeoutOf(endNode.terminal?.kind, outward);
+      const back = terminalTakeoutOf(endNode.terminal?.kind, outward, stdOf(d, endNode.terminal?.std));
       const near = back + half * 2;
       if (near > total + 0.5) return;
       const offset = atStart ? back + half : total - back - half;
@@ -509,7 +509,7 @@ function place(host: Host, kind: ComponentKind, ends?: 'SW' | 'THD'): void {
         // the end point, rather than half past it.
         const joint = d.options.joint ?? 'BW';
         const dn = target.dn;
-        const half = isValve(kind) ? componentTakeout(kind, dn, resolveEnds(kind, dn, ends, joint) === 'FLG' && valveFlangeKind(joint)) : isCoupling(kind) ? componentTakeout(kind, dn) : 0;
+        const half = isValve(kind) ? componentTakeout(kind, dn, resolveEnds(kind, dn, ends, joint) === 'FLG' && valveFlangeKind(joint), undefined, d.options.flangeStd ?? 'ASA') : isCoupling(kind) ? componentTakeout(kind, dn) : 0;
         const onEnd = (info?.degree ?? 0) <= 1;
         // On an open end the item goes on the end of the pipe, which keeps
         // its length: the end point moves out by the item's length (his
@@ -906,6 +906,15 @@ export function renderTools(container: HTMLElement, host: Host): void {
   container.innerHTML = GROUPS.map(
     (group) =>
       `<div class="tool-group-label">${group.label}</div>` +
+      // The sheet's flanges, ASA or DIN (his ask, 2026-11-15): the flanges
+      // put on from here and every one not set otherwise in its panel.
+      (group.label === 'Flanges'
+        ? `<div class="flange-std" role="group" title="The standard of this sheet's flanges; one flange is set otherwise in its own panel">` +
+          (['ASA', 'DIN'] as const)
+            .map((std) => `<button type="button" data-flange-std="${std}" class="${(host.state.drawing.options.flangeStd ?? 'ASA') === std ? 'on' : ''}">${std}</button>`)
+            .join('') +
+          `</div>`
+        : '') +
       group.kinds
         .map((tool) => {
           if (isBranch(tool)) {
@@ -986,6 +995,15 @@ export function renderTools(container: HTMLElement, host: Host): void {
         })
         .join(''),
   ).join('');
+
+  container.querySelectorAll<HTMLButtonElement>('[data-flange-std]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const std = button.dataset.flangeStd as 'ASA' | 'DIN';
+      if ((host.state.drawing.options.flangeStd ?? 'ASA') === std) return;
+      host.edit(`Flanges ${std}`, (d) => setFlangeStd(d, null, std));
+      host.notify(std === 'DIN' ? 'Flanges on this sheet: DIN PN16 (DIN 2633). One flange is set otherwise in its panel.' : 'Flanges on this sheet: ASA 150 (ASME B16.5).');
+    });
+  });
 
   container.querySelectorAll<HTMLButtonElement>('.tool').forEach((button) => {
     button.addEventListener('click', () => {

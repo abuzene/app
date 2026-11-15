@@ -1,7 +1,7 @@
 import type { Axis, ComponentKind, Drawing, EndType, Equipment, FlangeKind, InlineComponent, IsoNode, Measure, Run, TerminalKind, Vec3 } from './types';
 import { AXIS_VECTOR, add, axisBetween, direction, equals3, length3, scale3, step, sub } from './iso';
-import { analyse, routeOrder, chainStops, headerTakenOff, dimensionStops, isCoupling, nodeFittingTakeout, pipeSpans, drawnLength, runDrawnFloor, itemHalf, fittingsTouchLength, reducerSides, isReducer, minDrawnLength, isMark, isValve, itemAtEnd, oletEntries, oletLegs, oletMarks, resolveEnds, runGroupIds, terminalTakeoutOf, uid, valveOpenSide, type Analysis, type PipeStretchPart } from './drawing';
-import { componentTakeout, schedulesFor, sizeOf, valveFlangeKind } from './pipe-data';
+import { analyse, routeOrder, chainStops, headerTakenOff, dimensionStops, isCoupling, nodeFittingTakeout, pipeSpans, drawnLength, runDrawnFloor, itemHalf, fittingsTouchLength, reducerSides, isReducer, minDrawnLength, isMark, isValve, itemAtEnd, oletEntries, oletLegs, oletMarks, resolveEnds, runGroupIds, terminalTakeoutOf, stdOf, uid, valveOpenSide, type Analysis, type PipeStretchPart } from './drawing';
+import { componentTakeout, schedulesFor, sizeOf, valveFlangeKind, type FlangeStd } from './pipe-data';
 
 /** Finds an existing node at a position, so that routes join rather than overlap. */
 export function findNodeAt(drawing: Drawing, pos: Vec3, tol = 0.5): string | null {
@@ -538,7 +538,7 @@ export function flangeOnItemFace(drawing: Drawing, nodeId: string, kind: FlangeK
     const atStart = run.from === nodeId;
     const meets = itemAtEnd(drawing, run, atStart);
     if (!meets || meets.face > 0.5) continue;
-    const len = componentTakeout(kind, meets.dn);
+    const len = componentTakeout(kind, meets.dn, false, undefined, stdOf(drawing, node.flangeStd));
     // The flange takes its length out of the pipe beyond the point, which
     // slides along; with no pipe to spare there, what lies beyond moves out.
     const grown = runLength(drawing, run) + len;
@@ -559,8 +559,8 @@ function roomAtEnd(drawing: Drawing, run: Run, atStart: boolean): number {
   const farId = atStart ? run.to : run.from;
   const far = drawing.nodes.find((n) => n.id === farId);
   let back = 0;
-  if (far?.terminal) back = terminalTakeoutOf(far.terminal.kind, run.dn);
-  else if (far?.flange) back = componentTakeout(far.flange, run.dn);
+  if (far?.terminal) back = terminalTakeoutOf(far.terminal.kind, run.dn, stdOf(drawing, far.terminal.std));
+  else if (far?.flange) back = componentTakeout(far.flange, run.dn, false, undefined, stdOf(drawing, far.flangeStd));
   else {
     const info = analyse(drawing).nodeInfo.get(farId);
     if (info && info.fitting !== 'NONE' && info.fitting !== 'OLET') back = nodeFittingTakeout(info, run.dn);
@@ -611,7 +611,7 @@ export function valveOnItemFace(drawing: Drawing, nodeId: string, kind: Componen
   if (itemAtEnd(drawing, beyond, atStart)) return null;
   const dn = itemAtEnd(drawing, faceRun, faceRun.from === nodeId)!.dn;
   const joint = drawing.options.joint ?? 'BW';
-  const half = componentTakeout(kind, dn, resolveEnds(kind, dn, ends, joint) === 'FLG' && valveFlangeKind(joint));
+  const half = componentTakeout(kind, dn, resolveEnds(kind, dn, ends, joint) === 'FLG' && valveFlangeKind(joint), undefined, stdOf(drawing));
   if (half <= 0 || !roomFor(drawing, beyond, atStart, half * 2)) return null;
   const len = runLength(drawing, beyond);
   const comp = addComponent(drawing, beyond.id, kind, atStart ? half : len - half, ends);
@@ -1277,7 +1277,7 @@ function joinTerminalStub(drawing: Drawing, run: Run, stub: { endNode: IsoNode; 
   const meets = other ? itemAtEnd(drawing, other, other.from === faceNode.id) : null;
   const out = direction(faceNode.pos, endNode.pos);
   if (out) {
-    const back = terminalTakeoutOf(kind, meets?.dn ?? other?.dn ?? '');
+    const back = terminalTakeoutOf(kind, meets?.dn ?? other?.dn ?? '', stdOf(drawing, endNode.terminal?.std));
     const target = sub(endNode.pos, scale3(out, back));
     const delta = sub(target, faceNode.pos);
     for (const node of drawing.nodes) if (side.has(node.id)) node.pos = add(node.pos, delta);
@@ -1336,8 +1336,8 @@ export function closeUpOnItem(drawing: Drawing, analysis: Analysis, run: Run): b
   if (!a || !b) return false;
   const sides = reducerSides(comp, run.dn);
   const backOf = (node: IsoNode, dn: string): number => {
-    if (node.terminal) return terminalTakeoutOf(node.terminal.kind, dn);
-    if (node.flange) return componentTakeout(node.flange, dn);
+    if (node.terminal) return terminalTakeoutOf(node.terminal.kind, dn, stdOf(drawing, node.terminal.std));
+    if (node.flange) return componentTakeout(node.flange, dn, false, undefined, stdOf(drawing, node.flangeStd));
     const info = analysis.nodeInfo.get(node.id);
     return info && info.fitting !== 'NONE' && info.fitting !== 'OLET' ? nodeFittingTakeout(info, dn) : 0;
   };
@@ -1484,7 +1484,7 @@ export function setEndSize(drawing: Drawing, nodeId: string, dn: string): string
   const large = sizeOf(startSize).od > sizeOf(endSize).od ? startSize : endSize;
   const small = large === startSize ? endSize : startSize;
   const newHalf = componentTakeout(comp.kind, large, false, comp.ff);
-  const back = terminalTakeoutOf(node.terminal.kind, dn);
+  const back = terminalTakeoutOf(node.terminal.kind, dn, stdOf(drawing, node.terminal.std));
   // The far face stays; the end piece comes to the reducer's new near face.
   const grown = total - far + back + newHalf * 2;
   if (Math.abs(grown - total) > 0.01 && !stretchRun(drawing, run.id, grown, atStart ? 'from' : 'to', true)) return 'The line has no room for it.';
@@ -1815,7 +1815,7 @@ export function applyDimension(drawing: Drawing, runId: string, index: number, v
       const face = componentTakeout(c.kind, dn, false, c.ff);
       const flanged = resolveEnds(c.kind, dn, c.ends, joint) === 'FLG' && isValve(c.kind);
       if (!flanged || c.bare === side || (c.lastFlange && valveOpenSide(drawing, run, c) === side)) return face;
-      return componentTakeout(c.kind, dn, valveFlangeKind(joint), c.ff);
+      return componentTakeout(c.kind, dn, valveFlangeKind(joint), c.ff, stdOf(drawing, c.flangeStd));
     };
     const half = componentTakeout(lower.kind, lower.dn ?? run.dn, false, lower.ff);
     const delta = from + value + half - lower.offset;
@@ -1866,7 +1866,7 @@ export function setValveFaceToFace(drawing: Drawing, run: Run, comp: InlineCompo
     const face = componentTakeout(c.kind, dn, false, c.ff);
     const flanged = resolveEnds(c.kind, dn, c.ends, joint) === 'FLG' && isValve(c.kind);
     if (!flanged || c.bare === side || (c.lastFlange && valveOpenSide(drawing, run, c) === side)) return face;
-    return componentTakeout(c.kind, dn, valveFlangeKind(joint), c.ff);
+    return componentTakeout(c.kind, dn, valveFlangeKind(joint), c.ff, stdOf(drawing, c.flangeStd));
   };
   const half = componentTakeout(comp.kind, comp.dn ?? run.dn, false, comp.ff);
   const fixed = keepStart ? comp.offset - half : comp.offset + half;
@@ -1933,7 +1933,7 @@ export function replaceComponent(drawing: Drawing, compId: string, kind: Compone
       const total = runLength(drawing, run);
       const joint = drawing.options.joint ?? 'BW';
       const reach = (c: InlineComponent): number =>
-        componentTakeout(c.kind, c.dn ?? run.dn, isValve(c.kind) && resolveEnds(c.kind, c.dn ?? run.dn, c.ends, joint) === 'FLG' ? valveFlangeKind(joint) : false, c.ff);
+        componentTakeout(c.kind, c.dn ?? run.dn, isValve(c.kind) && resolveEnds(c.kind, c.dn ?? run.dn, c.ends, joint) === 'FLG' ? valveFlangeKind(joint) : false, c.ff, stdOf(drawing, c.flangeStd));
       const lo = next.offset - reach(next);
       const hi = next.offset + reach(next);
       if (lo < -0.5 || hi > total + 0.5) return 'It is longer than the room on its pipe: shorten what is beside it, or lengthen the pipe, first.';
@@ -2056,7 +2056,7 @@ function reseatLastFlange(drawing: Drawing): boolean {
       const open = (node: IsoNode) =>
         drawing.runs.filter((r) => r.from === node.id || r.to === node.id).length === 1 && (!node.terminal || node.terminal.kind === 'OPEN');
       const total = length3(sub(b.pos, a.pos));
-      const half = componentTakeout(comp.kind, comp.dn ?? run.dn, valveFlangeKind(joint), comp.ff);
+      const half = componentTakeout(comp.kind, comp.dn ?? run.dn, valveFlangeKind(joint), comp.ff, stdOf(drawing, comp.flangeStd));
       const past = total - (comp.offset + half);
       const before = comp.offset - half;
       const others = run.inline.filter((c) => c !== comp && !isMark(c.kind));
@@ -2135,7 +2135,7 @@ export function uncoverPoints(drawing: Drawing): boolean {
         const face = componentTakeout(c.kind, dn, false, c.ff);
         const side: 0 | 1 = atEnd ? 1 : 0;
         const flanged = isValve(c.kind) && resolveEnds(c.kind, dn, c.ends, joint) === 'FLG' && c.bare !== side && !c.lastFlange;
-        const reach = flanged ? componentTakeout(c.kind, dn, valveFlangeKind(joint), c.ff) : face;
+        const reach = flanged ? componentTakeout(c.kind, dn, valveFlangeKind(joint), c.ff, stdOf(drawing, c.flangeStd)) : face;
         // Only an item whose body crosses the point; one whose flange
         // alone reaches past it sits on it as meant.
         if (atEnd ? c.offset + face <= len + 0.5 : c.offset - face >= -0.5) continue;
@@ -2199,7 +2199,7 @@ export function setLastFlange(drawing: Drawing, compId: string, state: 'flange' 
   if (side === null) return false;
   const joint = drawing.options.joint ?? 'BW';
   const dn = comp.dn ?? run.dn;
-  const flangeLen = componentTakeout(comp.kind, dn, valveFlangeKind(joint), comp.ff) - componentTakeout(comp.kind, dn, false, comp.ff);
+  const flangeLen = componentTakeout(comp.kind, dn, valveFlangeKind(joint), comp.ff, stdOf(drawing, comp.flangeStd)) - componentTakeout(comp.kind, dn, false, comp.ff);
   const hadFlange = !comp.lastFlange;
   const hasFlange = state === 'flange';
   comp.lastFlange = hasFlange ? undefined : state;
@@ -2236,7 +2236,10 @@ export function boltValveOnEnd(drawing: Drawing, nodeId: string, kind: Component
   const joint = drawing.options.joint ?? 'BW';
   const dn = run.dn;
   if (resolveEnds(kind, dn, undefined, joint) !== 'FLG') return null;
-  const half = componentTakeout(kind, dn, valveFlangeKind(joint));
+  // The flange on the end becomes the valve's own: the valve's flanges
+  // are of its standard.
+  const endStd = node.terminal && isFlangeKind(node.terminal.kind) && node.terminal.kind !== 'FLG_BLIND' ? node.terminal.std : undefined;
+  const half = componentTakeout(kind, dn, valveFlangeKind(joint), undefined, stdOf(drawing, endStd));
   const faceHalf = componentTakeout(kind, dn, false);
   const a = drawing.nodes.find((n) => n.id === run.from);
   const b = drawing.nodes.find((n) => n.id === run.to);
@@ -2252,7 +2255,7 @@ export function boltValveOnEnd(drawing: Drawing, nodeId: string, kind: Component
   const term = node.terminal?.kind;
   if (term && isFlangeKind(term) && term !== 'FLG_BLIND') {
     // The end flange is the valve's own: its weld stays where it is.
-    centre = half - terminalTakeoutOf(term, dn);
+    centre = half - terminalTakeoutOf(term, dn, stdOf(drawing, endStd));
     weldKey = `n:${nodeId}:term`;
     node.terminal = undefined;
   } else {
@@ -2274,6 +2277,7 @@ export function boltValveOnEnd(drawing: Drawing, nodeId: string, kind: Component
   }
   const comp: InlineComponent = { id: uid('c'), kind, offset: atTo ? total + centre : reach - centre };
   if (bareNew !== undefined) comp.bare = bareNew;
+  if (endStd) comp.flangeStd = endStd;
   comp.lastFlange = 'none';
   run.inline.push(comp);
   run.inline.sort((x, y) => x.offset - y.offset);
@@ -2935,8 +2939,10 @@ export function applyReducer(drawing: Drawing, compId: string, large: string, sm
   const half = componentTakeout(comp.kind, large, false, comp.ff);
   const total = runLength(drawing, run);
   // A face on the run's end, or against the flange that ends the line there.
-  const backStart = terminalTakeoutOf(drawing.nodes.find((n) => n.id === run.from)?.terminal?.kind, startSide);
-  const backEnd = terminalTakeoutOf(drawing.nodes.find((n) => n.id === run.to)?.terminal?.kind, endSide);
+  const startTerm = drawing.nodes.find((n) => n.id === run.from)?.terminal;
+  const endTerm = drawing.nodes.find((n) => n.id === run.to)?.terminal;
+  const backStart = terminalTakeoutOf(startTerm?.kind, startSide, stdOf(drawing, startTerm?.std));
+  const backEnd = terminalTakeoutOf(endTerm?.kind, endSide, stdOf(drawing, endTerm?.std));
   const atStart = Math.abs(comp.offset - half - backStart) < 0.5;
   const atEnd = Math.abs(comp.offset + half + backEnd - total) < 0.5;
   run.dn = atStart && !atEnd ? endSide : startSide;
@@ -2963,6 +2969,52 @@ export function applyReducer(drawing: Drawing, compId: string, large: string, sm
 }
 
 /**
+ * Sets the standard flanges are made to (his ask, 2026-11-15: "I have a
+ * lot of DIN flanges — let me choose ASA or DIN"): the sheet's own default
+ * (`target` null), an end's flange, a flanged joint's or a valve's flanges
+ * (unset = the sheet's). A DIN flange is shorter than an ASA one, so an
+ * item welded straight to an end flange (a reducer on it) stays against
+ * it: the end point comes in or goes out by the difference, as when the
+ * flange was put on (`setTerminal`).
+ */
+export function setFlangeStd(drawing: Drawing, target: { node: string } | { comp: string } | null, std: FlangeStd | undefined): void {
+  // The items sitting on end flanges, noted while their faces still match.
+  const held: { node: IsoNode; run: Run; atStart: boolean; comp: string }[] = [];
+  for (const node of drawing.nodes) {
+    if (!node.terminal) continue;
+    const run = drawing.runs.find((r) => r.from === node.id || r.to === node.id);
+    if (!run) continue;
+    const meets = itemAtEnd(drawing, run, run.from === node.id);
+    if (meets) held.push({ node, run, atStart: run.from === node.id, comp: meets.comp.id });
+  }
+  if (!target) drawing.options.flangeStd = std === 'DIN' ? 'DIN' : undefined;
+  else if ('comp' in target) {
+    const comp = drawing.runs.flatMap((r) => r.inline).find((c) => c.id === target.comp);
+    if (comp) comp.flangeStd = std;
+  } else {
+    const node = drawing.nodes.find((n) => n.id === target.node);
+    if (node?.terminal) node.terminal.std = std;
+    else if (node) node.flangeStd = std;
+  }
+  for (const { node, run, atStart, comp: compId } of held) {
+    const comp = run.inline.find((c) => c.id === compId);
+    const other = drawing.nodes.find((n) => n.id === (atStart ? run.to : run.from));
+    if (!comp || !other || !node.terminal) continue;
+    const half = itemHalf(drawing, run, comp);
+    const total = length3(sub(node.pos, other.pos));
+    const face = atStart ? comp.offset - half : total - comp.offset - half;
+    const sides = reducerSides(comp, run.dn);
+    const dn = isReducer(comp.kind) ? (atStart ? sides.start : sides.end) : comp.dn ?? run.dn;
+    const shift = terminalTakeoutOf(node.terminal.kind, dn, stdOf(drawing, node.terminal.std)) - face;
+    const out = direction(other.pos, node.pos);
+    if (Math.abs(shift) > 0.01 && out) {
+      node.pos = add(node.pos, scale3(out, shift));
+      if (atStart) for (const c of run.inline) c.offset += shift;
+    }
+  }
+}
+
+/**
  * Ends the line at a point with a flange, cap or transition — or takes it
  * off again. An item whose face sits on the point (a reducer placed there)
  * keeps its place against the new end piece: the point moves out by the
@@ -2978,7 +3030,7 @@ export function setTerminal(drawing: Drawing, nodeId: string, kind: TerminalKind
     const atStart = run.from === nodeId;
     const meets = itemAtEnd(drawing, run, atStart);
     if (meets) {
-      const shift = terminalTakeoutOf(kind, meets.dn) - meets.face;
+      const shift = terminalTakeoutOf(kind, meets.dn, stdOf(drawing, node.terminal?.std)) - meets.face;
       const out = direction(other.pos, node.pos);
       if (Math.abs(shift) > 0.5 && out) {
         node.pos = add(node.pos, scale3(out, shift));
@@ -2997,7 +3049,9 @@ export function setTerminal(drawing: Drawing, nodeId: string, kind: TerminalKind
           ? node.terminal?.under
           : valveFlangeKind(node.joint ?? drawing.options.joint ?? 'BW')
       : undefined;
-  node.terminal = kind ? { kind, note: note ?? node.terminal?.note, ...(under ? { under } : {}) } : undefined;
+  // The end keeps the standard set on it (ASA / DIN) whatever goes on it next.
+  const std = node.terminal?.std;
+  node.terminal = kind ? { kind, note: note ?? node.terminal?.note, ...(under ? { under } : {}), ...(std ? { std } : {}) } : undefined;
 }
 
 /** Whether pipe already leads from one point to the other, however far round. */

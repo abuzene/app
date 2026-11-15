@@ -5808,6 +5808,84 @@ const couplingsNow = async () => (await drawingNow()).nodes.filter((n) => n.fitt
   await inViewMenu(() => page.selectOption('#opt-symbols', '15'));
 }
 
+/* ------------------------------ ASA or DIN flanges */
+
+// "I have a lot of DIN flanges — let me choose ASA or DIN" (2026-11-15): a
+// switch under Flanges sets the sheet's, each flange's panel its own. A
+// DIN PN16 weld neck is shorter (3": 50 against 68), so the pipe is cut
+// longer, and the list names it.
+{
+  await routeLine('3"\nSTD\nORIGIN 0 0 0\nEND FLG\nE 3000\n+BALL 1500\nEND FLG');
+  const welds = async () => {
+    await page.click('#tabs button:has-text("Welds")');
+    await page.waitForTimeout(200);
+    const rows = (await page.locator('#tab-body table tbody tr').allInnerTexts()).map((x) => x.replace(/\s+/g, ' ').trim());
+    await page.click('#tabs button:has-text("Route")');
+    await page.waitForTimeout(150);
+    return rows;
+  };
+  const listNames = async () => {
+    await page.click('#tabs button:has-text("Items")');
+    await page.waitForTimeout(200);
+    const rows = (await page.locator('#tab-body table').first().locator('tbody tr').allInnerTexts()).map((x) => x.replace(/\s+/g, ' ').trim());
+    await page.click('#tabs button:has-text("Route")');
+    await page.waitForTimeout(150);
+    return rows;
+  };
+  const asa = await welds();
+  check('ASA to begin with: 3" pipe cut 1257.5 between flange and valve', asa[0], (v) => /A 1257\.5/.test(v), 'A 1257.5');
+  await page.click('[data-flange-std="DIN"]');
+  await page.waitForTimeout(400);
+  const din = await welds();
+  check('the sheet set to DIN: each flange 18 mm shorter, the pipe 36 longer', din[0], (v) => /A 1293\.5/.test(v), 'A 1293.5');
+  check('and the list names the flange DIN PN16', (await listNames()).find((r) => /WELD NECK FLANGE/.test(r)), (v) => /WELD NECK FLANGE DIN PN16 3"/.test(v ?? ''), 'WELD NECK FLANGE DIN PN16');
+  // The first end's flange set back to ASA in its own panel.
+  const first = (await drawingNow()).nodes.find((n) => n.pos.e === 0).id;
+  const dot = page.locator(`#canvas circle.hit-dot[data-node="${first}"]`).first();
+  await dot.dispatchEvent('pointerdown', { bubbles: true, pointerId: 7, pointerType: 'mouse', button: 0, isPrimary: true });
+  await dot.dispatchEvent('pointerup', { bubbles: true, pointerId: 7, pointerType: 'mouse', button: 0, isPrimary: true });
+  await page.waitForTimeout(300);
+  await page.selectOption('#tab-body [data-f="flange-std"]', 'ASA');
+  await page.waitForTimeout(400);
+  const mixed = await welds();
+  check('one end set back to ASA: its piece 18 mm shorter again', mixed[0], (v) => /A 1275\.5/.test(v), 'A 1275.5');
+  const names = (await listNames()).filter((r) => /WELD NECK FLANGE/.test(r));
+  check('and the list carries both kinds', names.length, (v) => v === 2, '2 lines');
+  // A flanged valve's panel offers it too.
+  const valve = (await drawingNow()).runs.flatMap((r) => r.inline).find((c) => c.kind === 'BALL').id;
+  const vdot = page.locator(`#canvas [data-component="${valve}"]`).first();
+  await vdot.dispatchEvent('pointerdown', { bubbles: true, pointerId: 7, pointerType: 'mouse', button: 0, isPrimary: true });
+  await vdot.dispatchEvent('pointerup', { bubbles: true, pointerId: 7, pointerType: 'mouse', button: 0, isPrimary: true });
+  await page.waitForTimeout(300);
+  check('a flanged valve\'s panel has the Standard too', await page.locator('#tab-body [data-f="flange-std"]').count(), (v) => v === 1, '1');
+  await page.keyboard.press('Escape');
+
+  // A reducer welded straight to an end flange stays welded to it.
+  await page.click('[data-flange-std="ASA"]');
+  await page.waitForTimeout(300);
+  await routeLine('4"\nSTD\nORIGIN 0 0 0\nE 2000\nEND FLG');
+  check('a new sheet keeps the last one\'s flanges: ASA', await page.locator('[data-flange-std="ASA"].on').count(), (v) => v === 1, '1');
+  const end = (await drawingNow()).nodes.find((n) => n.pos.e === 2000).id;
+  const edot = page.locator(`#canvas circle.hit-dot[data-node="${end}"]`).first();
+  await edot.dispatchEvent('pointerdown', { bubbles: true, pointerId: 7, pointerType: 'mouse', button: 0, isPrimary: true });
+  await edot.dispatchEvent('pointerup', { bubbles: true, pointerId: 7, pointerType: 'mouse', button: 0, isPrimary: true });
+  await page.waitForTimeout(300);
+  await page.locator('.tool[data-kind="RED_CONC"]').click();
+  await page.waitForTimeout(300);
+  await page.selectOption('.dialog [data-f="red-small"]', 'DN80');
+  await page.click('.dialog [data-confirm]');
+  await page.waitForTimeout(400);
+  await page.keyboard.press('Escape');
+  const onFlange = (rows) => rows.filter((r) => /CON RED 4" X 3" \/ WELD NECK FLANGE/.test(r)).length;
+  check('a reducer put on the flanged end is welded straight to it', onFlange(await welds()), (v) => v === 1, '1');
+  await page.click('[data-flange-std="DIN"]');
+  await page.waitForTimeout(400);
+  check('the sheet made DIN: still welded straight to it, one weld', onFlange(await welds()), (v) => v === 1, '1');
+  check('the flanged end comes in by 18 mm (68 to 50)', (await drawingNow()).nodes.find((n) => n.id === end).pos.e, (v) => Math.abs(v - 1982) < 0.6, '1982');
+  await page.click('[data-flange-std="ASA"]');
+  await page.waitForTimeout(300);
+}
+
 // A reducer put along a pipe over a support: the support goes to the pipe
 // beside it, not inside the reducer (it was left there on the same sheet).
 {

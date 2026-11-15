@@ -5,7 +5,7 @@ import { COMMAND_HELP } from '../model/commands';
 import { DN_LIST, SIZE_LABELS, defaultValveEnds, schedulesFor, sizeLabel } from '../model/pipe-data';
 import { AXES, AXIS_VECTOR, axisBetween } from '../model/iso';
 import { projectsOf, sheetNumber } from '../model/library';
-import { applyChainDimension, applyReducer, elbowTurns, turnElbow, freeDimensions, offersAutoCoupling, resetDrawnLength, setAutoCoupling, wantsAutoCoupling, deletePoint, isCouplingPoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, runLength, setGroupLength, setLastFlange, deleteRunGroup, DASHED_NOTE, setLineSize, setRunDashed, setRunDirect, setRunLength, setTerminal, setEndSize, splitRun, addStockWelds } from '../model/edit';
+import { applyChainDimension, applyReducer, setFlangeStd, elbowTurns, turnElbow, freeDimensions, offersAutoCoupling, resetDrawnLength, setAutoCoupling, wantsAutoCoupling, deletePoint, isCouplingPoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, runLength, setGroupLength, setLastFlange, deleteRunGroup, DASHED_NOTE, setLineSize, setRunDashed, setRunDirect, setRunLength, setTerminal, setEndSize, splitRun, addStockWelds } from '../model/edit';
 import { setDriveClientId } from '../model/drive';
 import { reducerPreview } from './reducer-preview';
 import { SHEET_STAMPS, sheetStamp } from '../render/sheet';
@@ -223,6 +223,7 @@ function nodeProperties(host: Host, nodeId: string): string {
   ${
     isEnd
       ? `<div class="row"><label>End type</label><select data-f="terminal">${options(TERMINALS, node.terminal?.kind ?? 'OPEN', TERMINAL_LABEL)}</select></div>
+         ${node.terminal?.kind.startsWith('FLG_') ? flangeStdRow(host, node.terminal.std) : ''}
          ${endSizeRow(host, nodeId)}
          <div class="row"><label>End note</label><input type="text" data-f="termnote" value="${esc(node.terminal?.note ?? '')}" placeholder="e.g. TO V-101 N3" /></div>`
       : `<div class="row"><label>Fitting</label><select data-f="fitting">${options(['auto', ...FITTINGS], node.fittingOverride ?? 'auto', { auto: `Automatic (${fittingLabel(fitting) || 'none'})` })}</select></div>`
@@ -230,7 +231,8 @@ function nodeProperties(host: Host, nodeId: string): string {
   ${elbowTurnRow(host, nodeId, fitting)}
   ${
     straight
-      ? `<div class="row"><label>Flange</label><select data-f="flange">${options(['none', ...FLANGE_KINDS], node.flange ?? 'none', { ...COMPONENT_LABEL, none: 'None — welded through' })}</select></div>`
+      ? `<div class="row"><label>Flange</label><select data-f="flange">${options(['none', ...FLANGE_KINDS], node.flange ?? 'none', { ...COMPONENT_LABEL, none: 'None — welded through' })}</select></div>` +
+        (node.flange ? flangeStdRow(host, node.flangeStd) : '')
       : ''
   }
   ${alongLine(host, nodeId)}
@@ -272,6 +274,20 @@ function nodeProperties(host: Host, nodeId: string): string {
     ${oletAlone ? `<button class="btn-line danger" data-a="remove-olet">Remove ${node.halfCoupling ? 'half coupling' : 'olet'} — the header runs on whole</button>` : isCouplingPoint(drawing, nodeId) ? `<button class="btn-line danger" data-a="delete-node">Remove ${drawing.nodes.find((n) => n.id === nodeId)?.union ? 'union' : 'coupling'} — the pipe runs straight through</button>` : isPlainPoint(drawing, nodeId) ? '<button class="btn-line danger" data-a="delete-node">Remove point — the pipe runs straight through</button>' : '<button class="btn-line danger" data-a="delete-node">Delete point and its runs</button>'}
   </div>
 </div>`;
+}
+
+/**
+ * Which standard a flange is made to, ASA or DIN (his ask, 2026-11-15):
+ * its own, or as the sheet (the Flanges switch in the palette).
+ */
+function flangeStdRow(host: Host, own: 'ASA' | 'DIN' | undefined): string {
+  const sheet = host.state.drawing.options.flangeStd ?? 'ASA';
+  // Short: a long option widens the panel, and the drawing shifts under the pen.
+  const name = { ASA: 'ASA 150', DIN: 'DIN PN16' };
+  return `<div class="row"><label>Standard</label><select data-f="flange-std" title="ASA 150 is ASME B16.5 class 150; DIN PN16 is DIN 2633 / EN 1092-1">${options(['auto', 'ASA', 'DIN'], own ?? 'auto', {
+    auto: `Sheet's (${sheet})`,
+    ...name,
+  })}</select></div>`;
 }
 
 /**
@@ -345,6 +361,7 @@ function componentProperties(host: Host, compId: string): string {
         })}</select></div>`
       : ''
   }
+  ${isValve(comp.kind) && resolveEnds(comp.kind, comp.dn ?? run.dn, comp.ends, drawing.options.joint ?? 'BW') === 'FLG' ? flangeStdRow(host, comp.flangeStd) : ''}
   ${mark || isCoupling(comp.kind) ? '' : `<div class="row"><label>Ends</label><select data-f="ends">${options(['auto', ...END_TYPES], comp.ends ?? 'auto', {
     auto: isValve(comp.kind)
       ? `By size (${defaultValveEnds(comp.dn ?? run.dn) === 'FLG' ? 'flanged' : 'threaded'})`
@@ -1147,6 +1164,10 @@ function wire(body: HTMLElement, host: Host): void {
         if (node) node.joint = value === 'auto' ? undefined : (value as JointType);
       });
     });
+    field('flange-std')?.addEventListener('change', (e) => {
+      const value = (e.target as HTMLSelectElement).value;
+      host.edit('Flange standard', (d) => setFlangeStd(d, { node: id }, value === 'auto' ? undefined : (value as 'ASA' | 'DIN')));
+    });
     field('flange')?.addEventListener('change', (e) => {
       const value = (e.target as HTMLSelectElement).value;
       host.edit('Set flanged joint', (d) => {
@@ -1378,6 +1399,10 @@ function wire(body: HTMLElement, host: Host): void {
         c.flip = (e.target as HTMLSelectElement).value === 'start' ? true : undefined;
       }),
     );
+    field('flange-std')?.addEventListener('change', (e) => {
+      const value = (e.target as HTMLSelectElement).value;
+      host.edit('Flange standard', (d) => setFlangeStd(d, { comp: compEditor.dataset.id! }, value === 'auto' ? undefined : (value as 'ASA' | 'DIN')));
+    });
     field('last-flange')?.addEventListener('change', (e) => {
       const value = (e.target as HTMLSelectElement).value as 'flange' | 'none' | 'blind';
       host.edit('Last flange', (d) => setLastFlange(d, compEditor.dataset.id!, value));
