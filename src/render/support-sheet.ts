@@ -8,6 +8,7 @@
 import type { Drawing } from '../model/types';
 import { sizeLabel, sizeOf } from '../model/pipe-data';
 import {
+  basePlateName,
   membersOf,
   supportMarks,
   supportSheetGroups,
@@ -234,7 +235,63 @@ function elevation(t: SupportType, pen: Pen | null): Elevation {
   let seat = H;
   let under = 0;
 
-  if (m.post) {
+  if (t.shape === 'HANGER_ARM') {
+    // Hung from above (his ask, 2026-11-16): the arm's underside at y = 0,
+    // its top the pipe's bottom, the roof (or the steel up there) at the top.
+    const A = lengths.arm ?? 300;
+    const face = post.h / 2;
+    const seatY = arm.h;
+    const roof = seatY + H;
+    const tb = base?.t ?? 0;
+    const bw = base?.w ?? post.h + 60;
+    const bs = base?.shift ?? 0;
+    const left = Math.min(bs - bw / 2, -post.h / 2) - 60;
+    const right = Math.max(bs + bw / 2, post.h / 2, face + A) + 40;
+    if (base) {
+      plateGroup('basePlate');
+      P.box(bs - bw / 2, roof - tb, bs + bw / 2, roof, 'sd-steel');
+      if (base.hole > 0) for (const hx of [bs - bw / 2 + base.edge, bs + bw / 2 - base.edge]) {
+        P.line({ x: hx - base.hole / 2, y: roof - tb }, { x: hx - base.hole / 2, y: roof }, 'sd-hidden');
+        P.line({ x: hx + base.hole / 2, y: roof - tb }, { x: hx + base.hole / 2, y: roof }, 'sd-hidden');
+      }
+      P.close();
+      marks.push({ mark: markOf(basePlateName(t)), at: { x: bs - bw / 2 + bw * 0.12, y: roof - tb / 2 }, dx: -9, dy: -5 });
+      if (base.hole > 0) marks.push({ mark: markOf('ANCHOR'), at: { x: bs + bw / 2 - base.edge, y: roof - tb / 2 }, dx: 9, dy: -7 });
+      // The roof, hatched above.
+      const rl = Math.min(left, bs - bw / 2 - 60);
+      const rr = Math.max(bs + bw / 2 + 60, post.h / 2 + 60);
+      P.line({ x: rl, y: roof }, { x: rr, y: roof }, 'sd-floor');
+      for (let x = rl + 5; x < rr; x += 25) P.line({ x, y: roof }, { x: x + 12, y: roof + 12 }, 'sd-hatch');
+      take(rl, roof + 12);
+      take(rr, roof);
+      dims.push({ key: 'base', draw: (pen, mv) => dim(pen, { x: bs - bw / 2, y: roof }, { x: bs + bw / 2, y: roof }, 8, `${base.w}`, false, mv) });
+    } else {
+      existing = true;
+      P.box(left + 30, roof, Math.max(bw / 2, post.h / 2) + 30, roof + 22, 'sd-existing');
+      for (let x = left + 40; x < Math.max(bw / 2, post.h / 2) + 30; x += 18) P.line({ x, y: roof }, { x: x + 12, y: roof + 12 }, 'sd-hatch');
+      take(left, roof + 22);
+      if (pen) pen.raw(text(pen.X(Math.max(bw / 2, post.h / 2) + 30) + 1.5, pen.Y(roof + 11) + 0.8, 'EXISTING STEEL', 'sd-note'));
+    }
+    member(P, post, { x: 0, y: 0 }, { x: 0, y: roof - tb }, post.h);
+    take(-post.h / 2, 0);
+    take(right, 0);
+    marks.push({ mark: markOf('POST'), at: { x: -post.h / 2, y: (roof - tb) * 0.5 }, dx: -10, dy: 0 });
+    member(P, arm, { x: face, y: seatY / 2 }, { x: face + A, y: seatY / 2 }, arm.h);
+    marks.push({ mark: markOf('ARM'), at: { x: face + A * 0.85, y: seatY / 2 }, dx: 8, dy: 7 });
+    pipeX = t.pipeAt ?? face + A / 2;
+    dims.push({ key: 'height', draw: (pen, mv) => dim(pen, { x: left, y: seatY }, { x: left, y: roof }, 4, `${Math.round(H)}`, true, mv) });
+    dims.push({
+      key: 'bop',
+      draw: (pen) => {
+        pen.line({ x: left - 4 / pen.s, y: seatY }, { x: -post.h / 2, y: seatY }, 'sd-ext');
+        pen.raw(text(pen.X(left) + 1.2, pen.Y(seatY) + 2.6, 'B.O.P.', 'sd-note'));
+      },
+    });
+    dims.push({ key: 'arm', draw: (pen, mv) => dim(pen, { x: face, y: 0 }, { x: face + A, y: 0 }, -6, `${Math.round(A)}`, false, mv) });
+    dims.push({ key: 'pipe', draw: (pen, mv) => dim(pen, { x: 0, y: seatY + od + 2 * rod }, { x: pipeX, y: seatY + od + 2 * rod }, 5, `${Math.round(pipeX)}`, false, mv) });
+    seat = seatY;
+    under = arm.t;
+  } else if (m.post) {
     const tb = base?.t ?? 0;
     const bw = base?.w ?? post.h + 60;
     const bs = base?.shift ?? 0;
@@ -383,7 +440,8 @@ function elevation(t: SupportType, pen: Pen | null): Elevation {
   P.line({ x: c.x, y: c.y - rp - 15 }, { x: c.x, y: c.y + rp + 15 }, 'sd-centre');
   take(c.x - rp - 15, c.y + rp + 15);
   take(c.x + rp + 15, c.y + rp + 15);
-  if (pen) pen.raw(text(pen.X(c.x - ru) - rod * pen.s - 1.5, pen.Y(c.y + rp * 0.6), `${sizeLabel(t.dn)} PIPE`, 'sd-note', 'end'));
+  // Beside the pipe on the side the steel leaves free: right of it, clear of a post on its left.
+  if (pen) pen.raw(text(pen.X(c.x + ru) + rod * pen.s + 1.5, pen.Y(c.y) + 0.7, `${sizeLabel(t.dn)} PIPE`, 'sd-note'));
   if (t.uBolt) {
     const legBottom = seat - under - rod * 2.4;
     const s = P.s;
@@ -511,7 +569,7 @@ function usedOn(drawing: Drawing, t: SupportType): string {
 function supportCell(drawing: Drawing, t: SupportType, box: Box, wide: boolean): string {
   const lay = (key: string): Move => t.layout?.[key] ?? NO_MOVE;
   const plates: { key: PlateKey; short: string; title: string; plate: SupportPlate; holes: Pt[] }[] = [];
-  if (t.basePlate) plates.push({ key: 'basePlate', short: 'base', title: 'BASE PLATE', plate: t.basePlate, holes: plateHoles(t, 'basePlate') });
+  if (t.basePlate) plates.push({ key: 'basePlate', short: 'base', title: basePlateName(t), plate: t.basePlate, holes: plateHoles(t, 'basePlate') });
   if (t.topPlate) plates.push({ key: 'topPlate', short: 'top', title: 'TOP PLATE', plate: t.topPlate, holes: plateHoles(t, 'topPlate') });
   if (t.wallPlate) plates.push({ key: 'wallPlate', short: 'wall', title: 'WALL PLATE', plate: t.wallPlate, holes: plateHoles(t, 'wallPlate') });
   const top = box.y + 9;

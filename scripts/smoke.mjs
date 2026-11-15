@@ -2165,9 +2165,14 @@ const nodesAt = () => page.evaluate(() => JSON.parse(localStorage.getItem('iso-d
 const runCount = () => page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.drawing.v1')).runs.length);
 const tapNode = async (id) => {
   const el = page.locator(`#canvas circle.hit-dot[data-node="${id}"]`);
-  // A tab switched just before redraws the canvas; read the point once it is back.
-  await el.waitFor({ state: 'visible', timeout: 3000 });
-  const b = await el.boundingBox();
+  // A tab switched just before redraws the canvas; read the point once it is
+  // back, and again if the redraw replaced it as it was read.
+  let b = null;
+  for (let tries = 0; tries < 10 && !b; tries += 1) {
+    await el.waitFor({ state: 'visible', timeout: 3000 });
+    b = await el.boundingBox();
+    if (!b) await page.waitForTimeout(100);
+  }
   const at = { bubbles: true, pointerId: 7, pointerType: 'mouse', button: 0, clientX: b.x + b.width / 2, clientY: b.y + b.height / 2, isPrimary: true };
   await el.dispatchEvent('pointerdown', at);
   await page.waitForTimeout(80);
@@ -5985,7 +5990,7 @@ await page.click('.dialog [data-x="preview"]');
 await page.waitForTimeout(600);
 const oneSheet = await page.evaluate(() => [...document.querySelectorAll('.sheet-preview svg')].map((s) => ({ text: s.textContent, rules: s.querySelectorAll('.cell-rule').length })));
 check('supports 2: all on one sheet, with a line between them', oneSheet.length === 1 && oneSheet[0].rules >= 1, (v) => v === true, 'one sheet, a dividing line');
-check('supports 2: the sheet names the supports each is for and the steel already there', oneSheet[0]?.text ?? '', (t) => /PS-1 — 2 OFF/.test(t) && /FOR SUPPORTS 1, 2/.test(t) && /PS-2 — 0 OFF/.test(t) && /EXISTING STEEL/.test(t) && /SUPPORTS 1 OF 1/.test(t), 'PS-1 for 1, 2; existing steel');
+check('supports 2: the sheet names the supports each is for and the steel already there', oneSheet[0]?.text ?? '', (t) => /PS-1 — 2 OFF/.test(t) && /FOR SUPPORTS 1, 2/.test(t) && /PS-2 — 1 OFF/.test(t) && /EXISTING STEEL/.test(t) && /SUPPORTS 1 OF 1/.test(t), 'PS-1 for 1, 2; existing steel');
 await page.click('.dialog [data-close]');
 await page.waitForTimeout(200);
 // Arranged by hand: a balloon and a plate's own drawing dragged, and the
@@ -6055,6 +6060,33 @@ await page.fill(`#tab-body [data-support-qty="${qtyId}"]`, '');
 await page.locator(`#tab-body [data-support-qty="${qtyId}"]`).dispatchEvent('change');
 await page.waitForTimeout(300);
 check('support quantity: cleared, as many as on the line again', (await drawingNow()).supportTypes[0].qty, (v) => v === undefined, 'undefined');
+
+// A hanger (his ask, 2026-11-16: "a profile coming down, fixed to the
+// steel above or a plate bolted to the roof, a profile out of it to the
+// side, the pipe on it with a U-bolt"), and a type given to no support on
+// the line counted as one (his DESHANIM sheet: two types, none ticked on a
+// support, and the weight came out nothing).
+await page.click('#tabs button:has-text("Supports")');
+await page.waitForTimeout(200);
+await page.selectOption('#tab-body [data-f="support-new"]', 'HANGER_ARM');
+await page.waitForTimeout(250);
+check('hanger: its plate is a roof plate, bolted, or none on the steel above', await page.locator('[data-editor="support-type"]').innerText(), (t) => /Roof plate \(bolted\)/.test(t) && /Roof to pipe bottom/.test(t), 'roof plate, roof to pipe bottom');
+await page.locator('[data-editor="support-type"] [data-st-mark]').evaluateAll((els) => els.forEach((el) => { if (el.checked) el.click(); }));
+await page.click('[data-editor="support-type"] [data-confirm]');
+await page.waitForTimeout(300);
+supD = await drawingNow();
+const hanger = supD.supportTypes.find((t) => t.shape === 'HANGER_ARM');
+check('hanger: made, given to no support', hanger && supD.runs.flatMap((r) => r.inline).every((c) => c.supportType !== hanger.id), (v) => v === true, 'true');
+check('hanger: not on the line, counted as one', await page.locator(`#tab-body [data-support-type="${hanger.id}"]`).innerText(), (t) => /counted as 1/.test(t) && !/= 0\.0 kg/.test(t), 'counted as 1, its weight');
+check('hanger: its roof plate and anchor bolts are on the support material', await page.locator('#tab-body table.support-material').innerText(), (t) => /ANCHOR BOLT M16/.test(t), 'ANCHOR BOLT M16');
+await page.click('#tab-body [data-a="print-supports"]');
+await page.waitForTimeout(250);
+await page.click('.dialog [data-x="preview"]');
+await page.waitForTimeout(600);
+const hangerSheet = (await page.evaluate(() => [...document.querySelectorAll('.sheet-preview svg')].map((s) => s.textContent))).find((t) => /HANGER WITH ARM/.test(t)) ?? '';
+check('hanger: its detail has the roof plate, the post down to the arm and one off', hangerSheet, (t) => /ROOF PLATE PL 10 4 HOLES Ø18/.test(t) && /POST RHS 100x100x5/.test(t) && /L=660/.test(t) && /ARM L 70x70x7/.test(t) && /1 OFF/.test(t), 'roof plate, post L=660, arm, 1 off');
+await page.click('.dialog [data-close]');
+await page.waitForTimeout(200);
 
 // A reducer put along a pipe over a support: the support goes to the pipe
 // beside it, not inside the reducer (it was left there on the same sheet).

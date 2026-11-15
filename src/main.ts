@@ -3374,7 +3374,7 @@ function supportTypeDialog(id: string | null, forComp?: string, shape?: SupportS
           .join('')}</div></div>`
       : '';
   const weighs = (kg: number) => {
-    const n = t.qty ?? supportUses(d).get(t.id) ?? 0;
+    const n = t.qty ?? (supportUses(d).get(t.id) || 1);
     return `${supportParts(t).length} parts · ${kg.toFixed(1)} kg each · ${n} off = <strong>${(kg * n).toFixed(1)} kg</strong>`;
   };
   const form = () => {
@@ -3393,15 +3393,15 @@ function supportTypeDialog(id: string | null, forComp?: string, shape?: SupportS
       ${m.beam ? profileSelect('beam', 'Beam') : ''}
       ${m.arm ? profileSelect('arm', 'Arm') : ''}
       ${m.brace ? profileSelect('brace', 'Brace') : ''}
-      ${m.post ? num('height', 'Floor to pipe bottom, mm', t.height) : ''}
+      ${m.post ? num('height', t.shape === 'HANGER_ARM' ? 'Roof to pipe bottom, mm' : 'Floor to pipe bottom, mm', t.height) : ''}
       ${m.beam ? num('beamLength', 'Beam length, mm', t.beamLength) : ''}
-      ${m.arm ? num('armLength', t.shape === 'POST_ARM' ? 'Arm from the post, mm' : 'Arm from the wall, mm', t.armLength) : ''}
+      ${m.arm ? num('armLength', m.post ? 'Arm from the post, mm' : 'Arm from the wall, mm', t.armLength) : ''}
       ${m.arm || m.beam ? num('pipeAt', m.post ? 'Pipe from the post centre, mm' : 'Pipe from the wall, mm', t.pipeAt) : ''}
       ${m.brace ? num('braceDrop', 'Brace foot below the arm, mm', t.braceDrop) + num('braceReach', 'Brace top along the arm, mm', t.braceReach) : ''}
-      ${m.base ? plateRows('basePlate', 'Base plate', 'None — welded to existing steel', 'Off the post centre, mm (+ right)') : ''}${m.top ? plateRows('topPlate', 'Top plate', 'None — the pipe on the post', 'Off the post centre, mm (+ right)') : ''}${m.wall ? plateRows('wallPlate', 'Wall plate', 'None — welded to existing steel', 'Off its place, mm (+ up)') : ''}
+      ${m.base ? (t.shape === 'HANGER_ARM' ? plateRows('basePlate', 'Roof plate (bolted)', 'None — welded to the steel above', 'Off the post centre, mm (+ right)') : plateRows('basePlate', 'Base plate', 'None — welded to existing steel', 'Off the post centre, mm (+ right)')) : ''}${m.top ? plateRows('topPlate', 'Top plate', 'None — the pipe on the post', 'Off the post centre, mm (+ right)') : ''}${m.wall ? plateRows('wallPlate', 'Wall plate', 'None — welded to existing steel', 'Off its place, mm (+ up)') : ''}
       <div class="row"><label>U-bolt</label><select data-st="uBolt"><option value="1"${t.uBolt ? ' selected' : ''}>Yes — M${uBoltRod(t.dn)} DIN 3570</option><option value="0"${t.uBolt ? '' : ' selected'}>No — the pipe rests on it</option></select></div>
       <div class="row"><label>Note</label><input type="text" data-st="note" value="${esc(t.note ?? '')}" placeholder="printed on its detail sheet" /></div>
-      <div class="row"><label>Quantity to make</label><input type="number" inputmode="numeric" min="0" step="1" data-st="qty" value="${t.qty ?? ''}" placeholder="as on the line (${supportUses(d).get(t.id) ?? 0})" /></div>
+      <div class="row"><label>Quantity to make</label><input type="number" inputmode="numeric" min="0" step="1" data-st="qty" value="${t.qty ?? ''}" placeholder="as on the line (${supportUses(d).get(t.id) || 1})" /></div>
       <div class="row"><label>Detail sheet No.</label><input type="number" inputmode="numeric" min="0" data-st="sheet" value="${t.sheet ?? ''}" placeholder="its own sheet" /></div>
       ${markRows()}
     </div>

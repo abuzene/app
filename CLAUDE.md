@@ -1375,7 +1375,22 @@ ships, and the decisions already taken, so they are not re-litigated.
   "n off = kg"); unset, as many as the supports on the line of it.
   `supportQty` gives the count every weight uses (`supportMaterial`, the
   detail sheet's "PS-1 — 5 OFF" and "n OFF · kg EACH · kg IN ALL");
-  `supportUses` stays the supports on the line.
+  `supportUses` stays the supports on the line. **A type given to no support on the
+  line and no quantity counts one** (his DESHANIM sheet, same day: PS-1
+  and PS-2 made from the Supports tab, neither ticked on a support, and
+  "it did not count the quantities": 0 OFF, 0 kg); the tab row says "not
+  on the line yet — counted as 1".
+  **Hanger with arm** (`HANGER_ARM`, same day: "a profile coming down,
+  fixed at the top to the steel there or a plate bolted to the roof, a
+  profile out of it to the side, the pipe on it with a U-bolt"): the post
+  hangs from a roof plate (the `basePlate` slot, named `ROOF PLATE` by
+  `basePlateName`, "Roof plate (bolted)" in the editor, its anchors on the
+  parts list as `ANCHOR BOLT M<hole−2> WITH NUT AND WASHER` × 4) or, with
+  none, is welded to the steel above (drawn dashed, EXISTING STEEL); an
+  arm (L 70x70x7 to begin with) welded to its foot, the pipe on the arm.
+  `height` is roof to pipe bottom; the post is cut `height + arm depth −
+  plate`. The pipe's size label now stands right of the U-bolt, clear of
+  a post on its left.
 - **The printed drawing keeps off the compass** (his DESHANIM sheet,
   2026-10-22: "it touches the north mark though there is room below"):
   the compass sits `COMPASS_AT` 16 mm into the drawing area's top left,

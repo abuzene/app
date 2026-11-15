@@ -864,8 +864,8 @@ function supportsTab(host: Host): string {
       const kg = supportParts(t).reduce((a, p) => a + p.kg, 0);
       return `<div class="sheet-row" data-support-type="${esc(t.id)}">
       <div class="sheet-main"><strong>${esc(t.name)}</strong> · ${esc(supportShapeName(t.shape))} · ${esc(sizeLabel(t.dn))} pipe</div>
-      <div class="sheet-sub">${n} on the line${names(t.id)} · ${kg.toFixed(1)} kg each · detail sheet ${sheetOf.get(t.id) ?? '—'}</div>
-      <label class="support-qty">Quantity <input type="number" inputmode="numeric" min="0" step="1" data-support-qty="${esc(t.id)}" value="${t.qty ?? ''}" placeholder="${n}" /> = <strong>${(kg * q).toFixed(1)} kg</strong></label>
+      <div class="sheet-sub">${n ? `${n} on the line${names(t.id)}` : 'not on the line yet — counted as 1'} · ${kg.toFixed(1)} kg each · detail sheet ${sheetOf.get(t.id) ?? '—'}</div>
+      <label class="support-qty">Quantity <input type="number" inputmode="numeric" min="0" step="1" data-support-qty="${esc(t.id)}" value="${t.qty ?? ''}" placeholder="${n || 1}" /> = <strong>${(kg * q).toFixed(1)} kg</strong></label>
       <button class="sheet-remove" data-remove-support="${esc(t.id)}" type="button" title="Delete this support type">×</button>
     </div>`;
     })

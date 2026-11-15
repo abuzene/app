@@ -10,12 +10,16 @@ import type { Drawing } from './types';
 import { sizeLabel, sizeOf } from './pipe-data';
 
 /** The shapes he makes (his answer, same day). */
-export type SupportShape = 'POST_LOW' | 'POST_T' | 'POST_ARM' | 'BRACKET_L' | 'BRACKET_BRACED';
+export type SupportShape = 'POST_LOW' | 'POST_T' | 'POST_ARM' | 'BRACKET_L' | 'BRACKET_BRACED' | 'HANGER_ARM';
 
 export const SUPPORT_SHAPES: { id: SupportShape; name: string; hint: string }[] = [
   { id: 'POST_LOW', name: 'Low post', hint: 'A short post on a base plate, the pipe on a top plate, held by a U-bolt.' },
   { id: 'POST_T', name: 'T post', hint: 'A post on a base plate with a beam across its top; the pipe on the beam.' },
   { id: 'POST_ARM', name: 'Post with arm', hint: 'A post on a base plate with a profile coming out of its side; the pipe on the arm.' },
+  // His ask, 2026-11-16: "a profile coming down, fixed at the top to the
+  // steel there or a plate bolted to the roof, a profile out of it to the
+  // side and the pipe on it with a U-bolt".
+  { id: 'HANGER_ARM', name: 'Hanger with arm', hint: 'A profile coming down from the steel above, or from a plate bolted to the roof, with a profile out of its foot to the side; the pipe on the arm.' },
   { id: 'BRACKET_L', name: 'Arm from wall', hint: 'A profile from a plate fixed to a wall or column; the pipe on it.' },
   { id: 'BRACKET_BRACED', name: 'Braced arm', hint: 'An arm from a wall plate with a diagonal brace under it.' },
 ];
@@ -132,11 +136,11 @@ export function uBoltRod(dn: string): number {
 /** Which members a shape has. */
 export function membersOf(shape: SupportShape): { post: boolean; beam: boolean; arm: boolean; brace: boolean; base: boolean; wall: boolean; top: boolean } {
   return {
-    post: shape === 'POST_LOW' || shape === 'POST_T' || shape === 'POST_ARM',
+    post: shape === 'POST_LOW' || shape === 'POST_T' || shape === 'POST_ARM' || shape === 'HANGER_ARM',
     beam: shape === 'POST_T',
-    arm: shape === 'POST_ARM' || shape === 'BRACKET_L' || shape === 'BRACKET_BRACED',
+    arm: shape === 'POST_ARM' || shape === 'BRACKET_L' || shape === 'BRACKET_BRACED' || shape === 'HANGER_ARM',
     brace: shape === 'BRACKET_BRACED',
-    base: shape === 'POST_LOW' || shape === 'POST_T' || shape === 'POST_ARM',
+    base: shape === 'POST_LOW' || shape === 'POST_T' || shape === 'POST_ARM' || shape === 'HANGER_ARM',
     wall: shape === 'BRACKET_L' || shape === 'BRACKET_BRACED',
     top: shape === 'POST_LOW',
   };
@@ -187,9 +191,9 @@ export function newSupportType(shape: SupportShape, dn: string, name: string, id
     dn,
     post: m.post ? 'RHS 100x100x5' : undefined,
     beam: m.beam ? 'UPN 100' : undefined,
-    arm: m.arm ? (shape === 'POST_ARM' ? 'L 70x70x7' : 'UPN 100') : undefined,
+    arm: m.arm ? (shape === 'POST_ARM' || shape === 'HANGER_ARM' ? 'L 70x70x7' : 'UPN 100') : undefined,
     brace: m.brace ? 'L 50x50x5' : undefined,
-    height: shape === 'POST_LOW' ? 400 : 800,
+    height: shape === 'POST_LOW' ? 400 : shape === 'HANGER_ARM' ? 600 : 800,
     beamLength: m.beam ? Math.max(300, Math.round((od + 200) / 50) * 50) : undefined,
     armLength: m.arm ? Math.max(250, Math.round((od + 150) / 50) * 50) : undefined,
     pipeAt: m.arm ? Math.max(150, Math.round((od / 2 + 100) / 10) * 10) : 0,
@@ -200,6 +204,11 @@ export function newSupportType(shape: SupportShape, dn: string, name: string, id
     topPlate: m.top ? { w: Math.max(150, Math.round((od + 80) / 10) * 10), l: 150, t: 10, hole: uBoltRod(dn) + 2, edge: 0 } : undefined,
     uBolt: true,
   };
+}
+
+/** The plate at the post's fixed end: on the floor, or on the roof for a hanger. */
+export function basePlateName(t: SupportType): string {
+  return t.shape === 'HANGER_ARM' ? 'ROOF PLATE' : 'BASE PLATE';
 }
 
 /** One line of a support's parts list. */
@@ -232,6 +241,10 @@ export function memberLengths(t: SupportType): { post?: number; beam?: number; a
       return { post: Math.max(0, t.height - base - profileOf(t.beam).h), beam: t.beamLength ?? 400 };
     case 'POST_ARM':
       return { post: Math.max(0, t.height - base), arm: t.armLength ?? 300 };
+    case 'HANGER_ARM':
+      // From the roof plate (or the steel above) down to the arm's underside:
+      // the arm is welded to its foot, its top the pipe's bottom.
+      return { post: Math.max(0, t.height + profileOf(t.arm).h - base), arm: t.armLength ?? 300 };
     case 'BRACKET_L':
       return { arm: t.armLength ?? 300 };
     case 'BRACKET_BRACED':
@@ -257,7 +270,10 @@ export function supportParts(t: SupportType): SupportPart[] {
   member('BEAM', t.beam, len.beam);
   member('ARM', t.arm, len.arm);
   member('BRACE', t.brace, len.brace);
-  plate('BASE PLATE', t.basePlate);
+  plate(basePlateName(t), t.basePlate);
+  // A hanger's roof plate is bolted up: an anchor in each hole, 2 mm under it.
+  if (t.shape === 'HANGER_ARM' && t.basePlate && t.basePlate.hole > 2)
+    parts.push({ mark: parts.length + 1, description: `ANCHOR BOLT M${Math.round(t.basePlate.hole - 2)} WITH NUT AND WASHER`, size: 'TO SUIT ROOF', qty: 4, kg: 0 });
   plate('TOP PLATE', t.topPlate);
   plate('WALL PLATE', t.wallPlate);
   if (t.uBolt) {
@@ -278,7 +294,10 @@ export function supportUses(drawing: Drawing): Map<string, number> {
 export function supportQty(drawing: Drawing): Map<string, number> {
   const uses = supportUses(drawing);
   const out = new Map<string, number>();
-  for (const t of drawing.supportTypes ?? []) out.set(t.id, t.qty !== undefined && t.qty >= 0 ? t.qty : uses.get(t.id) ?? 0);
+  // A type made but given to no support on the line yet counts one (his
+  // DESHANIM sheet, 2026-11-16: two types, neither ticked on a support, and
+  // the weight came out nothing).
+  for (const t of drawing.supportTypes ?? []) out.set(t.id, t.qty !== undefined && t.qty >= 0 ? t.qty : uses.get(t.id) || 1);
   return out;
 }
 
@@ -300,7 +319,7 @@ export function supportMaterial(drawing: Drawing): { description: string; size: 
     for (const p of supportParts(t)) {
       const member = p.size.startsWith('L=');
       // Members by profile, as metres to order; plates and U-bolts by size.
-      const name = member ? p.description.replace(/^(POST|BEAM|ARM|BRACE) /, '') : p.description.replace(/^(BASE|TOP|WALL) PLATE /, 'PLATE ');
+      const name = member ? p.description.replace(/^(POST|BEAM|ARM|BRACE) /, '') : p.description.replace(/^(BASE|TOP|WALL|ROOF) PLATE /, 'PLATE ');
       const key = member ? name : `${name}|${p.size}`;
       const row = rows.get(key) ?? { description: name, size: member ? '' : p.size, qty: 0, kg: 0, length: 0 };
       if (member) row.length += Number(p.size.slice(2)) * p.qty * n;
