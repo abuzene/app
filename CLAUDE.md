@@ -1367,7 +1367,15 @@ ships, and the decisions already taken, so they are not re-litigated.
   dimension (its line moves square to itself, its figure slides along,
   the line carried on under a figure slid past the ends); `ps:<plate>`
   slides the plate itself (`shift`). One undo step a drag; **Put this
-  sheet back as drawn** clears the layouts.
+  sheet back as drawn** clears the layouts. **An arrangement belongs to the sheet's
+  layout** (his DESHANIM sheet, 2026-11-16: "see how the plates are
+  scattered at random" — plates dragged 140 mm on a sheet of their own
+  sat on the lines and off the frame once five supports shared a 3×2
+  sheet): layout keys are written `<cols>x<rows>|<key>` (the svg's
+  `data-grid`); a key with no layout in front counts only on a sheet of
+  its own (`1x1`). A plate's drawing, its title and figures with it, is
+  kept wholly inside its support's box (centred when too big for it), its
+  title set just above the plate. Scales go on to 1:75 and 1:100.
   **A quantity per type** (his ask, same day: "more than one of the same
   shape — enter a quantity and count it in the total weight"):
   `SupportType.qty`, typed in the Supports tab row (`[data-support-qty]`,

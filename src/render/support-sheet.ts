@@ -275,7 +275,7 @@ function elevation(t: SupportType, pen: Pen | null): Elevation {
     member(P, post, { x: 0, y: 0 }, { x: 0, y: roof - tb }, post.h);
     take(-post.h / 2, 0);
     take(right, 0);
-    marks.push({ mark: markOf('POST'), at: { x: -post.h / 2, y: (roof - tb) * 0.5 }, dx: -10, dy: 0 });
+    marks.push({ mark: markOf('POST'), at: { x: post.h / 2, y: (roof - tb) * 0.55 }, dx: 10, dy: 0 });
     member(P, arm, { x: face, y: seatY / 2 }, { x: face + A, y: seatY / 2 }, arm.h);
     marks.push({ mark: markOf('ARM'), at: { x: face + A * 0.85, y: seatY / 2 }, dx: 8, dy: 7 });
     pipeX = t.pipeAt ?? face + A / 2;
@@ -502,7 +502,7 @@ function plateHoles(t: SupportType, which: PlateKey): Pt[] {
   ];
 }
 
-const SCALES = [1, 2, 2.5, 5, 10, 15, 20, 25, 50];
+const SCALES = [1, 2, 2.5, 5, 10, 15, 20, 25, 50, 75, 100];
 
 /** The largest standard scale (1:n) at which w × h model mm fit in aw × ah sheet mm. */
 function scaleFor(w: number, h: number, aw: number, ah: number): number {
@@ -566,8 +566,11 @@ function usedOn(drawing: Drawing, t: SupportType): string {
  * where he dragged it (`t.layout`) and tagged so the arrange view can take
  * hold of it.
  */
-function supportCell(drawing: Drawing, t: SupportType, box: Box, wide: boolean): string {
-  const lay = (key: string): Move => t.layout?.[key] ?? NO_MOVE;
+function supportCell(drawing: Drawing, t: SupportType, box: Box, wide: boolean, grid: string): string {
+  // An arrangement belongs to the sheet's layout it was made on: dragged on a
+  // sheet of its own, it says nothing of where things go in a grid of six.
+  // Keys with no layout in front were made on a sheet of its own.
+  const lay = (key: string): Move => t.layout?.[`${grid}|${key}`] ?? (grid === '1x1' ? t.layout?.[key] : undefined) ?? NO_MOVE;
   const plates: { key: PlateKey; short: string; title: string; plate: SupportPlate; holes: Pt[] }[] = [];
   if (t.basePlate) plates.push({ key: 'basePlate', short: 'base', title: basePlateName(t), plate: t.basePlate, holes: plateHoles(t, 'basePlate') });
   if (t.topPlate) plates.push({ key: 'topPlate', short: 'top', title: 'TOP PLATE', plate: t.topPlate, holes: plateHoles(t, 'topPlate') });
@@ -619,16 +622,28 @@ function supportCell(drawing: Drawing, t: SupportType, box: Box, wide: boolean):
       const px = below ? box.x + slotW * i : box.x + elevW + 4;
       const by = below ? box.y + box.h - plateH : box.y + 2 + slotH * i;
       const pn = scaleFor(pl.plate.w, pl.plate.l, slotW - 22, slotH - 30);
-      const mv = lay(`pv:${pl.short}`);
-      // Anywhere, so long as its middle stays in the support's box.
-      const dx = clamp(mv.dx, box.x - (px + slotW / 2), box.x + box.w - (px + slotW / 2));
-      const dy = clamp(mv.dy, box.y - (by + slotH / 2), box.y + box.h - (by + slotH / 2));
-      const pp = new Pen(px + slotW / 2 + 2, by + 15 + (slotH - 26) / 2, 1 / pn);
-      pp.open(`${t.id}|pv:${pl.short}`, { dx, dy });
       const mark = parts.find((p) => p.description.startsWith(pl.title))?.mark;
-      const plateW = slotW;
-      pp.raw(text(px + plateW / 2, by + 2.6, `${mark ? `${mark} — ` : ''}${pl.title}${pl.key === 'wallPlate' ? ' (FACE)' : ''}`, 'sd-view-title', 'middle'));
-      pp.raw(text(px + plateW / 2, by + 5.8, `PL ${pl.plate.t} · ${pl.holes.length ? `${pl.holes.length} × Ø${pl.plate.hole}` : 'NO HOLES'} · 1:${pn}`, 'sd-view-scale', 'middle'));
+      const title = `${mark ? `${mark} — ` : ''}${pl.title}${pl.key === 'wallPlate' ? ' (FACE)' : ''}`;
+      // The plate in the middle of its slot, its title just above it.
+      const cx = px + slotW / 2 + 2;
+      const cy = by + 15 + (slotH - 26) / 2;
+      const pw = pl.plate.w / pn;
+      const ph = pl.plate.l / pn;
+      // Where he dragged it, the whole of it — title, plate and figures —
+      // kept inside the support's box (his DESHANIM sheet, 2026-11-16: plates
+      // dragged on a sheet of their own sat on the lines and off the frame
+      // once the supports shared a sheet).
+      const half = Math.max(pw / 2 + 9, title.length * 0.9);
+      const top = ph / 2 + 13;
+      const bottom = ph / 2 + 9;
+      const mv = lay(`pv:${pl.short}`);
+      const fit = (v: number, lo: number, hi: number) => (lo > hi ? (lo + hi) / 2 : clamp(v, lo, hi));
+      const dx = fit(mv.dx, box.x + half - cx, box.x + box.w - half - cx);
+      const dy = fit(mv.dy, box.y + top - cy, box.y + box.h - bottom - cy);
+      const pp = new Pen(cx, cy, 1 / pn);
+      pp.open(`${t.id}|pv:${pl.short}`, { dx, dy });
+      pp.raw(text(cx, cy - ph / 2 - 10.6, title, 'sd-view-title', 'middle'));
+      pp.raw(text(cx, cy - ph / 2 - 7.6, `PL ${pl.plate.t} · ${pl.holes.length ? `${pl.holes.length} × Ø${pl.plate.hole}` : 'NO HOLES'} · 1:${pn}`, 'sd-view-scale', 'middle'));
       plateView(pp, pl.plate, pl.holes);
       pp.close();
       out += pp.out;
@@ -662,7 +677,7 @@ export function renderSupportDetailSheet(drawing: Drawing, types: SupportType[],
   types.forEach((t, i) => {
     const c = i % cols;
     const r = Math.floor(i / cols);
-    views += supportCell(drawing, t, { x: area.x + c * cw + 4, y: area.y + r * ch + 3, w: cw - 8, h: ch - 6 }, cols === 1);
+    views += supportCell(drawing, t, { x: area.x + c * cw + 4, y: area.y + r * ch + 3, w: cw - 8, h: ch - 6 }, cols === 1, `${cols}x${rows}`);
   });
   // Lines between the supports.
   for (let c = 1; c < cols; c += 1) views += vline(area.x + c * cw, area.y, area.y + area.h, 'cell-rule');
@@ -764,7 +779,7 @@ export function renderSupportDetailSheet(drawing: Drawing, types: SupportType[],
   const sheetName = single ? `SUPPORT ${single.name}` : `SUPPORTS ${page} OF ${pages}`;
   const meta = { ...drawing.meta, sheet: sheetName };
   const id = `iso-support-${++supportSheetSeq}`;
-  return `<svg xmlns="http://www.w3.org/2000/svg" id="${id}" class="support-sheet" viewBox="0 0 ${W} ${H}" width="${W}mm" height="${H}mm">
+  return `<svg xmlns="http://www.w3.org/2000/svg" id="${id}" class="support-sheet" data-grid="${cols}x${rows}" viewBox="0 0 ${W} ${H}" width="${W}mm" height="${H}mm">
 <style>${scopeCss(`
 text { font-family: "Helvetica Neue", Arial, sans-serif; }
 .sheet-bg { fill: #ffffff; }

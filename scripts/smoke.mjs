@@ -6015,9 +6015,9 @@ await dragOn(`.arrange-sheet g[data-sd="${ps2}|ps:wallPlate"] path.sd-steel`, 0,
 supD = await drawingNow();
 const lay1 = supD.supportTypes[0].layout ?? {};
 const lay2 = supD.supportTypes[1].layout ?? {};
-check('supports 2: a balloon dragged on the detail stays there', lay1['b:1'] && lay1['b:1'].dx > 3 && lay1['b:1'].dy < -2, (v) => v === true, 'moved right and up');
-check('supports 2: a plate\'s drawing dragged stays there', lay2['pv:wall'] && lay2['pv:wall'].dx < -2, (v) => v === true, 'moved left');
-check('supports 2: a dimension dragged out stays there', lay1['dim:height'] && lay1['dim:height'].dx < -2, (v) => v === true, 'moved left');
+check('supports 2: a balloon dragged on the detail stays there', lay1['2x1|b:1'] && lay1['2x1|b:1'].dx > 3 && lay1['2x1|b:1'].dy < -2, (v) => v === true, 'moved right and up');
+check('supports 2: a plate\'s drawing dragged stays there', lay2['2x1|pv:wall'] && lay2['2x1|pv:wall'].dx < -2, (v) => v === true, 'moved left');
+check('supports 2: a dimension dragged out stays there', lay1['2x1|dim:height'] && lay1['2x1|dim:height'].dx < -2, (v) => v === true, 'moved left');
 check('supports 2: the wall plate slid up the wall on the support', supD.supportTypes[1].wallPlate?.shift, (v) => v > 50 && v % 5 === 0, 'over 50, to 5 mm');
 check('supports 2: the arranged sheet draws them there', await page.evaluate((id) => document.querySelector(`.arrange-sheet g[data-sd="${id}|pv:wall"]`)?.getAttribute('transform') ?? '', ps2), (v) => /translate\(-/.test(v), 'translate(-…)');
 await page.click('[data-editor="support-arrange"] [data-ar="reset"]');
@@ -6086,6 +6086,52 @@ await page.waitForTimeout(600);
 const hangerSheet = (await page.evaluate(() => [...document.querySelectorAll('.sheet-preview svg')].map((s) => s.textContent))).find((t) => /HANGER WITH ARM/.test(t)) ?? '';
 check('hanger: its detail has the roof plate, the post down to the arm and one off', hangerSheet, (t) => /ROOF PLATE PL 10 4 HOLES Ø18/.test(t) && /POST RHS 100x100x5/.test(t) && /L=660/.test(t) && /ARM L 70x70x7/.test(t) && /1 OFF/.test(t), 'roof plate, post L=660, arm, 1 off');
 await page.click('.dialog [data-close]');
+await page.waitForTimeout(200);
+
+// His DESHANIM sheet of supports (2026-11-16: "see how the plates are
+// scattered at random"): plates dragged on a sheet of their own sat on the
+// lines between the boxes and off the frame once the supports shared a
+// sheet. An arrangement belongs to the layout it was made on, and a plate's
+// drawing stays wholly inside its support's box however far it is dragged.
+await page.click('#tabs button:has-text("Supports")');
+await page.waitForTimeout(200);
+await page.click('#tab-body [data-a="arrange-supports"]');
+await page.waitForTimeout(500);
+supD = await drawingNow();
+const wallId = supD.supportTypes.find((t) => t.shape === 'BRACKET_BRACED').id;
+const wallSel = `.arrange-sheet g[data-sd="${wallId}|pv:wall"]`;
+{
+  const b = await page.locator(`${wallSel} path.sd-steel`).first().boundingBox();
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(b.x + b.width / 2 + 400, b.y + b.height / 2 + 600, { steps: 5 });
+  await page.mouse.up();
+  await page.waitForTimeout(400);
+}
+const inBox = await page.evaluate((sel) => {
+  const g = document.querySelector(sel).getBoundingClientRect();
+  const svg = document.querySelector('.arrange-sheet svg');
+  const frame = svg.querySelector('rect.frame').getBoundingClientRect();
+  const rule = [...svg.querySelectorAll('line.cell-rule')].map((l) => l.getBoundingClientRect()).find((r) => r.height > r.width);
+  const column = [...svg.querySelectorAll('line.frame')].map((l) => l.getBoundingClientRect()).find((r) => r.height > r.width && r.left > frame.left + 10);
+  return { grid: svg.dataset.grid, inside: g.left >= rule.left - 0.5 && g.right <= column.left + 0.5 && g.bottom <= frame.bottom + 0.5 && g.top >= frame.top - 0.5 };
+}, wallSel);
+check('support plates: dragged far, a plate\'s drawing stays inside its support\'s box', inBox, (v) => v.grid === '2x1' && v.inside, '2x1, inside');
+supD = await drawingNow();
+check('support plates: the arrangement is kept for the layout it was made on', Object.keys(supD.supportTypes.find((t) => t.id === wallId).layout ?? {}), (v) => v.includes('2x1|pv:wall') && !v.includes('pv:wall'), "'2x1|pv:wall'");
+await page.click('[data-editor="support-arrange"] [data-ar="close"]');
+await page.waitForTimeout(200);
+// On a sheet of its own the grid's arrangement does not apply.
+await page.click('#tab-body [data-a="supports-each-sheet"]');
+await page.waitForTimeout(300);
+await page.click('#tab-body [data-a="arrange-supports"]');
+await page.waitForTimeout(500);
+for (let i = 0; i < 4 && !(await page.locator(wallSel).count()); i += 1) {
+  await page.click('[data-editor="support-arrange"] [data-ar="next"]');
+  await page.waitForTimeout(300);
+}
+check('support plates: a grid\'s arrangement leaves the sheet of its own as drawn', await page.locator(wallSel).getAttribute('transform'), (v) => !v, 'no move');
+await page.click('[data-editor="support-arrange"] [data-ar="close"]');
 await page.waitForTimeout(200);
 
 // A reducer put along a pipe over a support: the support goes to the pipe

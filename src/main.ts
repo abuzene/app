@@ -3285,6 +3285,8 @@ function arrangeSupportSheets(start = 0): void {
     if (Math.hypot(dx, dy) < 0.3) return;
     const [id, key] = el.dataset.sd!.split('|');
     const scale = Number(el.dataset.s ?? '1');
+    // Kept for the sheet's layout it was made on (a sheet of its own, a grid…).
+    const grid = sheetEl.querySelector('svg')?.dataset.grid ?? '1x1';
     host.edit(key.startsWith('ps:') ? 'Move plate' : 'Arrange support detail', (d) => {
       const t = d.supportTypes?.find((x) => x.id === id);
       if (!t) return;
@@ -3298,8 +3300,10 @@ function arrangeSupportSheets(start = 0): void {
         return;
       }
       const layout = (t.layout ??= {});
-      const was = layout[key] ?? { dx: 0, dy: 0 };
-      layout[key] = { dx: Math.round((was.dx + dx) * 10) / 10, dy: Math.round((was.dy + dy) * 10) / 10 };
+      // What was drawn, read the way the sheet read it, then moved on.
+      const was = layout[`${grid}|${key}`] ?? (grid === '1x1' ? layout[key] : undefined) ?? { dx: 0, dy: 0 };
+      delete layout[key];
+      layout[`${grid}|${key}`] = { dx: Math.round((was.dx + dx) * 10) / 10, dy: Math.round((was.dy + dy) * 10) / 10 };
     });
     draw();
   };
@@ -3313,8 +3317,14 @@ function arrangeSupportSheets(start = 0): void {
       if (what === 'next') page += 1;
       if (what === 'reset') {
         const ids = new Set(groups[page]?.map((t) => t.id));
+        const grid = sheetEl.querySelector('svg')?.dataset.grid ?? '1x1';
         host.edit('Support detail as drawn', (d) => {
-          for (const t of d.supportTypes ?? []) if (ids.has(t.id)) delete t.layout;
+          for (const t of d.supportTypes ?? []) {
+            if (!ids.has(t.id) || !t.layout) continue;
+            // This layout's arrangement only; one made on another layout stays.
+            for (const k of Object.keys(t.layout)) if (k.startsWith(`${grid}|`) || (grid === '1x1' && !k.includes('|'))) delete t.layout[k];
+            if (!Object.keys(t.layout).length) delete t.layout;
+          }
         });
       }
       draw();
