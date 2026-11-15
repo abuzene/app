@@ -8,7 +8,7 @@ import { projectsOf, sheetNumber } from '../model/library';
 import { applyChainDimension, applyReducer, setFlangeStd, elbowTurns, turnElbow, freeDimensions, offersAutoCoupling, resetDrawnLength, setAutoCoupling, wantsAutoCoupling, deletePoint, isCouplingPoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, runLength, setGroupLength, setLastFlange, deleteRunGroup, DASHED_NOTE, setLineSize, setRunDashed, setRunDirect, setRunLength, setTerminal, setEndSize, splitRun, addStockWelds } from '../model/edit';
 import { setDriveClientId } from '../model/drive';
 import { reducerPreview } from './reducer-preview';
-import { SUPPORT_SHAPES, supportMaterial, supportParts, supportUses, type SupportShape } from '../model/supports';
+import { SUPPORT_SHAPES, supportMarks, supportMaterial, supportParts, supportSheetGroups, supportUses, type SupportShape } from '../model/supports';
 
 const supportShapeName = (shape: SupportShape) => SUPPORT_SHAPES.find((x) => x.id === shape)?.name ?? shape;
 import { SHEET_STAMPS, sheetStamp } from '../render/sheet';
@@ -849,13 +849,20 @@ function supportsTab(host: Host): string {
   const marks = drawing.runs.flatMap((r) => r.inline).filter((c) => isSupport(c.kind));
   const loose = marks.filter((c) => !c.supportType || !types.some((t) => t.id === c.supportType)).length;
   const material = supportMaterial(drawing);
+  const sheetOf = new Map<string, number>();
+  supportSheetGroups(drawing).forEach((g, i) => g.forEach((t) => sheetOf.set(t.id, i + 1)));
+  const onLine = supportMarks(drawing);
+  const names = (id: string) => {
+    const these = onLine.filter((m) => m.type === id).map((m) => m.name);
+    return these.length ? ` (${these.join(', ')})` : '';
+  };
   const rows = types
     .map((t) => {
       const n = uses.get(t.id) ?? 0;
       const kg = supportParts(t).reduce((a, p) => a + p.kg, 0);
       return `<div class="sheet-row" data-support-type="${esc(t.id)}">
       <div class="sheet-main"><strong>${esc(t.name)}</strong> · ${esc(supportShapeName(t.shape))} · ${esc(sizeLabel(t.dn))} pipe</div>
-      <div class="sheet-sub">${n} on this sheet · ${kg.toFixed(1)} kg each</div>
+      <div class="sheet-sub">${n} on the line${names(t.id)} · ${kg.toFixed(1)} kg each · detail sheet ${sheetOf.get(t.id) ?? '—'}</div>
       <button class="sheet-remove" data-remove-support="${esc(t.id)}" type="button" title="Delete this support type">×</button>
     </div>`;
     })
@@ -881,7 +888,19 @@ ${
 </div>`
     : ''
 }
-${types.length ? `<div class="btn-row"><button class="btn-line solid" data-a="print-supports">Print / PDF the detail sheets</button></div>` : ''}`;
+${
+  types.length
+    ? `<div class="section">
+  <h3>Detail sheets</h3>
+  <p class="empty-note">Each type has a sheet of its own unless given a sheet number in its editor; types with one number share a sheet, with lines between them.</p>
+  <div class="btn-row">
+    ${types.length > 1 ? '<button class="btn-line" data-a="supports-one-sheet">All on one sheet</button><button class="btn-line" data-a="supports-each-sheet">Each on its own sheet</button>' : ''}
+    <button class="btn-line" data-a="arrange-supports">Arrange the detail sheets</button>
+  </div>
+  <div class="btn-row"><button class="btn-line solid" data-a="print-supports">Print / PDF the detail sheets</button></div>
+</div>`
+    : ''
+}`;
 }
 
 /* -------------------------------------------------------------- projects */
@@ -1050,6 +1069,18 @@ function wire(body: HTMLElement, host: Host): void {
     if (shape) host.editSupportType(null, undefined, shape);
   });
   body.querySelector('[data-a="print-supports"]')?.addEventListener('click', () => host.printSupports());
+  body.querySelector('[data-a="arrange-supports"]')?.addEventListener('click', () => host.arrangeSupports());
+  body.querySelector('[data-a="supports-one-sheet"]')?.addEventListener('click', () =>
+    host.edit('Supports on one sheet', (d) => {
+      // Up to six to a sheet; more go on the next.
+      (d.supportTypes ?? []).forEach((t, i) => (t.sheet = Math.floor(i / 6) + 1));
+    }),
+  );
+  body.querySelector('[data-a="supports-each-sheet"]')?.addEventListener('click', () =>
+    host.edit('Supports a sheet each', (d) => {
+      for (const t of d.supportTypes ?? []) delete t.sheet;
+    }),
+  );
 
   // Projects.
   body.querySelector('[data-a="new-sheet"]')?.addEventListener('click', () => host.newSheetInProject());

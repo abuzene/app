@@ -92,6 +92,8 @@ export interface Host {
   editSupportType(id: string | null, forComp?: string, shape?: import('../model/supports').SupportShape): void;
   /** The print dialog with the support detail sheets picked. */
   printSupports(): void;
+  /** The support detail sheets, to arrange by hand. */
+  arrangeSupports(): void;
   /** Welds numbered across the project with this code ("HYF 1/2.1"), or per sheet (null). */
   setProjectWeldCode(code: string | null): void;
   /** Google Drive: whether the app is signed in, and what the last sync moved. */

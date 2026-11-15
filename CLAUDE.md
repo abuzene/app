@@ -1341,6 +1341,33 @@ ships, and the decisions already taken, so they are not re-litigated.
   plate flat with its holes; the column has the parts list, "n OFF ON THIS
   SHEET", and the support material of all types. A new sheet in the
   project carries the types on.
+  **His second round** (2026-11-16): a plate slot (base, top, wall) may be
+  **None — welded to existing steel** (`[data-st-plate]` select; the plate
+  undefined, the elevation draws the steel already there dashed and
+  hatched, "EXISTING STEEL", and the sheet notes it); a plate is **set
+  where he chooses** (`SupportPlate.shift`: base/top across the view, wall
+  up the wall; the editor's shift cell, or dragged on the support in the
+  arrange view, to 5 mm; a dimension to the post's centre / arm's top
+  shows it). **Several supports on one detail sheet** (`SupportType.sheet`;
+  types with one number share a sheet, unnumbered ones a sheet each,
+  `supportSheetGroups`, up to six to a sheet in a grid with `.cell-rule`
+  lines between; Supports tab **All on one sheet** / **Each on its own
+  sheet**; the column's parts list is grouped by type, "PS-1 — 2 OFF").
+  **Which supports a type is for, by their names on the drawing**
+  (`supportMarks`: "SUPPORT 1", or its tag): the editor's checklist
+  (`[data-st-mark]`), ticked ones take the type, unticked lose it; each
+  box reads "FOR SUPPORTS 1, 2". **Arranged by hand** (`arrangeSupportSheets`
+  in main.ts, Supports tab `[data-a="arrange-supports"]`,
+  `[data-editor="support-arrange"]`): the sheet as it prints, every
+  draggable part a `g[data-sd="<type id>|<key>"]` with a see-through grip
+  rect added for the pen (`.arrange-grip`, only in this view, never on the
+  print); a drag keeps `SupportType.layout[key]` {dx, dy} in sheet mm —
+  `elev` the whole support, `pv:base|top|wall` a plate's own drawing (its
+  middle kept in the support's box), `b:<mark>` a balloon, `dim:<key>` a
+  dimension (its line moves square to itself, its figure slides along,
+  the line carried on under a figure slid past the ends); `ps:<plate>`
+  slides the plate itself (`shift`). One undo step a drag; **Put this
+  sheet back as drawn** clears the layouts.
 - **The printed drawing keeps off the compass** (his DESHANIM sheet,
   2026-10-22: "it touches the north mark though there is room below"):
   the compass sits `COMPASS_AT` 16 mm into the drawing area's top left,

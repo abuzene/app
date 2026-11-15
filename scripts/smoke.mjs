@@ -5948,6 +5948,80 @@ check('supports: the braced arm\'s sheet has its brace and wall plate', supSheet
 await page.click('.dialog [data-close]');
 await page.waitForTimeout(200);
 
+// His second round on the supports (2026-11-16): no plate where it is
+// welded to steel already there, a plate set where he chooses, several
+// supports on one detail sheet with lines between them, which supports on
+// the line a type is for by their names, and the detail arranged by hand —
+// the plate's drawing, the dimensions and the balloons dragged.
+await page.click('#tabs button:has-text("Supports")');
+await page.waitForTimeout(200);
+await page.locator('#tab-body [data-support-type]').first().click();
+await page.waitForTimeout(250);
+await page.selectOption('[data-editor="support-type"] [data-st-plate="basePlate"]', '0');
+await page.waitForTimeout(200);
+check('supports 2: no base plate leaves no plate fields', await page.locator('[data-editor="support-type"] [data-st="basePlate.w"]').count(), (v) => v === 0, '0');
+check('supports 2: both supports on the line are offered by name', await page.locator('[data-editor="support-type"] [data-st-mark]').count(), (v) => v === 2, '2');
+await page.locator('[data-editor="support-type"] [data-st-mark]').nth(1).check();
+await page.click('[data-editor="support-type"] [data-confirm]');
+await page.waitForTimeout(300);
+supD = await drawingNow();
+check('supports 2: the type has no base plate', supD.supportTypes[0].basePlate === undefined, (v) => v === true, 'true');
+check('supports 2: ticked, the second support takes the type', supD.runs.flatMap((r) => r.inline).filter((c) => c.supportType === supD.supportTypes[0].id).length, (v) => v === 2, '2');
+// The braced arm's wall plate set 50 up.
+await page.locator('#tab-body [data-support-type]').nth(1).click();
+await page.waitForTimeout(250);
+await page.fill('[data-editor="support-type"] [data-st="wallPlate.shift"]', '50');
+await page.locator('[data-editor="support-type"] [data-st="wallPlate.shift"]').dispatchEvent('input');
+await page.click('[data-editor="support-type"] [data-confirm]');
+await page.waitForTimeout(300);
+supD = await drawingNow();
+check('supports 2: the wall plate is set where typed', supD.supportTypes[1].wallPlate?.shift, (v) => v === 50, '50');
+check('supports 2: unticked there, the support is no longer the braced arm', supD.runs.flatMap((r) => r.inline).filter((c) => c.supportType === supD.supportTypes[1].id).length, (v) => v === 0, '0');
+await page.click('#tab-body [data-a="supports-one-sheet"]');
+await page.waitForTimeout(300);
+await page.click('#tab-body [data-a="print-supports"]');
+await page.waitForTimeout(250);
+await page.click('.dialog [data-x="preview"]');
+await page.waitForTimeout(600);
+const oneSheet = await page.evaluate(() => [...document.querySelectorAll('.sheet-preview svg')].map((s) => ({ text: s.textContent, rules: s.querySelectorAll('.cell-rule').length })));
+check('supports 2: all on one sheet, with a line between them', oneSheet.length === 1 && oneSheet[0].rules >= 1, (v) => v === true, 'one sheet, a dividing line');
+check('supports 2: the sheet names the supports each is for and the steel already there', oneSheet[0]?.text ?? '', (t) => /PS-1 — 2 OFF/.test(t) && /FOR SUPPORTS 1, 2/.test(t) && /PS-2 — 0 OFF/.test(t) && /EXISTING STEEL/.test(t) && /SUPPORTS 1 OF 1/.test(t), 'PS-1 for 1, 2; existing steel');
+await page.click('.dialog [data-close]');
+await page.waitForTimeout(200);
+// Arranged by hand: a balloon and a plate's own drawing dragged, and the
+// wall plate slid along the wall on the support itself.
+await page.click('#tab-body [data-a="arrange-supports"]');
+await page.waitForTimeout(500);
+const dragOn = async (sel, dx, dy) => {
+  const b = await page.locator(sel).first().boundingBox();
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(b.x + b.width / 2 + dx / 2, b.y + b.height / 2 + dy / 2, { steps: 3 });
+  await page.mouse.move(b.x + b.width / 2 + dx, b.y + b.height / 2 + dy, { steps: 3 });
+  await page.mouse.up();
+  await page.waitForTimeout(400);
+};
+const ps1 = supD.supportTypes[0].id;
+const ps2 = supD.supportTypes[1].id;
+await dragOn(`.arrange-sheet g[data-sd="${ps1}|b:1"] circle.sd-balloon`, 40, -30);
+await dragOn(`.arrange-sheet g[data-sd="${ps2}|pv:wall"] path.sd-steel`, -30, 20);
+await dragOn(`.arrange-sheet g[data-sd="${ps1}|dim:height"] text`, -25, 0);
+await dragOn(`.arrange-sheet g[data-sd="${ps2}|ps:wallPlate"] path.sd-steel`, 0, -40);
+supD = await drawingNow();
+const lay1 = supD.supportTypes[0].layout ?? {};
+const lay2 = supD.supportTypes[1].layout ?? {};
+check('supports 2: a balloon dragged on the detail stays there', lay1['b:1'] && lay1['b:1'].dx > 3 && lay1['b:1'].dy < -2, (v) => v === true, 'moved right and up');
+check('supports 2: a plate\'s drawing dragged stays there', lay2['pv:wall'] && lay2['pv:wall'].dx < -2, (v) => v === true, 'moved left');
+check('supports 2: a dimension dragged out stays there', lay1['dim:height'] && lay1['dim:height'].dx < -2, (v) => v === true, 'moved left');
+check('supports 2: the wall plate slid up the wall on the support', supD.supportTypes[1].wallPlate?.shift, (v) => v > 50 && v % 5 === 0, 'over 50, to 5 mm');
+check('supports 2: the arranged sheet draws them there', await page.evaluate((id) => document.querySelector(`.arrange-sheet g[data-sd="${id}|pv:wall"]`)?.getAttribute('transform') ?? '', ps2), (v) => /translate\(-/.test(v), 'translate(-…)');
+await page.click('[data-editor="support-arrange"] [data-ar="reset"]');
+await page.waitForTimeout(300);
+supD = await drawingNow();
+check('supports 2: put back as drawn', !supD.supportTypes[0].layout && !supD.supportTypes[1].layout, (v) => v === true, 'true');
+await page.click('[data-editor="support-arrange"] [data-ar="close"]');
+await page.waitForTimeout(200);
+
 // A reducer put along a pipe over a support: the support goes to the pipe
 // beside it, not inside the reducer (it was left there on the same sheet).
 {

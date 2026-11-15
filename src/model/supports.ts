@@ -30,6 +30,12 @@ export interface SupportPlate {
   hole: number;
   /** From each edge to the hole centre, mm. */
   edge: number;
+  /**
+   * Where it sits, moved off its middle (his ask, 2026-11-16: "set the
+   * plate where I choose"), mm: a base or top plate across the view (+ to
+   * the right), a wall plate up the wall (+ up).
+   */
+  shift?: number;
 }
 
 export interface SupportType {
@@ -61,6 +67,19 @@ export interface SupportType {
   /** A U-bolt round the pipe (DIN 3570). */
   uBolt: boolean;
   note?: string;
+  /**
+   * Which detail sheet it is drawn on (his ask, 2026-11-16: several
+   * supports on one sheet, lines between them); unset, a sheet of its own
+   * after the numbered ones. Types with one number share a sheet.
+   */
+  sheet?: number;
+  /**
+   * Its detail as he arranged it (same ask: "move the plate drawn in the
+   * detail, set the dimensions and balloons"): by element, how far it was
+   * dragged on the sheet, mm — `elev` the view, `pv:base|top|wall` a
+   * plate's flat view, `b:<mark>` a balloon, `dim:<key>` a dimension.
+   */
+  layout?: Record<string, { dx: number; dy: number }>;
 }
 
 /** A section's dimensions: depth h, width b, wall/flange thickness t, mass kg/m. */
@@ -115,6 +134,39 @@ export function membersOf(shape: SupportShape): { post: boolean; beam: boolean; 
     wall: shape === 'BRACKET_L' || shape === 'BRACKET_BRACED',
     top: shape === 'POST_LOW',
   };
+}
+
+/** A plate where the shape has one, as a new type would have it. */
+export function defaultPlate(t: SupportType, which: 'basePlate' | 'topPlate' | 'wallPlate'): SupportPlate {
+  const fresh = newSupportType(t.shape, t.dn, t.name, t.id);
+  return fresh[which] ?? { w: 200, l: 200, t: 10, hole: 18, edge: 30 };
+}
+
+/** The supports on the line, by the names they carry on the drawing ("SUPPORT 2", "SUPPORT A"). */
+export function supportMarks(drawing: Drawing): { id: string; name: string; type?: string }[] {
+  const out: { id: string; name: string; type?: string }[] = [];
+  let n = 0;
+  for (const run of drawing.runs)
+    for (const c of run.inline)
+      if (c.kind === 'SUPPORT' || c.kind === 'SUPPORT_L') {
+        n += 1;
+        out.push({ id: c.id, name: (c.tag || String(n)).toUpperCase(), type: c.supportType });
+      }
+  return out;
+}
+
+/** The detail sheets: the types on each, in order (numbered first, then the rest a sheet each). */
+export function supportSheetGroups(drawing: Drawing, most = 6): SupportType[][] {
+  const types = drawing.supportTypes ?? [];
+  const numbered = new Map<number, SupportType[]>();
+  for (const t of types) if (t.sheet && t.sheet > 0) numbered.set(t.sheet, [...(numbered.get(t.sheet) ?? []), t]);
+  const out: SupportType[][] = [];
+  for (const k of [...numbered.keys()].sort((a, b) => a - b)) {
+    const g = numbered.get(k)!;
+    for (let i = 0; i < g.length; i += most) out.push(g.slice(i, i + most));
+  }
+  for (const t of types) if (!(t.sheet && t.sheet > 0)) out.push([t]);
+  return out;
 }
 
 /** A new type of a shape, sized for a pipe: what he would most likely make. */

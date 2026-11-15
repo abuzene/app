@@ -14,8 +14,8 @@ import { applyAgainstFree, applyKeepingOthers, closePipeStretch, sheetCutSpot, s
 import { DN_LIST, schedulesFor, sizeLabel, sizeOf } from './model/pipe-data';
 import { northArrow, paperOf, renderDrawing, runOffsetAtPaper, symbolSizeFor } from './render/renderer';
 import { SHEET_STAMPS, renderSheet, sheetLegibility, sheetStamp, sheetSymbolSize, type SheetSize } from './render/sheet';
-import { renderSupportSheets, supportPreview } from './render/support-sheet';
-import { PROFILES, SUPPORT_SHAPES, membersOf, newSupportType, nextSupportName, supportParts, uBoltRod, type SupportShape, type SupportType } from './model/supports';
+import { renderSupportDetailSheet, renderSupportSheets, supportPreview } from './render/support-sheet';
+import { PROFILES, SUPPORT_SHAPES, defaultPlate, membersOf, newSupportType, nextSupportName, supportMarks, supportParts, supportSheetGroups, uBoltRod, type SupportShape, type SupportType } from './model/supports';
 import { Canvas } from './ui/canvas';
 import { esc, fileStem, renderPanel, renderTabs } from './ui/panels';
 import { renderTools } from './ui/tools';
@@ -362,6 +362,9 @@ const host: Host = {
   },
   printSupports() {
     openPrintDialog({ supports: true });
+  },
+  arrangeSupports() {
+    arrangeSupportSheets();
   },
   driveStatus() {
     return driveStatus();
@@ -2713,7 +2716,7 @@ function openPrintDialog(ask: { project?: string; all?: boolean; supports?: bool
   for (const d of sheets) if (d.id !== state.drawing.id || !here) choices.push({ value: d.id ?? '', label: `Sheet ${d.meta.sheet || '1 of 1'}` });
   if (sheets.length > 1) choices.push({ value: 'all', label: `All ${sheets.length} sheets of ${project || 'this project'} — one PDF` });
   // The support detail sheets of the sheet on screen (his ask, 2026-11-15).
-  const supportCount = here ? (state.drawing.supportTypes ?? []).length : 0;
+  const supportCount = here ? supportSheetGroups(state.drawing).length : 0;
   if (supportCount) {
     choices.push({ value: 'supports', label: `Support details — ${supportCount} sheet${supportCount === 1 ? '' : 's'}` });
     choices.push({ value: 'here+supports', label: `This sheet and its support details` });
@@ -3202,6 +3205,124 @@ const AXIS_NAMES: Record<Axis, string> = { N: 'North', S: 'South', E: 'East', W:
  * it makes is shown as it is typed.
  */
 /**
+ * The support detail sheets laid out by hand (his ask, 2026-11-16: "move
+ * the plate drawn in the detail, set the dimensions and balloons"): each
+ * sheet as it prints, and the pen drags a balloon, a dimension (its line
+ * out or in, its figure along), a plate's flat view or a whole support to
+ * where he wants it, kept with the type (`layout`); a plate dragged on the
+ * support itself slides along its seat (`shift`, to 5 mm). One undo step
+ * a drag.
+ */
+function arrangeSupportSheets(start = 0): void {
+  let page = start;
+  const backdrop = document.createElement('div');
+  backdrop.className = 'dialog-backdrop';
+  backdrop.innerHTML = `
+<div class="dialog wide previewing arrange-dialog" role="dialog" aria-label="Arrange the support details" data-editor="support-arrange">
+  <div class="preview-bar">
+    <button class="btn-line" data-ar="prev" type="button">‹ Sheet</button>
+    <strong data-ar-title></strong>
+    <button class="btn-line" data-ar="next" type="button">Sheet ›</button>
+    <button class="btn-line" data-ar="reset" type="button">Put this sheet back as drawn</button>
+    <button class="btn-line solid" data-ar="close" type="button">Done</button>
+  </div>
+  <p class="empty-note">Drag a balloon, a dimension, a plate's own drawing or a whole support with the pen. A plate dragged on the support itself moves along its seat.</p>
+  <div class="arrange-sheet"></div>
+</div>`;
+  document.body.appendChild(backdrop);
+  const sheetEl = backdrop.querySelector<HTMLElement>('.arrange-sheet')!;
+  const titleEl = backdrop.querySelector<HTMLElement>('[data-ar-title]')!;
+  let groups = supportSheetGroups(state.drawing);
+  const draw = () => {
+    groups = supportSheetGroups(state.drawing);
+    if (!groups.length) {
+      backdrop.remove();
+      return;
+    }
+    page = Math.max(0, Math.min(page, groups.length - 1));
+    sheetEl.innerHTML = renderSupportDetailSheet(state.drawing, groups[page], 'A3', page + 1, groups.length);
+    titleEl.textContent = `Sheet ${page + 1} of ${groups.length} — ${groups[page].map((t) => t.name).join(', ')}`;
+    // Something to take hold of: a thin dimension line is hard to hit with a pen.
+    sheetEl.querySelectorAll<SVGGElement>('g[data-sd]:not([data-whole])').forEach((g) => {
+      const b = g.getBBox();
+      const r = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      r.setAttribute('x', String(b.x - 1.2));
+      r.setAttribute('y', String(b.y - 1.2));
+      r.setAttribute('width', String(b.width + 2.4));
+      r.setAttribute('height', String(b.height + 2.4));
+      r.setAttribute('class', 'arrange-grip');
+      g.insertBefore(r, g.firstChild);
+    });
+  };
+  draw();
+  let drag: { el: SVGGElement; inv: DOMMatrix; x: number; y: number; base: string; dx: number; dy: number; axis: 'x' | 'y' | null } | null = null;
+  const at = (event: PointerEvent, inv: DOMMatrix) => new DOMPoint(event.clientX, event.clientY).matrixTransform(inv);
+  sheetEl.addEventListener('pointerdown', (event) => {
+    const el = (event.target as Element).closest<SVGGElement>('g[data-sd]');
+    const svg = sheetEl.querySelector('svg');
+    if (!el || !svg) return;
+    const inv = svg.getScreenCTM()?.inverse();
+    if (!inv) return;
+    event.preventDefault();
+    sheetEl.setPointerCapture(event.pointerId);
+    const key = el.dataset.sd!.split('|')[1];
+    const p = at(event, inv);
+    drag = { el, inv, x: p.x, y: p.y, base: el.getAttribute('transform') ?? '', dx: 0, dy: 0, axis: key === 'ps:wallPlate' ? 'y' : key.startsWith('ps:') ? 'x' : null };
+    el.classList.add('dragging');
+  });
+  sheetEl.addEventListener('pointermove', (event) => {
+    if (!drag) return;
+    const p = at(event, drag.inv);
+    drag.dx = drag.axis === 'y' ? 0 : p.x - drag.x;
+    drag.dy = drag.axis === 'x' ? 0 : p.y - drag.y;
+    drag.el.setAttribute('transform', `translate(${drag.dx.toFixed(2)} ${drag.dy.toFixed(2)}) ${drag.base}`);
+  });
+  const drop = () => {
+    if (!drag) return;
+    const { el, dx, dy } = drag;
+    drag = null;
+    el.classList.remove('dragging');
+    if (Math.hypot(dx, dy) < 0.3) return;
+    const [id, key] = el.dataset.sd!.split('|');
+    const scale = Number(el.dataset.s ?? '1');
+    host.edit(key.startsWith('ps:') ? 'Move plate' : 'Arrange support detail', (d) => {
+      const t = d.supportTypes?.find((x) => x.id === id);
+      if (!t) return;
+      if (key.startsWith('ps:')) {
+        const plate = t[key.slice(3) as 'basePlate' | 'topPlate' | 'wallPlate'];
+        if (!plate) return;
+        const along = key === 'ps:wallPlate' ? -dy / scale : dx / scale;
+        const shift = Math.round(((plate.shift ?? 0) + along) / 5) * 5;
+        if (shift) plate.shift = shift;
+        else delete plate.shift;
+        return;
+      }
+      const layout = (t.layout ??= {});
+      const was = layout[key] ?? { dx: 0, dy: 0 };
+      layout[key] = { dx: Math.round((was.dx + dx) * 10) / 10, dy: Math.round((was.dy + dy) * 10) / 10 };
+    });
+    draw();
+  };
+  sheetEl.addEventListener('pointerup', drop);
+  sheetEl.addEventListener('pointercancel', drop);
+  backdrop.querySelectorAll<HTMLButtonElement>('[data-ar]').forEach((b) =>
+    b.addEventListener('click', () => {
+      const what = b.dataset.ar;
+      if (what === 'close') return backdrop.remove();
+      if (what === 'prev') page -= 1;
+      if (what === 'next') page += 1;
+      if (what === 'reset') {
+        const ids = new Set(groups[page]?.map((t) => t.id));
+        host.edit('Support detail as drawn', (d) => {
+          for (const t of d.supportTypes ?? []) if (ids.has(t.id)) delete t.layout;
+        });
+      }
+      draw();
+    }),
+  );
+}
+
+/**
  * A pipe support type (his ask, 2026-11-15): its shape, the steel sections
  * of its members, its plates with their holes, the U-bolt and its sizes,
  * with a picture of it looking along the pipe as it is set. Saved to the
@@ -3227,12 +3348,31 @@ function supportTypeDialog(id: string | null, forComp?: string, shape?: SupportS
         .join('')}</optgroup>`;
     return `<div class="row"><label>${label}</label><select data-st="${key}">${group('UPN', 'U channel (UPN)')}${group('RHS', 'RHS / SHS')}${group('L', 'Angle (L)')}</select></div>`;
   };
-  const plateRows = (key: 'basePlate' | 'topPlate' | 'wallPlate', label: string) => {
+  // A plate, or none: the member welded to steel already there (his ask,
+  // 2026-11-16), and where the plate sits, moved off its middle.
+  const plateRows = (key: 'basePlate' | 'topPlate' | 'wallPlate', label: string, none: string, shiftHint: string) => {
     const p = t[key];
-    if (!p) return '';
-    const cell = (f: string, hint: string, v: number) => `<label class="st-cell"><span>${hint}</span><input type="number" inputmode="numeric" min="0" data-st="${key}.${f}" value="${v}" /></label>`;
-    return `<div class="st-plate"><div class="st-plate-name">${label}</div><div class="st-cells">${cell('w', 'Width', p.w)}${cell('l', 'Length', p.l)}${cell('t', 'Thick', p.t)}${cell('hole', 'Hole Ø', p.hole)}${key === 'topPlate' ? '' : cell('edge', 'Hole from edge', p.edge)}</div></div>`;
+    const cell = (f: string, hint: string, v: number, min = '0') => `<label class="st-cell"><span>${hint}</span><input type="number" inputmode="numeric"${min ? ` min="${min}"` : ''} data-st="${key}.${f}" value="${v}" /></label>`;
+    return `<div class="st-plate"><div class="row"><label>${label}</label><select data-st-plate="${key}"><option value="1"${p ? ' selected' : ''}>Plate</option><option value="0"${p ? '' : ' selected'}>${none}</option></select></div>${
+      p
+        ? `<div class="st-cells">${cell('w', 'Width', p.w)}${cell('l', 'Length', p.l)}${cell('t', 'Thick', p.t)}${cell('hole', 'Hole Ø', p.hole)}${key === 'topPlate' ? '' : cell('edge', 'Hole from edge', p.edge)}</div>
+           <div class="st-cells st-shift">${cell('shift', shiftHint, p.shift ?? 0, '')}</div>`
+        : ''
+    }</div>`;
   };
+  // Which supports on the line are of this type, by the names they carry
+  // there (his ask, 2026-11-16: "which support it is, by the names on the plans").
+  const marks = supportMarks(d);
+  const chosen = new Set(marks.filter((m) => (old ? m.type === t.id : m.id === forComp)).map((m) => m.id));
+  const markRows = () =>
+    marks.length
+      ? `<div class="st-plate"><div class="st-plate-name">Supports on the line of this type</div><div class="st-marks">${marks
+          .map((m) => {
+            const other = m.type && m.type !== t.id ? d.supportTypes?.find((x) => x.id === m.type)?.name : '';
+            return `<label class="st-mark"><input type="checkbox" data-st-mark="${esc(m.id)}"${chosen.has(m.id) ? ' checked' : ''} /> SUPPORT ${esc(m.name)}${other ? ` <span class="st-other">(now ${esc(other)})</span>` : ''}</label>`;
+          })
+          .join('')}</div></div>`
+      : '';
   const form = () => {
     const m = membersOf(t.shape);
     const kg = supportParts(t).reduce((a, p) => a + p.kg, 0);
@@ -3254,9 +3394,11 @@ function supportTypeDialog(id: string | null, forComp?: string, shape?: SupportS
       ${m.arm ? num('armLength', t.shape === 'POST_ARM' ? 'Arm from the post, mm' : 'Arm from the wall, mm', t.armLength) : ''}
       ${m.arm || m.beam ? num('pipeAt', m.post ? 'Pipe from the post centre, mm' : 'Pipe from the wall, mm', t.pipeAt) : ''}
       ${m.brace ? num('braceDrop', 'Brace foot below the arm, mm', t.braceDrop) + num('braceReach', 'Brace top along the arm, mm', t.braceReach) : ''}
-      ${plateRows('basePlate', 'Base plate')}${plateRows('topPlate', 'Top plate (U-bolt through it)')}${plateRows('wallPlate', 'Wall plate')}
+      ${m.base ? plateRows('basePlate', 'Base plate', 'None — welded to existing steel', 'Off the post centre, mm (+ right)') : ''}${m.top ? plateRows('topPlate', 'Top plate', 'None — the pipe on the post', 'Off the post centre, mm (+ right)') : ''}${m.wall ? plateRows('wallPlate', 'Wall plate', 'None — welded to existing steel', 'Off its place, mm (+ up)') : ''}
       <div class="row"><label>U-bolt</label><select data-st="uBolt"><option value="1"${t.uBolt ? ' selected' : ''}>Yes — M${uBoltRod(t.dn)} DIN 3570</option><option value="0"${t.uBolt ? '' : ' selected'}>No — the pipe rests on it</option></select></div>
       <div class="row"><label>Note</label><input type="text" data-st="note" value="${esc(t.note ?? '')}" placeholder="printed on its detail sheet" /></div>
+      <div class="row"><label>Detail sheet No.</label><input type="number" inputmode="numeric" min="0" data-st="sheet" value="${t.sheet ?? ''}" placeholder="its own sheet" /></div>
+      ${markRows()}
     </div>
     <div class="st-picture">${supportPreview(t)}<p class="empty-note">${supportParts(t).length} parts · ${kg.toFixed(1)} kg each</p></div>
   </div>
@@ -3282,6 +3424,11 @@ function supportTypeDialog(id: string | null, forComp?: string, shape?: SupportS
       }
       return true;
     }
+    if (path === 'sheet') {
+      const v = Math.round(Number(el.value));
+      t.sheet = el.value.trim() && v > 0 ? v : undefined;
+      return false;
+    }
     if (path === 'name') t.name = el.value.trim().toUpperCase() || t.name;
     else if (path === 'note') t.note = el.value.trim() || undefined;
     else if (path === 'uBolt') t.uBolt = el.value === '1';
@@ -3289,7 +3436,7 @@ function supportTypeDialog(id: string | null, forComp?: string, shape?: SupportS
     else if (path.includes('.')) {
       const [plate, f] = path.split('.') as ['basePlate' | 'topPlate' | 'wallPlate', keyof NonNullable<SupportType['basePlate']>];
       const v = Number(el.value);
-      if (t[plate] && Number.isFinite(v) && v >= 0) t[plate]![f] = v;
+      if (t[plate] && Number.isFinite(v) && (v >= 0 || f === 'shift')) t[plate]![f] = v;
     } else {
       const v = Number(el.value);
       if (Number.isFinite(v) && v >= 0) (t as unknown as Record<string, number>)[path] = v;
@@ -3306,6 +3453,20 @@ function supportTypeDialog(id: string | null, forComp?: string, shape?: SupportS
     if (pic) pic.innerHTML = `${supportPreview(t)}<p class="empty-note">${supportParts(t).length} parts · ${kg.toFixed(1)} kg each</p>`;
   };
   const wireForm = () => {
+    backdrop.querySelectorAll<HTMLSelectElement>('[data-st-plate]').forEach((el) =>
+      el.addEventListener('change', () => {
+        const key = el.dataset.stPlate as 'basePlate' | 'topPlate' | 'wallPlate';
+        if (el.value === '1') t[key] = defaultPlate(t, key);
+        else delete t[key];
+        draw();
+      }),
+    );
+    backdrop.querySelectorAll<HTMLInputElement>('[data-st-mark]').forEach((el) =>
+      el.addEventListener('change', () => {
+        if (el.checked) chosen.add(el.dataset.stMark!);
+        else chosen.delete(el.dataset.stMark!);
+      }),
+    );
     backdrop.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-st]').forEach((el) => {
       el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', () => {
         if (read(el) || el.tagName === 'SELECT') draw();
@@ -3325,7 +3486,12 @@ function supportTypeDialog(id: string | null, forComp?: string, shape?: SupportS
         const at = list.findIndex((x) => x.id === t.id);
         if (at >= 0) list[at] = t;
         else list.push(t);
-        if (forComp) for (const r of dr.runs) for (const c of r.inline) if (c.id === forComp) c.supportType = t.id;
+        // The supports ticked are of this type; one unticked that was, is no longer.
+        for (const r of dr.runs)
+          for (const c of r.inline) {
+            if (chosen.has(c.id) || c.id === forComp) c.supportType = t.id;
+            else if (c.supportType === t.id && marks.some((m) => m.id === c.id)) delete c.supportType;
+          }
       });
     });
     backdrop.querySelector('[data-cancel]')?.addEventListener('click', () => {

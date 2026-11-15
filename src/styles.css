@@ -421,6 +421,20 @@ tr.selected { background: var(--accent-soft); }
 .st-cell input { width: 100%; min-width: 0; font: inherit; font-size: 13px; padding: 5px 4px; border: 1px solid var(--line); border-radius: 5px; color: var(--ink); }
 @media (max-width: 700px) { .st-layout { flex-direction: column-reverse; } .st-picture { position: static; width: 100%; } }
 table.support-material { width: 100%; border-collapse: collapse; font-size: 12px; }
+.st-shift { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); margin-top: 6px; }
+.st-marks { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.st-mark { font-size: 12.5px; display: flex; align-items: center; gap: 5px; }
+.st-mark input { width: 18px; height: 18px; }
+.st-other { color: var(--muted); font-size: 11px; }
+/* The support details arranged by hand: what can be taken hold of shows it. */
+.dialog.arrange-dialog { width: min(1300px, 100%); max-height: 94vh; }
+.arrange-sheet { touch-action: none; user-select: none; -webkit-user-select: none; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+.arrange-sheet svg { display: block; width: 100%; height: auto; }
+.arrange-sheet g[data-sd] { cursor: grab; }
+.arrange-sheet .arrange-grip { fill: transparent; stroke: none; }
+.arrange-sheet g[data-sd]:not([data-whole]):hover > .arrange-grip,
+.arrange-sheet g[data-sd].dragging > .arrange-grip { fill: rgba(26, 111, 214, 0.08); stroke: #1a6fd6; stroke-width: 0.2; stroke-dasharray: 0.8 0.6; }
+.arrange-sheet g[data-sd].dragging { cursor: grabbing; }
 table.support-material th { text-align: left; font-size: 10px; color: var(--muted); font-weight: 600; padding: 4px 3px; border-bottom: 1px solid var(--line); }
 table.support-material td { padding: 4px 3px; border-bottom: 1px solid var(--line); }
 table.support-material tr.total td { font-weight: 700; }

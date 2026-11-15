@@ -9,6 +9,8 @@ import type { Drawing } from '../model/types';
 import { sizeLabel, sizeOf } from '../model/pipe-data';
 import {
   membersOf,
+  supportMarks,
+  supportSheetGroups,
   memberLengths,
   profileOf,
   supportMaterial,
@@ -64,10 +66,25 @@ class Pen {
   raw(svg: string) {
     this.out += svg;
   }
+  /** A group he can drag on the arrange view (`data-sd`), moved by `by` sheet mm. */
+  open(tag: string, by?: { dx: number; dy: number }, extra = '') {
+    const move = by && (by.dx || by.dy) ? ` transform="translate(${by.dx.toFixed(2)} ${by.dy.toFixed(2)})"` : '';
+    this.out += `<g data-sd="${tag}"${move}${extra}>`;
+  }
+  close() {
+    this.out += '</g>';
+  }
 }
 
-/** A dimension between two points, `off` sheet mm to one side (+ up / right). */
-function dim(pen: Pen, a: Pt, b: Pt, off: number, label: string, vertical = false): void {
+type Move = { dx: number; dy: number };
+const NO_MOVE: Move = { dx: 0, dy: 0 };
+
+/**
+ * A dimension between two points, `off` sheet mm to one side (+ up / left).
+ * Dragged (`move`), its line goes out or in square to itself and its figure
+ * slides along it.
+ */
+function dim(pen: Pen, a: Pt, b: Pt, off: number, label: string, vertical = false, move: Move = NO_MOVE): void {
   const ax = pen.X(a.x);
   const ay = pen.Y(a.y);
   const bx = pen.X(b.x);
@@ -75,23 +92,29 @@ function dim(pen: Pen, a: Pt, b: Pt, off: number, label: string, vertical = fals
   const arrow = (x: number, y: number, dx: number, dy: number) =>
     `<path class="sd-arrow" d="M${x.toFixed(2)} ${y.toFixed(2)} L${(x + dx * 1.6 - dy * 0.45).toFixed(2)} ${(y + dy * 1.6 + dx * 0.45).toFixed(2)} L${(x + dx * 1.6 + dy * 0.45).toFixed(2)} ${(y + dy * 1.6 - dx * 0.45).toFixed(2)} Z"/>`;
   if (vertical) {
-    const x = Math.min(ax, bx) - off;
+    const x = Math.min(ax, bx) - off + move.dx;
+    const side = Math.sign(x - Math.min(ax, bx)) || -1;
     const [y1, y2] = ay < by ? [ay, by] : [by, ay];
-    pen.raw(`<line class="sd-ext" x1="${(ax - 0.8 * Math.sign(off)).toFixed(2)}" y1="${ay.toFixed(2)}" x2="${(x - 1 * Math.sign(off)).toFixed(2)}" y2="${ay.toFixed(2)}"/>`);
-    pen.raw(`<line class="sd-ext" x1="${(bx - 0.8 * Math.sign(off)).toFixed(2)}" y1="${by.toFixed(2)}" x2="${(x - 1 * Math.sign(off)).toFixed(2)}" y2="${by.toFixed(2)}"/>`);
+    pen.raw(`<line class="sd-ext" x1="${(ax + 0.8 * side).toFixed(2)}" y1="${ay.toFixed(2)}" x2="${(x + 1 * side).toFixed(2)}" y2="${ay.toFixed(2)}"/>`);
+    pen.raw(`<line class="sd-ext" x1="${(bx + 0.8 * side).toFixed(2)}" y1="${by.toFixed(2)}" x2="${(x + 1 * side).toFixed(2)}" y2="${by.toFixed(2)}"/>`);
     pen.raw(`<line class="sd-dim" x1="${x.toFixed(2)}" y1="${y1.toFixed(2)}" x2="${x.toFixed(2)}" y2="${y2.toFixed(2)}"/>`);
     pen.raw(arrow(x, y1, 0, 1) + arrow(x, y2, 0, -1));
-    const my = (y1 + y2) / 2;
+    const my = (y1 + y2) / 2 + move.dy;
+    // A figure slid past the ends has the line carried on under it.
+    if (my < y1 || my > y2) pen.raw(`<line class="sd-dim" x1="${x.toFixed(2)}" y1="${Math.min(my - 3, y1).toFixed(2)}" x2="${x.toFixed(2)}" y2="${Math.max(my + 3, y2).toFixed(2)}"/>`);
     pen.raw(`<text class="sd-dim-text" x="${(x - 0.9).toFixed(2)}" y="${my.toFixed(2)}" text-anchor="middle" transform="rotate(-90 ${(x - 0.9).toFixed(2)} ${my.toFixed(2)})">${escapeText(label)}</text>`);
     return;
   }
-  const y = Math.min(ay, by) - off;
+  const y = Math.min(ay, by) - off + move.dy;
+  const side = Math.sign(y - Math.min(ay, by)) || -1;
   const [x1, x2] = ax < bx ? [ax, bx] : [bx, ax];
-  pen.raw(`<line class="sd-ext" x1="${ax.toFixed(2)}" y1="${(ay - 0.8 * Math.sign(off)).toFixed(2)}" x2="${ax.toFixed(2)}" y2="${(y - 1 * Math.sign(off)).toFixed(2)}"/>`);
-  pen.raw(`<line class="sd-ext" x1="${bx.toFixed(2)}" y1="${(by - 0.8 * Math.sign(off)).toFixed(2)}" x2="${bx.toFixed(2)}" y2="${(y - 1 * Math.sign(off)).toFixed(2)}"/>`);
+  pen.raw(`<line class="sd-ext" x1="${ax.toFixed(2)}" y1="${(ay + 0.8 * side).toFixed(2)}" x2="${ax.toFixed(2)}" y2="${(y + 1 * side).toFixed(2)}"/>`);
+  pen.raw(`<line class="sd-ext" x1="${bx.toFixed(2)}" y1="${(by + 0.8 * side).toFixed(2)}" x2="${bx.toFixed(2)}" y2="${(y + 1 * side).toFixed(2)}"/>`);
   pen.raw(`<line class="sd-dim" x1="${x1.toFixed(2)}" y1="${y.toFixed(2)}" x2="${x2.toFixed(2)}" y2="${y.toFixed(2)}"/>`);
   pen.raw(arrow(x1, y, 1, 0) + arrow(x2, y, -1, 0));
-  pen.raw(`<text class="sd-dim-text" x="${((x1 + x2) / 2).toFixed(2)}" y="${(y - 0.9).toFixed(2)}" text-anchor="middle">${escapeText(label)}</text>`);
+  const mx = (x1 + x2) / 2 + move.dx;
+  if (mx < x1 || mx > x2) pen.raw(`<line class="sd-dim" x1="${Math.min(mx - 3, x1).toFixed(2)}" y1="${y.toFixed(2)}" x2="${Math.max(mx + 3, x2).toFixed(2)}" y2="${y.toFixed(2)}"/>`);
+  pen.raw(`<text class="sd-dim-text" x="${mx.toFixed(2)}" y="${(y - 0.9).toFixed(2)}" text-anchor="middle">${escapeText(label)}</text>`);
 }
 
 /** A part's mark in a circle on a leader, `dx`/`dy` sheet mm from the spot it points at. */
@@ -103,7 +126,7 @@ function balloon(pen: Pen, at: Pt, mark: number, dx: number, dy: number): void {
   const r = 2.6;
   const len = Math.hypot(dx, dy) || 1;
   pen.raw(
-    `<line class="sd-leader" x1="${x.toFixed(2)}" y1="${y.toFixed(2)}" x2="${(cx - (dx / len) * r).toFixed(2)}" y2="${(cy - (dy / len) * r).toFixed(2)}"/>` +
+    (len > r ? `<line class="sd-leader" x1="${x.toFixed(2)}" y1="${y.toFixed(2)}" x2="${(cx - (dx / len) * r).toFixed(2)}" y2="${(cy - (dy / len) * r).toFixed(2)}"/>` : '') +
       `<circle class="sd-dot" cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="0.45"/>` +
       `<circle class="sd-balloon" cx="${cx.toFixed(2)}" cy="${cy.toFixed(2)}" r="${r}"/>` +
       `<text class="sd-balloon-text" x="${cx.toFixed(2)}" y="${(cy + 1).toFixed(2)}" text-anchor="middle">${mark}</text>`,
@@ -154,19 +177,27 @@ function bracePolygon(foot: Pt, top: number, reach: number, width: number): Pt[]
   return [out[0], out[1], out[3], out[2]];
 }
 
+type PlateKey = 'basePlate' | 'topPlate' | 'wallPlate';
+
 interface Elevation {
-  svg: string;
   /** Model extents, mm. */
   x0: number;
   y0: number;
   x1: number;
   y1: number;
-  /** Where each part mark points, model mm, and which way the balloon goes. */
+  /** Where each part mark points, model mm, and which way its balloon goes. */
   marks: { mark: number; at: Pt; dx: number; dy: number }[];
-  dims: ((pen: Pen) => void)[];
+  /** Each dimension by its key, drawn with the move he gave it. */
+  dims: { key: string; draw: (pen: Pen, move: Move) => void }[];
+  /** Whether a member is welded to steel already there (no plate). */
+  existing: boolean;
 }
 
-/** The support seen along the pipe, at scale s, its model origin at (ox, oy) on the sheet. */
+/**
+ * The support seen along the pipe. Drawn with `pen` (its model origin on
+ * the sheet and its scale); with none, only measured. Each plate is a group
+ * he can slide along its seat on the arrange view (`ps:<plate>`).
+ */
 function elevation(t: SupportType, pen: Pen | null): Elevation {
   const od = sizeOf(t.dn).od;
   const rp = od / 2;
@@ -194,6 +225,8 @@ function elevation(t: SupportType, pen: Pen | null): Elevation {
     ext.y0 = Math.min(ext.y0, y);
     ext.y1 = Math.max(ext.y1, y);
   };
+  const plateGroup = (key: PlateKey) => P.open(`${t.id}|ps:${key}`, undefined, ` data-s="${P.s.toFixed(5)}"`);
+  let existing = false;
 
   let pipeX = 0;
   // Where the pipe sits on steel: the top of that steel, and how deep the
@@ -204,43 +237,64 @@ function elevation(t: SupportType, pen: Pen | null): Elevation {
   if (m.post) {
     const tb = base?.t ?? 0;
     const bw = base?.w ?? post.h + 60;
+    const bs = base?.shift ?? 0;
+    const left = Math.min(bs - bw / 2, -post.h / 2) - 60;
+    const right = Math.max(bs + bw / 2, post.h / 2) + 60;
     if (base) {
-      P.box(-bw / 2, 0, bw / 2, tb, 'sd-steel');
-      take(-bw / 2, 0);
-      take(bw / 2, tb);
-      marks.push({ mark: markOf('BASE PLATE'), at: { x: -bw / 2 + bw * 0.12, y: tb / 2 }, dx: -9, dy: 5 });
+      plateGroup('basePlate');
+      P.box(bs - bw / 2, 0, bs + bw / 2, tb, 'sd-steel');
       // Holes through the base plate, seen as hidden lines.
-      if (base.hole > 0) for (const hx of [-bw / 2 + base.edge, bw / 2 - base.edge]) {
+      if (base.hole > 0) for (const hx of [bs - bw / 2 + base.edge, bs + bw / 2 - base.edge]) {
         P.line({ x: hx - base.hole / 2, y: 0 }, { x: hx - base.hole / 2, y: tb }, 'sd-hidden');
         P.line({ x: hx + base.hole / 2, y: 0 }, { x: hx + base.hole / 2, y: tb }, 'sd-hidden');
       }
+      P.close();
+      take(bs - bw / 2, 0);
+      take(bs + bw / 2, tb);
+      marks.push({ mark: markOf('BASE PLATE'), at: { x: bs - bw / 2 + bw * 0.12, y: tb / 2 }, dx: -9, dy: 5 });
+      // The floor.
+      P.line({ x: left, y: 0 }, { x: right, y: 0 }, 'sd-floor');
+      for (let x = left + 5; x < right; x += 25) P.line({ x, y: 0 }, { x: x - 12, y: -12 }, 'sd-hatch');
+      take(left, -12);
+      dims.push({ key: 'base', draw: (pen, mv) => dim(pen, { x: bs - bw / 2, y: 0 }, { x: bs + bw / 2, y: 0 }, -8, `${base.w}`, false, mv) });
+      if (bs) dims.push({ key: 'base-shift', draw: (pen, mv) => dim(pen, { x: Math.min(0, bs - bw / 2), y: 0 }, { x: Math.max(0, bs - bw / 2), y: 0 }, -14, `${Math.round(Math.abs(bs - bw / 2))}`, false, mv) });
+    } else {
+      // Welded to steel already there (his ask, 2026-11-16): a beam's top
+      // flange under the post, dashed, its name beside it.
+      existing = true;
+      P.box(left + 30, -22, right - 30, 0, 'sd-existing');
+      for (let x = left + 40; x < right - 30; x += 18) P.line({ x, y: 0 }, { x: x - 12, y: -12 }, 'sd-hatch');
+      take(left, -22);
+      if (pen) pen.raw(text(pen.X(right - 30) + 1.5, pen.Y(-11) + 0.8, 'EXISTING STEEL', 'sd-note'));
     }
+    take(right, 0);
     const postTop = t.shape === 'POST_LOW' ? H - (top?.t ?? 0) : t.shape === 'POST_T' ? H - beam.h : H;
     member(P, post, { x: 0, y: tb }, { x: 0, y: postTop }, post.h);
     take(-post.h / 2, postTop);
-    marks.push({ mark: markOf('POST'), at: { x: -post.h / 2, y: tb + (postTop - tb) * 0.55 }, dx: -10, dy: 0 });
-    // The floor.
-    P.line({ x: -bw / 2 - 60, y: 0 }, { x: bw / 2 + 60, y: 0 }, 'sd-floor');
-    for (let x = -bw / 2 - 55; x < bw / 2 + 60; x += 25) P.line({ x, y: 0 }, { x: x - 12, y: -12 }, 'sd-hatch');
-    take(-bw / 2 - 60, -12);
-    take(bw / 2 + 60, 0);
-    dims.push((pen) => dim(pen, { x: -bw / 2 - 60, y: 0 }, { x: -bw / 2 - 60, y: H }, 4, `${Math.round(H)}`, true));
-    dims.push((pen) => {
-      pen.line({ x: -bw / 2 - 64, y: H }, { x: pipeX, y: H }, 'sd-ext');
-      pen.raw(text(pen.X(-bw / 2 - 60) + 1.2, pen.Y(H) - 1, 'B.O.P.', 'sd-note'));
+    marks.push({ mark: markOf('POST'), at: { x: post.h / 2, y: tb + (postTop - tb) * 0.45 }, dx: 10, dy: 0 });
+    dims.push({ key: 'height', draw: (pen, mv) => dim(pen, { x: left, y: 0 }, { x: left, y: H }, 4, `${Math.round(H)}`, true, mv) });
+    dims.push({
+      key: 'bop',
+      draw: (pen) => {
+        pen.line({ x: left - 4 / pen.s, y: H }, { x: pipeX, y: H }, 'sd-ext');
+        pen.raw(text(pen.X(left) + 1.2, pen.Y(H) - 1, 'B.O.P.', 'sd-note'));
+      },
     });
-    if (base) dims.push((pen) => dim(pen, { x: -bw / 2, y: 0 }, { x: bw / 2, y: 0 }, -8, `${base.w}`));
 
     if (t.shape === 'POST_LOW') {
-      const tw = top?.w ?? od + 80;
       if (top) {
-        P.box(-tw / 2, H - top.t, tw / 2, H, 'sd-steel');
-        marks.push({ mark: markOf('TOP PLATE'), at: { x: tw / 2 - tw * 0.1, y: H - top.t / 2 }, dx: 10, dy: 4 });
-        take(-tw / 2, H);
-        take(tw / 2, H);
+        const tw = top.w;
+        const ts = top.shift ?? 0;
+        plateGroup('topPlate');
+        P.box(ts - tw / 2, H - top.t, ts + tw / 2, H, 'sd-steel');
+        P.close();
+        marks.push({ mark: markOf('TOP PLATE'), at: { x: ts + tw / 2 - tw * 0.1, y: H - top.t / 2 }, dx: 10, dy: 4 });
+        take(ts - tw / 2, H);
+        take(ts + tw / 2, H);
+        if (ts) dims.push({ key: 'top-shift', draw: (pen, mv) => dim(pen, { x: ts - tw / 2, y: H - top.t }, { x: 0, y: H - top.t }, -5, `${Math.round(Math.abs(ts - tw / 2))}`, false, mv) });
       }
       seat = H;
-      under = top?.t ?? 0;
+      under = top?.t ?? post.t;
     } else if (t.shape === 'POST_T') {
       const L = lengths.beam ?? 400;
       pipeX = t.pipeAt ?? 0;
@@ -248,8 +302,8 @@ function elevation(t: SupportType, pen: Pen | null): Elevation {
       take(-L / 2, H - beam.h);
       take(L / 2, H);
       marks.push({ mark: markOf('BEAM'), at: { x: L / 2 - L * 0.12, y: H - beam.h / 2 }, dx: 9, dy: 6 });
-      dims.push((pen) => dim(pen, { x: -L / 2, y: H - beam.h }, { x: L / 2, y: H - beam.h }, -6, `${Math.round(L)}`));
-      if (pipeX) dims.push((pen) => dim(pen, { x: 0, y: H + od + 2 * rod }, { x: pipeX, y: H + od + 2 * rod }, 5, `${Math.round(pipeX)}`));
+      dims.push({ key: 'beam', draw: (pen, mv) => dim(pen, { x: -L / 2, y: H - beam.h }, { x: L / 2, y: H - beam.h }, -6, `${Math.round(L)}`, false, mv) });
+      if (pipeX) dims.push({ key: 'pipe', draw: (pen, mv) => dim(pen, { x: 0, y: H + od + 2 * rod }, { x: pipeX, y: H + od + 2 * rod }, 5, `${Math.round(pipeX)}`, false, mv) });
       seat = H;
       under = beam.t;
     } else {
@@ -259,33 +313,50 @@ function elevation(t: SupportType, pen: Pen | null): Elevation {
       member(P, arm, { x: face, y: H - arm.h / 2 }, { x: face + A, y: H - arm.h / 2 }, arm.h);
       take(face + A, H - arm.h);
       marks.push({ mark: markOf('ARM'), at: { x: face + A * 0.85, y: H - arm.h / 2 }, dx: 8, dy: 7 });
-      dims.push((pen) => dim(pen, { x: face, y: H - arm.h }, { x: face + A, y: H - arm.h }, -6, `${Math.round(A)}`));
-      dims.push((pen) => dim(pen, { x: 0, y: H + od + 2 * rod }, { x: pipeX, y: H + od + 2 * rod }, 5, `${Math.round(pipeX)}`));
+      dims.push({ key: 'arm', draw: (pen, mv) => dim(pen, { x: face, y: H - arm.h }, { x: face + A, y: H - arm.h }, -6, `${Math.round(A)}`, false, mv) });
+      dims.push({ key: 'pipe', draw: (pen, mv) => dim(pen, { x: 0, y: H + od + 2 * rod }, { x: pipeX, y: H + od + 2 * rod }, 5, `${Math.round(pipeX)}`, false, mv) });
       seat = H;
       under = arm.t;
     }
   } else {
     // From a wall: the plate on the wall's face at x = 0, the wall behind it.
     const A = lengths.arm ?? 300;
-    const tw = wall?.t ?? 10;
     const armMid = H - arm.h / 2;
-    const plateL = wall?.l ?? 200;
     const braced = m.brace;
     const drop = t.braceDrop ?? 300;
     const reach = t.braceReach ?? 250;
     const footY = H - arm.h - drop;
-    const plateMid = braced ? (H + footY) / 2 : armMid;
-    const pTop = plateMid + plateL / 2;
-    const pBot = plateMid - plateL / 2;
-    P.box(-tw, pBot, 0, pTop, 'sd-steel');
-    marks.push({ mark: markOf('WALL PLATE'), at: { x: -tw / 2, y: pBot + plateL * 0.12 }, dx: -9, dy: 5 });
-    P.line({ x: -tw, y: pBot - 60 }, { x: -tw, y: pTop + 60 }, 'sd-floor');
-    for (let y = pBot - 55; y < pTop + 60; y += 25) P.line({ x: -tw, y }, { x: -tw - 12, y: y - 12 }, 'sd-hatch');
-    take(-tw - 14, pBot - 60);
-    take(0, pTop + 60);
-    if (wall && wall.hole > 0) for (const hy of [pBot + wall.edge, pTop - wall.edge]) {
-      P.line({ x: -tw, y: hy - wall.hole / 2 }, { x: 0, y: hy - wall.hole / 2 }, 'sd-hidden');
-      P.line({ x: -tw, y: hy + wall.hole / 2 }, { x: 0, y: hy + wall.hole / 2 }, 'sd-hidden');
+    if (wall) {
+      const tw = wall.t;
+      const plateL = wall.l;
+      const plateMid = (braced ? (H + footY) / 2 : armMid) + (wall.shift ?? 0);
+      const pTop = plateMid + plateL / 2;
+      const pBot = plateMid - plateL / 2;
+      plateGroup('wallPlate');
+      P.box(-tw, pBot, 0, pTop, 'sd-steel');
+      if (wall.hole > 0) for (const hy of [pBot + wall.edge, pTop - wall.edge]) {
+        P.line({ x: -tw, y: hy - wall.hole / 2 }, { x: 0, y: hy - wall.hole / 2 }, 'sd-hidden');
+        P.line({ x: -tw, y: hy + wall.hole / 2 }, { x: 0, y: hy + wall.hole / 2 }, 'sd-hidden');
+      }
+      P.close();
+      marks.push({ mark: markOf('WALL PLATE'), at: { x: -tw / 2, y: pBot + plateL * 0.12 }, dx: -9, dy: 5 });
+      const wTop = Math.max(pTop, H) + 60;
+      const wBot = Math.min(pBot, footY) - 60;
+      P.line({ x: -tw, y: wBot }, { x: -tw, y: wTop }, 'sd-floor');
+      for (let y = wBot + 5; y < wTop; y += 25) P.line({ x: -tw, y }, { x: -tw - 12, y: y - 12 }, 'sd-hatch');
+      take(-tw - 14, wBot);
+      take(0, wTop);
+      if (wall.shift) dims.push({ key: 'wall-shift', draw: (pen, mv) => dim(pen, { x: -tw, y: pTop }, { x: -tw, y: H }, 6, `${Math.round(Math.abs(pTop - H))}`, true, mv) });
+    } else {
+      // Welded to a column already there: its face dashed, its name up it.
+      existing = true;
+      const cTop = H + 80;
+      const cBot = (braced ? footY : H - arm.h) - 80;
+      P.box(-24, cBot, 0, cTop, 'sd-existing');
+      for (let y = cBot + 8; y < cTop; y += 18) P.line({ x: 0, y }, { x: -12, y: y - 12 }, 'sd-hatch');
+      take(-24, cBot);
+      take(0, cTop);
+      if (pen) pen.raw(text(pen.X(-12), pen.Y(cBot) + 3.2, 'EXISTING STEEL', 'sd-note', 'middle'));
     }
     member(P, arm, { x: 0, y: armMid }, { x: A, y: armMid }, arm.h);
     take(A, H);
@@ -295,12 +366,12 @@ function elevation(t: SupportType, pen: Pen | null): Elevation {
       const poly = bracePolygon({ x: 0, y: footY }, H - arm.h, reach, brace.h);
       P.poly(poly, 'sd-steel');
       marks.push({ mark: markOf('BRACE'), at: { x: reach * 0.55, y: footY + drop * 0.55 }, dx: 10, dy: 6 });
-      dims.push((pen) => dim(pen, { x: reach, y: footY }, { x: reach, y: H - arm.h }, -(pen.X(A) - pen.X(reach)) - 6, `${Math.round(drop)}`, true));
-      dims.push((pen) => dim(pen, { x: 0, y: footY }, { x: reach, y: footY }, -5, `${Math.round(reach)}`));
+      dims.push({ key: 'drop', draw: (pen, mv) => dim(pen, { x: reach, y: footY }, { x: reach, y: H - arm.h }, -(pen.X(A) - pen.X(reach)) - 6, `${Math.round(drop)}`, true, mv) });
+      dims.push({ key: 'reach', draw: (pen, mv) => dim(pen, { x: 0, y: footY }, { x: reach, y: footY }, -5, `${Math.round(reach)}`, false, mv) });
       take(reach, footY);
     }
-    dims.push((pen) => dim(pen, { x: 0, y: H }, { x: A, y: H }, (od + 3 * rod) * pen.s + 11, `${Math.round(A)}`));
-    dims.push((pen) => dim(pen, { x: 0, y: H }, { x: pipeX, y: H }, (od + 3 * rod) * pen.s + 5, `${Math.round(pipeX)}`));
+    dims.push({ key: 'arm', draw: (pen, mv) => dim(pen, { x: 0, y: H }, { x: A, y: H }, (od + 3 * rod) * pen.s + 11, `${Math.round(A)}`, false, mv) });
+    dims.push({ key: 'pipe', draw: (pen, mv) => dim(pen, { x: 0, y: H }, { x: pipeX, y: H }, (od + 3 * rod) * pen.s + 5, `${Math.round(pipeX)}`, false, mv) });
     seat = H;
     under = arm.t;
   }
@@ -329,7 +400,7 @@ function elevation(t: SupportType, pen: Pen | null): Elevation {
     }
     marks.push({ mark: markOf('U-BOLT'), at: { x: c.x + ru * Math.cos(Math.PI / 4), y: c.y + ru * Math.sin(Math.PI / 4) }, dx: 9, dy: -7 });
   }
-  return { svg: P.out, ...ext, marks, dims };
+  return { ...ext, marks, dims, existing };
 }
 
 /** A plate drawn flat with its holes and dimensions. */
@@ -350,15 +421,17 @@ function plateView(pen: Pen, p: SupportPlate, holes: Pt[]): void {
   }
 }
 
-/** The holes of each plate. */
-function plateHoles(t: SupportType, which: 'base' | 'wall' | 'top'): Pt[] {
-  const p = which === 'base' ? t.basePlate : which === 'wall' ? t.wallPlate : t.topPlate;
+/** The holes of each plate, from its middle. */
+function plateHoles(t: SupportType, which: PlateKey): Pt[] {
+  const p = t[which];
   if (!p || p.hole <= 0) return [];
-  if (which === 'top') {
+  if (which === 'topPlate') {
+    // At the U-bolt's legs, round the pipe on the post's centre line.
     const ru = sizeOf(t.dn).od / 2 + uBoltRod(t.dn) / 2;
+    const at = -(p.shift ?? 0);
     return [
-      { x: -ru, y: 0 },
-      { x: ru, y: 0 },
+      { x: at - ru, y: 0 },
+      { x: at + ru, y: 0 },
     ];
   }
   const ex = p.w / 2 - p.edge;
@@ -375,7 +448,7 @@ const SCALES = [1, 2, 2.5, 5, 10, 15, 20, 25, 50];
 
 /** The largest standard scale (1:n) at which w × h model mm fit in aw × ah sheet mm. */
 function scaleFor(w: number, h: number, aw: number, ah: number): number {
-  const need = Math.max(w / aw, h / ah);
+  const need = Math.max(w / Math.max(aw, 1), h / Math.max(ah, 1));
   return SCALES.find((n) => n >= need) ?? Math.ceil(need);
 }
 
@@ -386,7 +459,7 @@ export function supportPreview(t: SupportType, w = 320, h = 260): string {
   const n = Math.max((e.x1 - e.x0) / (w - pad * 2), (e.y1 - e.y0) / (h - pad * 2));
   const pen = new Pen(pad - e.x0 / n + (w - pad * 2 - (e.x1 - e.x0) / n) / 2, h - pad + e.y0 / n - (h - pad * 2 - (e.y1 - e.y0) / n) / 2, 1 / n);
   const drawn = elevation(t, pen);
-  for (const d of drawn.dims) d(pen);
+  for (const d of drawn.dims) d.draw(pen, NO_MOVE);
   for (const mk of drawn.marks) if (mk.mark) balloon(pen, mk.at, mk.mark, mk.dx * 1.2, mk.dy * 1.2);
   return `<svg xmlns="http://www.w3.org/2000/svg" class="support-preview" viewBox="0 0 ${w} ${h}" width="100%"><style>${scopeCss(SUPPORT_CSS(3.2), '.support-preview')}</style><rect x="0" y="0" width="${w}" height="${h}" fill="#fff"/>${pen.out}</svg>`;
 }
@@ -400,6 +473,7 @@ const SUPPORT_CSS = (k = 1) => `
 .sd-hole { fill: #ffffff; stroke: #12161c; stroke-width: ${0.25 * k}px; }
 .sd-centre { stroke: #5b6675; stroke-width: ${0.13 * k}px; stroke-dasharray: ${3 * k} ${0.8 * k} ${0.5 * k} ${0.8 * k}; }
 .sd-ubolt { fill: none; stroke: #2b3440; stroke-linecap: butt; }
+.sd-existing { fill: none; stroke: #12161c; stroke-width: ${0.3 * k}px; stroke-dasharray: ${2 * k} ${1 * k}; }
 .sd-floor { stroke: #12161c; stroke-width: ${0.35 * k}px; }
 .sd-hatch { stroke: #12161c; stroke-width: ${0.15 * k}px; }
 .sd-dim, .sd-ext { stroke: #12161c; stroke-width: ${0.15 * k}px; }
@@ -416,84 +490,176 @@ const SUPPORT_CSS = (k = 1) => `
 
 let supportSheetSeq = 0;
 
-/** A support type's detail sheet, framed as the isometric sheet is. */
-export function renderSupportSheet(drawing: Drawing, t: SupportType, size: SheetSize = 'A3'): string {
-  const { w: W, h: H } = SHEETS[size];
-  const col = Math.min(112, W * 0.26);
-  const dividerX = W - MARGIN - col;
-  const area = { x: MARGIN + 6, y: MARGIN + 10, w: dividerX - MARGIN - 12, h: H - MARGIN * 2 - 16 };
-  const k = size === 'A4' ? 0.82 : 1;
+type Box = { x: number; y: number; w: number; h: number };
 
-  // The elevation takes the left share, the plates stand in a column right of it.
-  const plates: { title: string; plate: SupportPlate; holes: Pt[] }[] = [];
-  if (t.basePlate) plates.push({ title: 'BASE PLATE', plate: t.basePlate, holes: plateHoles(t, 'base') });
-  if (t.topPlate) plates.push({ title: 'TOP PLATE', plate: t.topPlate, holes: plateHoles(t, 'top') });
-  if (t.wallPlate) plates.push({ title: 'WALL PLATE', plate: t.wallPlate, holes: plateHoles(t, 'wall') });
-  const plateW = plates.length ? area.w * 0.3 : 0;
-  const elevW = area.w - plateW - (plates.length ? 8 : 0);
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+/** Which supports on the line are of this type, by the names they carry there. */
+function usedOn(drawing: Drawing, t: SupportType): string {
+  const names = supportMarks(drawing)
+    .filter((m) => m.type === t.id)
+    .map((m) => m.name);
+  return names.length ? `FOR SUPPORT${names.length === 1 ? '' : 'S'} ${names.join(', ')}` : 'NOT ON THE LINE YET';
+}
+
+/**
+ * One support's detail in a box of the sheet: its title, the elevation with
+ * dimensions and balloons, and each plate flat beside it, every element
+ * where he dragged it (`t.layout`) and tagged so the arrange view can take
+ * hold of it.
+ */
+function supportCell(drawing: Drawing, t: SupportType, box: Box, wide: boolean): string {
+  const lay = (key: string): Move => t.layout?.[key] ?? NO_MOVE;
+  const plates: { key: PlateKey; short: string; title: string; plate: SupportPlate; holes: Pt[] }[] = [];
+  if (t.basePlate) plates.push({ key: 'basePlate', short: 'base', title: 'BASE PLATE', plate: t.basePlate, holes: plateHoles(t, 'basePlate') });
+  if (t.topPlate) plates.push({ key: 'topPlate', short: 'top', title: 'TOP PLATE', plate: t.topPlate, holes: plateHoles(t, 'topPlate') });
+  if (t.wallPlate) plates.push({ key: 'wallPlate', short: 'wall', title: 'WALL PLATE', plate: t.wallPlate, holes: plateHoles(t, 'wallPlate') });
+  const top = box.y + 9;
+  // In a tall box the plates go in a row under the support, else in a
+  // column beside it.
+  const below = plates.length > 0 && box.h > box.w * 1.15;
+  const plateW = plates.length && !below ? box.w * (wide ? 0.3 : 0.36) : 0;
+  const plateH = below ? Math.min(box.h * 0.32, 70) : 0;
+  const h = box.h - 11 - plateH;
+  const elevW = box.w - plateW - (plates.length && !below ? 4 : 0);
 
   const model = elevation(t, null);
-  const n = scaleFor(model.x1 - model.x0, model.y1 - model.y0, elevW - 34, area.h - 40);
+  const n = scaleFor(model.x1 - model.x0, model.y1 - model.y0, elevW - 30, h - 24);
   const s = 1 / n;
   const ew = (model.x1 - model.x0) * s;
   const eh = (model.y1 - model.y0) * s;
-  const ox = area.x + 18 + (elevW - 34 - ew) / 2 - model.x0 * s;
-  const oy = area.y + 14 + (area.h - 40 - eh) / 2 + eh + model.y0 * s;
-  const pen = new Pen(ox, oy, s);
+  const ox = box.x + 16 + (elevW - 30 - ew) / 2 - model.x0 * s;
+  const oy = top + 10 + (h - 24 - eh) / 2 + eh + model.y0 * s;
+  const shift = lay('elev');
+  const pen = new Pen(ox + clamp(shift.dx, -box.w / 2, box.w / 2), oy + clamp(shift.dy, -box.h / 2, box.h / 2), s);
+  pen.open(`${t.id}|elev`, undefined, ' data-whole="1"');
   const elev = elevation(t, pen);
-  for (const d of elev.dims) d(pen);
-  for (const mk of elev.marks) if (mk.mark) balloon(pen, mk.at, mk.mark, mk.dx, mk.dy);
+  for (const d of elev.dims) {
+    pen.open(`${t.id}|dim:${d.key}`);
+    d.draw(pen, lay(`dim:${d.key}`));
+    pen.close();
+  }
+  for (const mk of elev.marks) {
+    if (!mk.mark) continue;
+    const mv = lay(`b:${mk.mark}`);
+    pen.open(`${t.id}|b:${mk.mark}`);
+    balloon(pen, mk.at, mk.mark, mk.dx + mv.dx, mk.dy + mv.dy);
+    pen.close();
+  }
+  pen.close();
   const shapeName = SUPPORT_SHAPES.find((x) => x.id === t.shape)?.name.toUpperCase() ?? t.shape;
-  let views = text(area.x + elevW / 2, area.y + 2, `${t.name} — ${shapeName}, LOOKING ALONG THE PIPE`, 'sd-view-title', 'middle');
-  views += text(area.x + elevW / 2, area.y + 5.4, `SCALE 1:${n}`, 'sd-view-scale', 'middle');
-  views += pen.out;
+  let out = text(box.x + elevW / 2, box.y + 3.2, wide ? `${t.name} — ${shapeName}, LOOKING ALONG THE PIPE` : `${t.name} — ${shapeName}`, 'sd-view-title', 'middle');
+  out += text(box.x + elevW / 2, box.y + 6.6, `${usedOn(drawing, t)} · SCALE 1:${n}`, 'sd-view-scale', 'middle');
+  out += pen.out;
 
-  // Each plate in its own box down the right of the drawing area.
+  // Each plate flat, down the right of the box, where he put it.
   if (plates.length) {
-    const px = area.x + elevW + 8;
-    const boxH = area.h / plates.length;
+    const slotW = below ? box.w / plates.length : plateW;
+    const slotH = below ? plateH : (box.h - 4) / plates.length;
     const parts = supportParts(t);
     plates.forEach((pl, i) => {
-      const by = area.y + boxH * i;
-      const pn = scaleFor(pl.plate.w, pl.plate.l, plateW - 24, boxH - 26);
-      const ps = 1 / pn;
-      const pp = new Pen(px + plateW / 2 + 2, by + 12 + (boxH - 22) / 2, ps);
-      plateView(pp, pl.plate, pl.holes);
+      const px = below ? box.x + slotW * i : box.x + elevW + 4;
+      const by = below ? box.y + box.h - plateH : box.y + 2 + slotH * i;
+      const pn = scaleFor(pl.plate.w, pl.plate.l, slotW - 22, slotH - 30);
+      const mv = lay(`pv:${pl.short}`);
+      // Anywhere, so long as its middle stays in the support's box.
+      const dx = clamp(mv.dx, box.x - (px + slotW / 2), box.x + box.w - (px + slotW / 2));
+      const dy = clamp(mv.dy, box.y - (by + slotH / 2), box.y + box.h - (by + slotH / 2));
+      const pp = new Pen(px + slotW / 2 + 2, by + 15 + (slotH - 26) / 2, 1 / pn);
+      pp.open(`${t.id}|pv:${pl.short}`, { dx, dy });
       const mark = parts.find((p) => p.description.startsWith(pl.title))?.mark;
-      views += text(px + plateW / 2, by + 2, `${mark ? `${mark} — ` : ''}${pl.title}${pl.title === 'WALL PLATE' ? ' (FACE)' : ''}`, 'sd-view-title', 'middle');
-      views += text(px + plateW / 2, by + 5.4, `PL ${pl.plate.t}  ${pl.holes.length ? `${pl.holes.length} HOLES Ø${pl.plate.hole}` : 'NO HOLES'}  SCALE 1:${pn}`, 'sd-view-scale', 'middle');
-      views += pp.out;
+      const plateW = slotW;
+      pp.raw(text(px + plateW / 2, by + 2.6, `${mark ? `${mark} — ` : ''}${pl.title}${pl.key === 'wallPlate' ? ' (FACE)' : ''}`, 'sd-view-title', 'middle'));
+      pp.raw(text(px + plateW / 2, by + 5.8, `PL ${pl.plate.t} · ${pl.holes.length ? `${pl.holes.length} × Ø${pl.plate.hole}` : 'NO HOLES'} · 1:${pn}`, 'sd-view-scale', 'middle'));
+      plateView(pp, pl.plate, pl.holes);
+      pp.close();
+      out += pp.out;
     });
-    views += vline(px - 4, area.y - 4, area.y + area.h, 'rule-faint');
   }
+  return out;
+}
 
-  // The column: parts of one support, how many, the sheet's support steel.
-  const uses = supportUses(drawing).get(t.id) ?? 0;
-  const parts = supportParts(t);
-  const rowH = 4.2;
+/** How a sheet's boxes stand: columns × rows for n supports. */
+function grid(n: number): { cols: number; rows: number } {
+  const cols = n <= 3 ? n : n === 4 ? 2 : 3;
+  return { cols, rows: Math.ceil(n / cols) };
+}
+
+/**
+ * A detail sheet of one or more support types (his ask, 2026-11-16: several
+ * supports on one sheet with lines between them, or all on one), framed as
+ * the isometric sheet is: the supports in boxes, and down the column each
+ * one's parts, the support steel of the whole line, notes, stamp, title.
+ */
+export function renderSupportDetailSheet(drawing: Drawing, types: SupportType[], size: SheetSize = 'A3', page = 1, pages = 1): string {
+  const { w: W, h: H } = SHEETS[size];
+  const col = Math.min(112, W * 0.26);
+  const dividerX = W - MARGIN - col;
+  const area: Box = { x: MARGIN, y: MARGIN, w: dividerX - MARGIN, h: H - MARGIN * 2 };
+  const k = size === 'A4' ? 0.82 : 1;
+  const { cols, rows } = grid(types.length);
+  const cw = area.w / cols;
+  const ch = area.h / rows;
+  let views = '';
+  types.forEach((t, i) => {
+    const c = i % cols;
+    const r = Math.floor(i / cols);
+    views += supportCell(drawing, t, { x: area.x + c * cw + 4, y: area.y + r * ch + 3, w: cw - 8, h: ch - 6 }, cols === 1);
+  });
+  // Lines between the supports.
+  for (let c = 1; c < cols; c += 1) views += vline(area.x + c * cw, area.y, area.y + area.h, 'cell-rule');
+  for (let r = 1; r < rows; r += 1) views += hline(area.x, area.x + area.w, area.y + r * ch, 'cell-rule');
+  // A box short of a full last row is left blank, closed off by its line.
+  const last = types.length % cols;
+  if (rows > 1 && last) views += vline(area.x + last * cw, area.y + (rows - 1) * ch, area.y + area.h, 'cell-rule');
+
+  // The column.
+  const uses = supportUses(drawing);
+  const rowH = types.length > 2 ? 3.5 : 4.2;
   const headH = 5;
   let y = MARGIN;
   let colSvg = '';
-  const table = (title: string, head: string[], cols: number[], rows: string[][], foot?: string) => {
-    const h = headH * 2 + rowH * Math.max(rows.length, 1) + (foot ? rowH : 0);
+  const tbH = 50;
+  const stampH = 13;
+  const tbY = H - MARGIN - tbH;
+  const stampY = tbY - stampH - 3;
+  const noteWidth = Math.floor((col - 2.4) / (1.95 * 0.56));
+  const existing = types.some((t) => elevation(t, null).existing);
+  const notes = [
+    ...types.flatMap((t) => (t.note ? sheetNotes(`${types.length > 1 ? `${t.name}: ` : ''}${t.note}`, noteWidth) : [])),
+    'ALL DIMENSIONS IN MILLIMETRES.',
+    'STEEL S235, WELDS 5 MM FILLET ALL ROUND UNLESS NOTED.',
+    ...(existing ? ['NO PLATE: WELDED TO THE EXISTING STEEL ALL ROUND.'] : []),
+    `U-BOLTS DIN 3570, ROD ${[...new Set(types.filter((t) => t.uBolt).map((t) => `M${uBoltRod(t.dn)}`))].join(' / ') || '—'}, WITH 4 NUTS.`,
+    `SUPPORTS MARKED ${types.map((t) => t.name).join(', ')} ON THE ISOMETRIC.`,
+  ];
+  const noteY = stampY - 4 - notes.length * 3.2;
+  const table = (title: string, head: string[], widths: number[], body: (string[] | { group: string })[], foot: string | undefined, room: number) => {
+    const fits = Math.max(1, Math.floor((room - headH * 2 - (foot ? rowH : 0)) / rowH));
+    const shown = body.length > fits ? [...body.slice(0, fits - 1), { group: `AND ${body.length - fits + 1} MORE LINES` }] : body;
+    const h = headH * 2 + rowH * Math.max(shown.length, 1) + (foot ? rowH : 0);
     colSvg += rect(dividerX, y, col, h, 'block');
     colSvg += text(dividerX + 1.4, y + headH * 0.72, title, 'tb-head');
     colSvg += hline(dividerX, dividerX + col, y + headH, 'rule');
     const xs: number[] = [];
     let acc = dividerX;
-    for (const c of cols) {
+    for (const c of widths) {
       xs.push(acc);
       acc += col * c;
     }
-    for (let i = 1; i < xs.length; i += 1) colSvg += vline(xs[i], y + headH, y + h - (foot ? rowH : 0));
     head.forEach((hd, i) => (colSvg += text(xs[i] + 1.2, y + headH * 1.72, hd, 'tb-head')));
     colSvg += hline(dividerX, dividerX + col, y + headH * 2, 'rule-strong');
-    rows.forEach((r, ri) => {
+    shown.forEach((row, ri) => {
       const ry = y + headH * 2 + rowH * ri;
-      if (ri > 0) colSvg += hline(dividerX, dividerX + col, ry, 'rule-faint');
-      r.forEach((cell, ci) => (colSvg += text(xs[ci] + 1.2, ry + rowH * 0.7, clip(cell, Math.floor((col * cols[ci]) / 1.3)), 'tb-cell')));
+      if (ri > 0) colSvg += hline(dividerX, dividerX + col, ry, Array.isArray(row) ? 'rule-faint' : 'rule');
+      if (!Array.isArray(row)) {
+        colSvg += text(dividerX + 1.2, ry + rowH * 0.72, row.group, 'tb-head');
+        return;
+      }
+      for (let i = 1; i < xs.length; i += 1) colSvg += vline(xs[i], ry, ry + rowH);
+      row.forEach((cell, ci) => (colSvg += text(xs[ci] + 1.2, ry + rowH * 0.7, clip(cell, Math.floor((col * widths[ci]) / 1.3)), 'tb-cell')));
     });
-    if (rows.length === 0) colSvg += text(xs[0] + 1.2, y + headH * 2 + rowH * 0.7, 'None', 'tb-cell');
+    if (shown.length === 0) colSvg += text(xs[0] + 1.2, y + headH * 2 + rowH * 0.7, 'None', 'tb-cell');
     if (foot) {
       const fy = y + h - rowH;
       colSvg += hline(dividerX, dividerX + col, fy, 'rule');
@@ -501,47 +667,51 @@ export function renderSupportSheet(drawing: Drawing, t: SupportType, size: Sheet
     }
     y += h;
   };
-  const one = parts.reduce((a, p) => a + p.kg, 0);
+  const material = supportMaterial(drawing);
+  const materialRoom = headH * 2 + rowH * (Math.max(material.length, 1) + 1);
+  const partsRows: (string[] | { group: string })[] = [];
+  let all = 0;
+  for (const t of types) {
+    const parts = supportParts(t);
+    const one = parts.reduce((a, p) => a + p.kg, 0);
+    const n = uses.get(t.id) ?? 0;
+    all += one * n;
+    if (types.length > 1) partsRows.push({ group: `${t.name} — ${n} OFF · ${one.toFixed(1)} KG EACH` });
+    for (const p of parts) partsRows.push([String(p.mark), p.description, p.size, String(p.qty), p.kg ? p.kg.toFixed(1) : '—']);
+  }
+  const single = types.length === 1 ? types[0] : null;
+  const oneKg = single ? supportParts(single).reduce((a, p) => a + p.kg, 0) : 0;
   table(
-    `PARTS LIST — ${t.name}, ONE SUPPORT`,
+    single ? `PARTS LIST — ${single.name}, ONE SUPPORT` : 'PARTS LIST — ONE SUPPORT OF EACH',
     ['MK', 'DESCRIPTION', 'SIZE', 'QTY', 'KG'],
     [0.07, 0.5, 0.21, 0.09, 0.13],
-    parts.map((p) => [String(p.mark), p.description, p.size, String(p.qty), p.kg ? p.kg.toFixed(1) : '—']),
-    `${uses} OFF ON THIS SHEET · ${one.toFixed(1)} KG EACH · ${(one * uses).toFixed(1)} KG IN ALL`,
+    partsRows,
+    single
+      ? `${uses.get(single.id) ?? 0} OFF ON THIS SHEET · ${oneKg.toFixed(1)} KG EACH · ${(oneKg * (uses.get(single.id) ?? 0)).toFixed(1)} KG IN ALL`
+      : `THESE ${types.length} TYPES ON THE LINE · ${all.toFixed(1)} KG IN ALL`,
+    noteY - 5 - y - materialRoom - 3,
   );
   y += 3;
-  const material = supportMaterial(drawing);
   table(
     'SUPPORT MATERIAL — ALL TYPES ON THIS SHEET',
     ['DESCRIPTION', 'LENGTH / SIZE', 'QTY', 'KG'],
     [0.54, 0.24, 0.09, 0.13],
     material.map((r) => [r.description, r.size, r.qty ? String(r.qty) : '', r.kg ? r.kg.toFixed(1) : '—']),
     `TOTAL ${material.reduce((a, r) => a + r.kg, 0).toFixed(1)} KG`,
+    Math.max(materialRoom, noteY - 5 - y),
   );
-
-  const tbH = 50;
-  const stampH = 13;
-  const tbY = H - MARGIN - tbH;
-  const stampY = tbY - stampH - 3;
-  const noteWidth = Math.floor((col - 2.4) / (1.95 * 0.56));
-  const notes = [
-    ...sheetNotes(t.note, noteWidth),
-    'ALL DIMENSIONS IN MILLIMETRES.',
-    'STEEL S235, WELDS 5 MM FILLET ALL ROUND UNLESS NOTED.',
-    'U-BOLT DIN 3570, ROD M' + uBoltRod(t.dn) + ', WITH 4 NUTS.',
-    `SUPPORTS MARKED ${t.name} ON THE ISOMETRIC.`,
-  ];
-  const noteY = stampY - 4 - notes.length * 3.2;
   let notesSvg = '';
   notes.forEach((line, i) => (notesSvg += text(dividerX + 1.2, noteY + i * 3.2, line, 'note-text')));
 
-  const meta = { ...drawing.meta, sheet: `SUPPORT ${t.name}` };
+  const sheetName = single ? `SUPPORT ${single.name}` : `SUPPORTS ${page} OF ${pages}`;
+  const meta = { ...drawing.meta, sheet: sheetName };
   const id = `iso-support-${++supportSheetSeq}`;
-  return `<svg xmlns="http://www.w3.org/2000/svg" id="${id}" viewBox="0 0 ${W} ${H}" width="${W}mm" height="${H}mm">
+  return `<svg xmlns="http://www.w3.org/2000/svg" id="${id}" class="support-sheet" viewBox="0 0 ${W} ${H}" width="${W}mm" height="${H}mm">
 <style>${scopeCss(`
 text { font-family: "Helvetica Neue", Arial, sans-serif; }
 .sheet-bg { fill: #ffffff; }
 .frame { fill: none; stroke: #12161c; stroke-width: 0.5; }
+.cell-rule { stroke: #12161c; stroke-width: 0.4; }
 .block { fill: none; stroke: #12161c; stroke-width: 0.35; }
 .rule { stroke: #12161c; stroke-width: 0.25; }
 .rule-strong { stroke: #12161c; stroke-width: 0.4; }
@@ -552,7 +722,7 @@ text { font-family: "Helvetica Neue", Arial, sans-serif; }
 .tb-label { font-size: 1.7px; fill: #5b6675; letter-spacing: 0.06em; }
 .tb-value { font-size: 2.4px; fill: #12161c; }
 .tb-head { font-size: 1.9px; font-weight: 700; letter-spacing: 0.05em; }
-.tb-cell { font-size: 2.05px; }
+.tb-cell { font-size: ${rowH < 4 ? 1.85 : 2.05}px; }
 .note-text { font-size: 1.95px; fill: #3d4756; }
 ${SUPPORT_CSS(k)}
 `, `#${id}`)}</style>
@@ -567,7 +737,13 @@ ${titleBlock({ ...drawing, meta }, dividerX, tbY, col, tbH)}
 </svg>`;
 }
 
-/** Every support type the sheet uses (or has), a detail sheet each. */
+/** A support type's detail sheet of its own. */
+export function renderSupportSheet(drawing: Drawing, t: SupportType, size: SheetSize = 'A3'): string {
+  return renderSupportDetailSheet(drawing, [t], size);
+}
+
+/** The detail sheets of the line's support types, as he grouped them. */
 export function renderSupportSheets(drawing: Drawing, size: SheetSize = 'A3'): string[] {
-  return (drawing.supportTypes ?? []).map((t) => renderSupportSheet(drawing, t, size));
+  const groups = supportSheetGroups(drawing);
+  return groups.map((g, i) => renderSupportDetailSheet(drawing, g, size, i + 1, groups.length));
 }
