@@ -657,8 +657,10 @@ export function renderDrawing(state: RenderState): string {
         // "SUPPORT 2": the number (or a name), then whatever is typed after
         // it on the drawing. No detail by default (his ask, 2026-10-01: the
         // L50 is no longer written in unless typed).
+        // Of a support type (his ask, 2026-11-15), its name follows: "SUPPORT 2 PS-1".
+        const typeName = comp.supportType ? drawing.supportTypes?.find((t) => t.id === comp.supportType)?.name ?? '' : '';
         const detail = comp.note ?? '';
-        const name = `SUPPORT ${comp.tag || supportNo.get(comp.id) || ''} ${detail}`.replace(/\s+/g, ' ').trim();
+        const name = `SUPPORT ${comp.tag || supportNo.get(comp.id) || ''} ${typeName} ${detail}`.replace(/\s+/g, ' ').trim();
         const fontSize = size * 0.85;
         const nameW = name.length * fontSize * 0.6 + size * 0.4;
         const nameH = size * 1.1;

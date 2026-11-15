@@ -9,7 +9,7 @@ import { render3dImage } from './view3d';
 
 export type SheetSize = 'A4' | 'A3' | 'A2';
 
-const SHEETS: Record<SheetSize, { w: number; h: number }> = {
+export const SHEETS: Record<SheetSize, { w: number; h: number }> = {
   A4: { w: 297, h: 210 },
   A3: { w: 420, h: 297 },
   A2: { w: 594, h: 420 },
@@ -17,7 +17,7 @@ const SHEETS: Record<SheetSize, { w: number; h: number }> = {
 
 // Tight: the frame sits 5 mm in from the paper edge, which is as close as
 // most printers will put ink.
-const MARGIN = 5;
+export const MARGIN = 5;
 
 /** Symbol half-size on the printed sheet, in mm, at the least: a third up on the screen's, as he asked. */
 const SHEET_SYMBOL_MM = SYMBOL_MM * 1.35;
@@ -354,7 +354,7 @@ export function sheetSymbolSize(drawing: Drawing, analysis: Analysis, size: Shee
   return sheetSymbolAt(drawing, analysis, k);
 }
 
-function text(
+export function text(
   x: number,
   y: number,
   value: string,
@@ -364,19 +364,19 @@ function text(
   return `<text class="${cls}" x="${x.toFixed(2)}" y="${y.toFixed(2)}" text-anchor="${anchor}">${escapeText(value)}</text>`;
 }
 
-function rect(x: number, y: number, w: number, h: number, cls: string): string {
+export function rect(x: number, y: number, w: number, h: number, cls: string): string {
   return `<rect class="${cls}" x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${w.toFixed(2)}" height="${h.toFixed(2)}"/>`;
 }
 
-function hline(x1: number, x2: number, y: number, cls = 'rule'): string {
+export function hline(x1: number, x2: number, y: number, cls = 'rule'): string {
   return `<line class="${cls}" x1="${x1.toFixed(2)}" y1="${y.toFixed(2)}" x2="${x2.toFixed(2)}" y2="${y.toFixed(2)}"/>`;
 }
 
-function vline(x: number, y1: number, y2: number, cls = 'rule'): string {
+export function vline(x: number, y1: number, y2: number, cls = 'rule'): string {
   return `<line class="${cls}" x1="${x.toFixed(2)}" y1="${y1.toFixed(2)}" x2="${x.toFixed(2)}" y2="${y2.toFixed(2)}"/>`;
 }
 
-function clip(value: string, max: number): string {
+export function clip(value: string, max: number): string {
   return value.length > max ? `${value.slice(0, max - 1)}…` : value;
 }
 
@@ -404,7 +404,7 @@ export function sheetStamp(drawing: Drawing): string {
  * The stamp, kept as its own box so it reads at a glance and can be signed
  * over. A long one is set smaller so it keeps inside the box on an A4.
  */
-function stampBox(x: number, y: number, w: number, h: number, label: string): string {
+export function stampBox(x: number, y: number, w: number, h: number, label: string): string {
   // About 0.74 of the font size per letter, spacing included, and a margin.
   const size = Math.min(3.6, (w - 12) / (label.length * 0.74));
   return (
@@ -419,7 +419,7 @@ function stampBox(x: number, y: number, w: number, h: number, label: string): st
  * stack down it rather than across it — nothing is squeezed into a cell too
  * narrow to read.
  */
-function titleBlock(drawing: Drawing, x: number, y: number, w: number, h: number): string {
+export function titleBlock(drawing: Drawing, x: number, y: number, w: number, h: number): string {
   const m = drawing.meta;
   let out = rect(x, y, w, h, 'block');
 

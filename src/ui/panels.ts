@@ -8,6 +8,9 @@ import { projectsOf, sheetNumber } from '../model/library';
 import { applyChainDimension, applyReducer, setFlangeStd, elbowTurns, turnElbow, freeDimensions, offersAutoCoupling, resetDrawnLength, setAutoCoupling, wantsAutoCoupling, deletePoint, isCouplingPoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, runLength, setGroupLength, setLastFlange, deleteRunGroup, DASHED_NOTE, setLineSize, setRunDashed, setRunDirect, setRunLength, setTerminal, setEndSize, splitRun, addStockWelds } from '../model/edit';
 import { setDriveClientId } from '../model/drive';
 import { reducerPreview } from './reducer-preview';
+import { SUPPORT_SHAPES, supportMaterial, supportParts, supportUses, type SupportShape } from '../model/supports';
+
+const supportShapeName = (shape: SupportShape) => SUPPORT_SHAPES.find((x) => x.id === shape)?.name ?? shape;
 import { SHEET_STAMPS, sheetStamp } from '../render/sheet';
 
 const TABS: { id: TabId; label: string }[] = [
@@ -15,6 +18,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'command', label: 'Command' },
   { id: 'items', label: 'Items' },
   { id: 'welds', label: 'Welds' },
+  { id: 'supports', label: 'Supports' },
   { id: 'title', label: 'Title' },
   { id: 'projects', label: 'Projects' },
 ];
@@ -377,7 +381,13 @@ function componentProperties(host: Host, compId: string): string {
       ? ''
       : `<div class="row"><label>${isSupport(comp.kind) ? 'Number' : 'Tag'}</label><input type="text" data-f="tag" value="${esc(comp.tag ?? '')}" placeholder="${isSupport(comp.kind) ? 'numbered along the line; or e.g. A' : 'e.g. HV-101'}" /></div>` +
         (isSupport(comp.kind)
-          ? `<div class="row"><label>Detail</label><input type="text" data-f="note" value="${esc(comp.note ?? '')}" placeholder="e.g. L50 — typed on the drawing too" /></div>`
+          ? `<div class="row"><label>Type</label><select data-f="support-type">
+              <option value="">None — a mark only</option>
+              ${(host.state.drawing.supportTypes ?? []).map((t) => `<option value="${esc(t.id)}"${comp.supportType === t.id ? ' selected' : ''}>${esc(t.name)} — ${esc(supportShapeName(t.shape))}</option>`).join('')}
+              <option value="new">New type…</option>
+            </select></div>` +
+            (comp.supportType ? `<div class="btn-row"><button class="btn-line" data-a="support-type-edit">Edit ${esc(host.state.drawing.supportTypes?.find((t) => t.id === comp.supportType)?.name ?? 'type')}</button></div>` : '') +
+            `<div class="row"><label>Detail</label><input type="text" data-f="note" value="${esc(comp.note ?? '')}" placeholder="e.g. L50 — typed on the drawing too" /></div>`
           : '')
   }
   <p class="empty-note">Measured ${mm(comp.offset)} mm from the start of a ${mm(total)} mm run.${
@@ -817,9 +827,61 @@ export function renderPanel(body: HTMLElement, host: Host): void {
             ? weldsTab(host)
             : tab === 'projects'
               ? projectsTab(host)
-              : titleTab(host);
+              : tab === 'supports'
+                ? supportsTab(host)
+                : titleTab(host);
 
   wire(body, host);
+}
+
+/* -------------------------------------------------------------- supports */
+
+/**
+ * Pipe supports built of steel sections (his ask, 2026-11-15): the sheet's
+ * support types, each with a detail sheet of its own, how many supports on
+ * the line are of each, and the support steel of the whole sheet as a
+ * list of its own.
+ */
+function supportsTab(host: Host): string {
+  const { drawing } = host.state;
+  const types = drawing.supportTypes ?? [];
+  const uses = supportUses(drawing);
+  const marks = drawing.runs.flatMap((r) => r.inline).filter((c) => isSupport(c.kind));
+  const loose = marks.filter((c) => !c.supportType || !types.some((t) => t.id === c.supportType)).length;
+  const material = supportMaterial(drawing);
+  const rows = types
+    .map((t) => {
+      const n = uses.get(t.id) ?? 0;
+      const kg = supportParts(t).reduce((a, p) => a + p.kg, 0);
+      return `<div class="sheet-row" data-support-type="${esc(t.id)}">
+      <div class="sheet-main"><strong>${esc(t.name)}</strong> · ${esc(supportShapeName(t.shape))} · ${esc(sizeLabel(t.dn))} pipe</div>
+      <div class="sheet-sub">${n} on this sheet · ${kg.toFixed(1)} kg each</div>
+      <button class="sheet-remove" data-remove-support="${esc(t.id)}" type="button" title="Delete this support type">×</button>
+    </div>`;
+    })
+    .join('');
+  return `
+<div class="section">
+  <h3>Support types</h3>
+  ${rows || '<p class="empty-note">No support types yet. Make one from U channel (UPN), RHS or angle, with plates and a U-bolt; then pick a support on the line and give it the type.</p>'}
+  <div class="row"><label>New type</label><select data-f="support-new">
+    <option value="">Choose a shape…</option>
+    ${SUPPORT_SHAPES.map((sh) => `<option value="${sh.id}">${esc(sh.name)}</option>`).join('')}
+  </select></div>
+  ${marks.length ? `<p class="empty-note">${marks.length} support${marks.length === 1 ? '' : 's'} on the line${loose ? `, ${loose} with no type yet (pick one and choose its Type)` : ''}.</p>` : ''}
+</div>
+${
+  material.length
+    ? `<div class="section">
+  <h3>Support material — this sheet</h3>
+  <table class="support-material"><thead><tr><th>Description</th><th>Length / size</th><th>Qty</th><th>kg</th></tr></thead><tbody>
+  ${material.map((r) => `<tr><td>${esc(r.description)}</td><td>${esc(r.size)}</td><td>${r.qty || ''}</td><td>${r.kg ? r.kg.toFixed(1) : '—'}</td></tr>`).join('')}
+  <tr class="total"><td colspan="3">Total</td><td>${material.reduce((a, r) => a + r.kg, 0).toFixed(1)}</td></tr>
+  </tbody></table>
+</div>`
+    : ''
+}
+${types.length ? `<div class="btn-row"><button class="btn-line solid" data-a="print-supports">Print / PDF the detail sheets</button></div>` : ''}`;
 }
 
 /* -------------------------------------------------------------- projects */
@@ -962,6 +1024,32 @@ function driveSection(host: Host): string {
 
 function wire(body: HTMLElement, host: Host): void {
   const { drawing } = host.state;
+
+  // Supports.
+  body.querySelectorAll<HTMLElement>('[data-support-type]').forEach((row) =>
+    row.addEventListener('click', (event) => {
+      if ((event.target as HTMLElement).closest('[data-remove-support]')) return;
+      host.editSupportType(row.dataset.supportType!);
+    }),
+  );
+  body.querySelectorAll<HTMLElement>('[data-remove-support]').forEach((button) =>
+    button.addEventListener('click', () => {
+      const id = button.dataset.removeSupport!;
+      const t = drawing.supportTypes?.find((x) => x.id === id);
+      const n = supportUses(drawing).get(id) ?? 0;
+      if (!t || !window.confirm(`Delete support type ${t.name}?${n ? ` The ${n} support${n === 1 ? '' : 's'} of this type stay on the line as marks.` : ''}`)) return;
+      host.edit('Delete support type', (d) => {
+        d.supportTypes = (d.supportTypes ?? []).filter((x) => x.id !== id);
+        if (d.supportTypes.length === 0) delete d.supportTypes;
+        for (const r of d.runs) for (const c of r.inline) if (c.supportType === id) delete c.supportType;
+      });
+    }),
+  );
+  body.querySelector<HTMLSelectElement>('[data-f="support-new"]')?.addEventListener('change', (e) => {
+    const shape = (e.target as HTMLSelectElement).value as SupportShape;
+    if (shape) host.editSupportType(null, undefined, shape);
+  });
+  body.querySelector('[data-a="print-supports"]')?.addEventListener('click', () => host.printSupports());
 
   // Projects.
   body.querySelector('[data-a="new-sheet"]')?.addEventListener('click', () => host.newSheetInProject());
@@ -1418,6 +1506,20 @@ function wire(body: HTMLElement, host: Host): void {
         c.tag = (e.target as HTMLInputElement).value || undefined;
       }, { keepPanel: true }),
     );
+    field('support-type')?.addEventListener('change', (e) => {
+      const value = (e.target as HTMLSelectElement).value;
+      if (value === 'new') {
+        host.editSupportType(null, compEditor.dataset.id!);
+        return;
+      }
+      withComponent('Support type', (c) => {
+        c.supportType = value || undefined;
+      }, { keepPanel: true });
+    });
+    compEditor.querySelector('[data-a="support-type-edit"]')?.addEventListener('click', () => {
+      const comp = host.state.drawing.runs.flatMap((r) => r.inline).find((c) => c.id === compEditor.dataset.id);
+      if (comp?.supportType) host.editSupportType(comp.supportType);
+    });
     field('note')?.addEventListener('change', (e) =>
       withComponent('Describe support', (c) => {
         const detail = (e.target as HTMLInputElement).value.trim();

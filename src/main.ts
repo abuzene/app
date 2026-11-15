@@ -14,6 +14,8 @@ import { applyAgainstFree, applyKeepingOthers, closePipeStretch, sheetCutSpot, s
 import { DN_LIST, schedulesFor, sizeLabel, sizeOf } from './model/pipe-data';
 import { northArrow, paperOf, renderDrawing, runOffsetAtPaper, symbolSizeFor } from './render/renderer';
 import { SHEET_STAMPS, renderSheet, sheetLegibility, sheetStamp, sheetSymbolSize, type SheetSize } from './render/sheet';
+import { renderSupportSheets, supportPreview } from './render/support-sheet';
+import { PROFILES, SUPPORT_SHAPES, membersOf, newSupportType, nextSupportName, supportParts, uBoltRod, type SupportShape, type SupportType } from './model/supports';
 import { Canvas } from './ui/canvas';
 import { esc, fileStem, renderPanel, renderTabs } from './ui/panels';
 import { renderTools } from './ui/tools';
@@ -354,6 +356,12 @@ const host: Host = {
   },
   printProject(name) {
     openPrintDialog({ project: name, all: true });
+  },
+  editSupportType(id, forComp, shape) {
+    supportTypeDialog(id, forComp, shape);
+  },
+  printSupports() {
+    openPrintDialog({ supports: true });
   },
   driveStatus() {
     return driveStatus();
@@ -2688,7 +2696,7 @@ const embedded = (() => {
  * "Save as PDF" puts it on the machine. Everything else a fabrication drawing
  * needs is on that sheet.
  */
-function openPrintDialog(ask: { project?: string; all?: boolean } = {}): void {
+function openPrintDialog(ask: { project?: string; all?: boolean; supports?: boolean } = {}): void {
   // Which sheets: this one, another of its project, or every sheet of the
   // project in one PDF (his ask, 2026-09-26). The library has them all, the
   // one on screen as it is now.
@@ -2704,7 +2712,13 @@ function openPrintDialog(ask: { project?: string; all?: boolean } = {}): void {
   if (here) choices.push({ value: 'here', label: `This sheet — ${state.drawing.meta.sheet || '1 of 1'}, on screen` });
   for (const d of sheets) if (d.id !== state.drawing.id || !here) choices.push({ value: d.id ?? '', label: `Sheet ${d.meta.sheet || '1 of 1'}` });
   if (sheets.length > 1) choices.push({ value: 'all', label: `All ${sheets.length} sheets of ${project || 'this project'} — one PDF` });
-  const picked = ask.all && sheets.length > 1 ? 'all' : choices[0]?.value ?? 'here';
+  // The support detail sheets of the sheet on screen (his ask, 2026-11-15).
+  const supportCount = here ? (state.drawing.supportTypes ?? []).length : 0;
+  if (supportCount) {
+    choices.push({ value: 'supports', label: `Support details — ${supportCount} sheet${supportCount === 1 ? '' : 's'}` });
+    choices.push({ value: 'here+supports', label: `This sheet and its support details` });
+  }
+  const picked = ask.supports && supportCount ? 'supports' : ask.all && sheets.length > 1 ? 'all' : choices[0]?.value ?? 'here';
   const backdrop = document.createElement('div');
   backdrop.className = 'dialog-backdrop';
   backdrop.innerHTML = `
@@ -2758,7 +2772,7 @@ function openPrintDialog(ask: { project?: string; all?: boolean } = {}): void {
   // The stamp and notes set here are the sheet on screen's: shown only for it.
   const showHereOnly = () => {
     const pick = backdrop.querySelector<HTMLSelectElement>('#sheet-pages')?.value ?? picked;
-    backdrop.querySelectorAll<HTMLElement>('[data-here-only]').forEach((row) => (row.style.display = pick === 'here' ? '' : 'none'));
+    backdrop.querySelectorAll<HTMLElement>('[data-here-only]').forEach((row) => (row.style.display = pick === 'here' || pick === 'here+supports' ? '' : 'none'));
   };
   showHereOnly();
   backdrop.querySelector<HTMLSelectElement>('#sheet-pages')?.addEventListener('change', showHereOnly);
@@ -2795,22 +2809,28 @@ function openPrintDialog(ask: { project?: string; all?: boolean } = {}): void {
         return;
       }
       const pick = backdrop.querySelector<HTMLSelectElement>('#sheet-pages')?.value ?? picked;
-      const chosen = pick === 'here' ? [state.drawing] : pick === 'all' ? sheets : sheets.filter((d) => d.id === pick);
-      if (chosen.length === 0) return close();
+      const withSupports = pick === 'supports' || pick === 'here+supports';
+      const chosen = pick === 'here' || pick === 'here+supports' ? [state.drawing] : pick === 'all' ? sheets : pick === 'supports' ? [] : sheets.filter((d) => d.id === pick);
+      if (chosen.length === 0 && !withSupports) return close();
       const rendered = chosen.map((d) => {
         if (d === state.drawing) return renderSheet(d, state.analysis, sheetSize());
         // Its numbers run on from the sheets before it, as they are now.
         const sheet = { ...d, weldStarts: projectWeldStarts(d) };
         return renderSheet(sheet, analyse(sheet), sheetSize());
       });
+      if (withSupports) rendered.push(...renderSupportSheets(state.drawing, sheetSize()));
       const stem = (d: Drawing) =>
         (d.meta.lineNumber || d.meta.drawingNo || d.meta.project || 'isometric').replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'isometric';
       const fileName =
-        pick === 'all'
+        pick === 'supports'
+          ? `${fileStem(host)}-supports.pdf`
+          : pick === 'here+supports'
+            ? `${fileStem(host)}-with-supports.pdf`
+            : pick === 'all'
           ? `${(project || 'project').replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'project'}-all-sheets.pdf`
-          : chosen[0] === state.drawing
-            ? `${fileStem(host)}.pdf`
-            : `${stem(chosen[0])}-sheet-${sheetNumber(chosen[0].meta.sheet)}.pdf`;
+            : chosen[0] === state.drawing
+              ? `${fileStem(host)}.pdf`
+              : `${stem(chosen[0])}-sheet-${sheetNumber(chosen[0].meta.sheet)}.pdf`;
       // PDF sheet makes one PDF, a page each; Print sends them all to the
       // printer dialog, a page each (his complaint, 2026-10-20: the whole
       // project went to the share sheet only, with no way to print it).
@@ -2837,11 +2857,11 @@ function openPrintDialog(ask: { project?: string; all?: boolean } = {}): void {
         const fromPreview = (how: string) => {
           overlay.remove();
           if (how === 'pdf') void makePdfSheet(rendered, sheetSize(), fileName);
-          else printSheet(rendered, sheetSize(), upright(), pick === 'all' ? fileName.replace(/\.pdf$/, '') : undefined);
+          else printSheet(rendered, sheetSize(), upright(), pick === 'all' || withSupports ? fileName.replace(/\.pdf$/, '') : undefined);
         };
         overlay.querySelectorAll<HTMLButtonElement>('[data-preview]').forEach((b) => b.addEventListener('click', () => fromPreview(b.dataset.preview ?? 'print')));
       } else {
-        printSheet(rendered, sheetSize(), upright(), pick === 'all' ? fileName.replace(/\.pdf$/, '') : undefined);
+        printSheet(rendered, sheetSize(), upright(), pick === 'all' || withSupports ? fileName.replace(/\.pdf$/, '') : undefined);
       }
       close();
     });
@@ -3181,6 +3201,148 @@ const AXIS_NAMES: Record<Axis, string> = { N: 'North', S: 'South', E: 'East', W:
  * the line, and how long the pipe at 45° is, centre to centre; the offset
  * it makes is shown as it is typed.
  */
+/**
+ * A pipe support type (his ask, 2026-11-15): its shape, the steel sections
+ * of its members, its plates with their holes, the U-bolt and its sizes,
+ * with a picture of it looking along the pipe as it is set. Saved to the
+ * sheet's `supportTypes`; made for a support (`forComp`), that support is
+ * given it.
+ */
+function supportTypeDialog(id: string | null, forComp?: string, shape?: SupportShape): void {
+  const d = state.drawing;
+  const comp = forComp ? d.runs.flatMap((r) => r.inline.map((c) => ({ c, r }))).find((x) => x.c.id === forComp) : undefined;
+  const old = id ? d.supportTypes?.find((t) => t.id === id) : undefined;
+  let t: SupportType = old
+    ? (JSON.parse(JSON.stringify(old)) as SupportType)
+    : newSupportType(shape ?? 'POST_LOW', comp?.r.dn ?? state.currentDn, nextSupportName(d), uid('st'));
+  const backdrop = document.createElement('div');
+  backdrop.className = 'dialog-backdrop';
+  const num = (path: string, label: string, value: number | undefined) =>
+    `<div class="row"><label>${label}</label><input type="number" inputmode="numeric" min="0" data-st="${path}" value="${value ?? ''}" /></div>`;
+  const profileSelect = (key: 'post' | 'beam' | 'arm' | 'brace', label: string) => {
+    const now = t[key];
+    const group = (kind: string, title: string) =>
+      `<optgroup label="${title}">${PROFILES.filter((p) => p.kind === kind)
+        .map((p) => `<option value="${p.name}"${p.name === now ? ' selected' : ''}>${p.name} · ${p.kgm} kg/m</option>`)
+        .join('')}</optgroup>`;
+    return `<div class="row"><label>${label}</label><select data-st="${key}">${group('UPN', 'U channel (UPN)')}${group('RHS', 'RHS / SHS')}${group('L', 'Angle (L)')}</select></div>`;
+  };
+  const plateRows = (key: 'basePlate' | 'topPlate' | 'wallPlate', label: string) => {
+    const p = t[key];
+    if (!p) return '';
+    const cell = (f: string, hint: string, v: number) => `<label class="st-cell"><span>${hint}</span><input type="number" inputmode="numeric" min="0" data-st="${key}.${f}" value="${v}" /></label>`;
+    return `<div class="st-plate"><div class="st-plate-name">${label}</div><div class="st-cells">${cell('w', 'Width', p.w)}${cell('l', 'Length', p.l)}${cell('t', 'Thick', p.t)}${cell('hole', 'Hole Ø', p.hole)}${key === 'topPlate' ? '' : cell('edge', 'Hole from edge', p.edge)}</div></div>`;
+  };
+  const form = () => {
+    const m = membersOf(t.shape);
+    const kg = supportParts(t).reduce((a, p) => a + p.kg, 0);
+    return `
+<div class="dialog support-dialog" role="dialog" aria-label="Support type" data-editor="support-type">
+  <h3>${old ? `Support type ${esc(t.name)}` : 'New support type'}</h3>
+  <div class="st-layout">
+    <div class="st-form">
+      <div class="row"><label>Name</label><input type="text" data-st="name" value="${esc(t.name)}" /></div>
+      <div class="row"><label>Shape</label><select data-st="shape">${SUPPORT_SHAPES.map((sh) => `<option value="${sh.id}"${sh.id === t.shape ? ' selected' : ''}>${sh.name}</option>`).join('')}</select></div>
+      <p class="empty-note">${esc(SUPPORT_SHAPES.find((sh) => sh.id === t.shape)?.hint ?? '')}</p>
+      <div class="row"><label>Pipe size</label><select data-st="dn">${DN_LIST.map((dn) => `<option value="${dn}"${dn === t.dn ? ' selected' : ''}>${sizeLabel(dn)}</option>`).join('')}</select></div>
+      ${m.post ? profileSelect('post', 'Post') : ''}
+      ${m.beam ? profileSelect('beam', 'Beam') : ''}
+      ${m.arm ? profileSelect('arm', 'Arm') : ''}
+      ${m.brace ? profileSelect('brace', 'Brace') : ''}
+      ${m.post ? num('height', 'Floor to pipe bottom, mm', t.height) : ''}
+      ${m.beam ? num('beamLength', 'Beam length, mm', t.beamLength) : ''}
+      ${m.arm ? num('armLength', t.shape === 'POST_ARM' ? 'Arm from the post, mm' : 'Arm from the wall, mm', t.armLength) : ''}
+      ${m.arm || m.beam ? num('pipeAt', m.post ? 'Pipe from the post centre, mm' : 'Pipe from the wall, mm', t.pipeAt) : ''}
+      ${m.brace ? num('braceDrop', 'Brace foot below the arm, mm', t.braceDrop) + num('braceReach', 'Brace top along the arm, mm', t.braceReach) : ''}
+      ${plateRows('basePlate', 'Base plate')}${plateRows('topPlate', 'Top plate (U-bolt through it)')}${plateRows('wallPlate', 'Wall plate')}
+      <div class="row"><label>U-bolt</label><select data-st="uBolt"><option value="1"${t.uBolt ? ' selected' : ''}>Yes — M${uBoltRod(t.dn)} DIN 3570</option><option value="0"${t.uBolt ? '' : ' selected'}>No — the pipe rests on it</option></select></div>
+      <div class="row"><label>Note</label><input type="text" data-st="note" value="${esc(t.note ?? '')}" placeholder="printed on its detail sheet" /></div>
+    </div>
+    <div class="st-picture">${supportPreview(t)}<p class="empty-note">${supportParts(t).length} parts · ${kg.toFixed(1)} kg each</p></div>
+  </div>
+  <div class="btn-row">
+    <button class="btn-line solid" data-confirm>${old ? 'Save' : comp ? 'Make it and give it to this support' : 'Make support type'}</button>
+    <button class="btn-line" data-cancel>Cancel</button>
+  </div>
+</div>`;
+  };
+  const read = (el: HTMLInputElement | HTMLSelectElement) => {
+    const path = el.dataset.st!;
+    if (path === 'shape') {
+      const fresh = newSupportType(el.value as SupportShape, t.dn, t.name, t.id);
+      t = { ...fresh, note: t.note };
+      return true;
+    }
+    if (path === 'dn') {
+      t.dn = el.value;
+      if (t.topPlate) {
+        const rod = uBoltRod(t.dn);
+        t.topPlate.hole = rod + 2;
+        t.topPlate.w = Math.max(t.topPlate.w, Math.ceil((sizeOf(t.dn).od + 2 * rod + 40) / 10) * 10);
+      }
+      return true;
+    }
+    if (path === 'name') t.name = el.value.trim().toUpperCase() || t.name;
+    else if (path === 'note') t.note = el.value.trim() || undefined;
+    else if (path === 'uBolt') t.uBolt = el.value === '1';
+    else if (path === 'post' || path === 'beam' || path === 'arm' || path === 'brace') t[path] = el.value;
+    else if (path.includes('.')) {
+      const [plate, f] = path.split('.') as ['basePlate' | 'topPlate' | 'wallPlate', keyof NonNullable<SupportType['basePlate']>];
+      const v = Number(el.value);
+      if (t[plate] && Number.isFinite(v) && v >= 0) t[plate]![f] = v;
+    } else {
+      const v = Number(el.value);
+      if (Number.isFinite(v) && v >= 0) (t as unknown as Record<string, number>)[path] = v;
+    }
+    return false;
+  };
+  const draw = () => {
+    backdrop.innerHTML = form();
+    wireForm();
+  };
+  const refreshPicture = () => {
+    const pic = backdrop.querySelector('.st-picture');
+    const kg = supportParts(t).reduce((a, p) => a + p.kg, 0);
+    if (pic) pic.innerHTML = `${supportPreview(t)}<p class="empty-note">${supportParts(t).length} parts · ${kg.toFixed(1)} kg each</p>`;
+  };
+  const wireForm = () => {
+    backdrop.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-st]').forEach((el) => {
+      el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', () => {
+        if (read(el) || el.tagName === 'SELECT') draw();
+        else refreshPicture();
+      });
+    });
+    backdrop.querySelector('[data-confirm]')?.addEventListener('click', () => {
+      backdrop.querySelectorAll<HTMLInputElement>('input[data-st]').forEach((el) => read(el));
+      const name = t.name;
+      if ((state.drawing.supportTypes ?? []).some((x) => x.name === name && x.id !== t.id)) {
+        host.notify(`There is a support type ${name} already — give this one another name.`);
+        return;
+      }
+      backdrop.remove();
+      host.edit(old ? `Support type ${name}` : `New support type ${name}`, (dr) => {
+        const list = (dr.supportTypes ??= []);
+        const at = list.findIndex((x) => x.id === t.id);
+        if (at >= 0) list[at] = t;
+        else list.push(t);
+        if (forComp) for (const r of dr.runs) for (const c of r.inline) if (c.id === forComp) c.supportType = t.id;
+      });
+    });
+    backdrop.querySelector('[data-cancel]')?.addEventListener('click', () => {
+      backdrop.remove();
+      host.touch();
+    });
+  };
+  backdrop.addEventListener('click', (event) => {
+    if (event.target === backdrop) {
+      backdrop.remove();
+      host.touch();
+    }
+  });
+  document.body.appendChild(backdrop);
+  draw();
+}
+
 function elbow45Dialog(ask: { ways: Axis[]; dn: string }): Promise<{ turn: Axis; length: number } | null> {
   return new Promise((resolve) => {
     const backdrop = document.createElement('div');
@@ -3854,6 +4016,8 @@ function newSheetInProject(): void {
     weldCode: prev.meta.weldCode,
     sheet: `${nextNo} of ${total}`,
   };
+  // The project's support types go on with it (PS-1 is the same support on every sheet).
+  if (prev.supportTypes?.length) fresh.supportTypes = JSON.parse(JSON.stringify(prev.supportTypes));
   // The point the line comes in at, marked as continuing from the sheet before.
   const startId = uid('n');
   fresh.nodes.push({

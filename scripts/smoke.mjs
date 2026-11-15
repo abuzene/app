@@ -5886,6 +5886,68 @@ const couplingsNow = async () => (await drawingNow()).nodes.filter((n) => n.fitt
   await page.waitForTimeout(300);
 }
 
+// Pipe supports built of steel sections (his ask, 2026-11-15: "draw pipe
+// supports from standard profiles such as U and RHS, with a U-bolt and
+// plates with holes"): a support type made in the Supports tab, given to
+// supports on the line, its name on the callout, a detail sheet of its own
+// with its parts, and the support steel as a list of its own.
+await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 4000\n+SUP 1000\n+SUP 3000\nN 1500');
+await page.click('#tabs button:has-text("Supports")');
+await page.waitForTimeout(200);
+check('supports: the Supports tab says how many supports have no type', await page.locator('#tab-body').innerText(), (t) => /2 supports on the line, 2 with no type/.test(t), '2 with no type');
+await page.selectOption('#tab-body [data-f="support-new"]', 'POST_T');
+await page.waitForTimeout(250);
+check('supports: a new type opens its editor with a picture', await page.locator('[data-editor="support-type"] .st-picture svg path').count(), (v) => v > 5, 'a drawn support');
+await page.selectOption('[data-editor="support-type"] [data-st="post"]', 'UPN 120');
+await page.waitForTimeout(150);
+await page.fill('[data-editor="support-type"] [data-st="height"]', '900');
+await page.locator('[data-editor="support-type"] [data-st="height"]').dispatchEvent('input');
+await page.fill('[data-editor="support-type"] [data-st="basePlate.hole"]', '22');
+await page.locator('[data-editor="support-type"] [data-st="basePlate.hole"]').dispatchEvent('input');
+await page.click('[data-editor="support-type"] [data-confirm]');
+await page.waitForTimeout(300);
+let supD = await drawingNow();
+const supType = supD.supportTypes?.[0];
+check('supports: the type is kept with the sheet', supType && [supType.name, supType.shape, supType.post, supType.height, supType.basePlate.hole].join(' '), (v) => v === 'PS-1 POST_T UPN 120 900 22', 'PS-1 POST_T UPN 120 900 22');
+// Give it to the first support from the support's own panel.
+const supComp = supD.runs.flatMap((r) => r.inline).find((c) => c.kind === 'SUPPORT');
+await page.locator(`#canvas circle.hit-dot[data-component="${supComp.id}"]`).click({ force: true });
+await page.waitForTimeout(250);
+await page.selectOption('#tab-body [data-f="support-type"]', supType.id);
+await page.waitForTimeout(300);
+supD = await drawingNow();
+check('supports: a support given the type', supD.runs.flatMap((r) => r.inline).filter((c) => c.supportType === supType.id).length, (v) => v === 1, '1');
+check('supports: its callout carries the type', await page.evaluate(() => [...document.querySelectorAll('#canvas text')].map((t) => t.textContent).filter((t) => /SUPPORT/.test(t ?? '')).join('|')), (t) => /SUPPORT 1 PS-1/.test(t), 'SUPPORT 1 PS-1');
+// A second type made from the other support: an arm from the wall, braced.
+const supComp2 = supD.runs.flatMap((r) => r.inline).filter((c) => c.kind === 'SUPPORT')[1];
+await page.locator(`#canvas circle.hit-dot[data-component="${supComp2.id}"]`).click({ force: true });
+await page.waitForTimeout(250);
+await page.selectOption('#tab-body [data-f="support-type"]', 'new');
+await page.waitForTimeout(250);
+await page.selectOption('[data-editor="support-type"] [data-st="shape"]', 'BRACKET_BRACED');
+await page.waitForTimeout(200);
+check('supports: a braced arm has a brace and a wall plate to set', await page.locator('[data-editor="support-type"] [data-st="brace"], [data-editor="support-type"] [data-st="wallPlate.w"]').count(), (v) => v === 2, '2');
+await page.click('[data-editor="support-type"] [data-confirm]');
+await page.waitForTimeout(300);
+supD = await drawingNow();
+check('supports: made for a support, the support has it', supD.supportTypes?.length === 2 && supD.runs.flatMap((r) => r.inline).find((c) => c.id === supComp2.id)?.supportType === supD.supportTypes[1].id, (v) => v === true, 'true');
+await page.click('#tabs button:has-text("Supports")');
+await page.waitForTimeout(200);
+const supText = await page.locator('#tab-body').innerText();
+check('supports: the support material is listed on its own', supText, (t) => /UPN 120/.test(t) && /L 50x50x5/.test(t) && /U-BOLT M12/.test(t) && /Total/.test(t), 'UPN 120, L 50x50x5, U-bolt, total');
+// The detail sheets, from the Supports tab through the print dialog.
+await page.click('#tab-body [data-a="print-supports"]');
+await page.waitForTimeout(250);
+check('supports: the print dialog has the support details picked', await page.locator('#sheet-pages').inputValue(), (v) => v === 'supports', 'supports');
+await page.click('.dialog [data-x="preview"]');
+await page.waitForTimeout(600);
+const supSheets = await page.evaluate(() => [...document.querySelectorAll('.sheet-preview svg')].map((s) => s.textContent));
+check('supports: a detail sheet for each type', supSheets.length, (v) => v === 2, '2');
+check('supports: the sheet has its parts, plates with holes and the U-bolt', supSheets[0] ?? '', (t) => /PARTS LIST — PS-1/.test(t) && /POST UPN 120/.test(t) && /L=790/.test(t) && /BEAM UPN 100/.test(t) && /4 HOLES Ø22/.test(t) && /U-BOLT M12 DIN 3570/.test(t) && /1 OFF ON THIS SHEET/.test(t), 'parts of PS-1');
+check('supports: the braced arm\'s sheet has its brace and wall plate', supSheets[1] ?? '', (t) => /BRACE L 50x50x5/.test(t) && /WALL PLATE/.test(t) && /SUPPORT PS-2/.test(t), 'brace, wall plate');
+await page.click('.dialog [data-close]');
+await page.waitForTimeout(200);
+
 // A reducer put along a pipe over a support: the support goes to the pipe
 // beside it, not inside the reducer (it was left there on the same sheet).
 {

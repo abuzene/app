@@ -119,6 +119,8 @@ export interface InlineComponent {
   ff?: number;
   /** The standard of this valve's flanges; unset, the sheet's (`DrawingOptions.flangeStd`). */
   flangeStd?: 'ASA' | 'DIN';
+  /** A support: which support type (`Drawing.supportTypes`) it is built as. */
+  supportType?: string;
 }
 
 export interface Terminal {
@@ -446,6 +448,8 @@ export interface Drawing {
   measures?: Measure[];
   /** Circles round things, each with a note. */
   circles?: CircleNote[];
+  /** Pipe support types (PS-1 …) built of steel sections; supports point at one (`src/model/supports.ts`). */
+  supportTypes?: import('./supports').SupportType[];
   /**
    * Where each item balloon is, by list line key: on a chosen one of the
    * item's places on the drawing, or taken off altogether. Unset, it goes

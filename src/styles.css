@@ -407,11 +407,30 @@ tr.selected { background: var(--accent-soft); }
 .sheet-preview { background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 8px; margin-bottom: 10px; }
 .sheet-preview svg { display: block; width: 100%; height: auto; }
 .dialog h3 { margin: 0 0 4px; font-size: 15px; }
+/* Support type editor: the form beside its picture, under it on a narrow screen. */
+.dialog.support-dialog { width: min(860px, 100%); max-height: 90vh; overflow-y: auto; }
+.st-layout { display: flex; gap: 16px; align-items: flex-start; margin: 10px 0 12px; }
+.st-form { flex: 1 1 340px; min-width: 0; }
+.st-picture { flex: 1 1 320px; position: sticky; top: 0; border: 1px solid var(--line); border-radius: 6px; padding: 6px; background: #fff; }
+.st-picture svg { display: block; width: 100%; height: auto; }
+.st-picture p { margin: 6px 0 0; }
+.st-plate { margin: 8px 0; }
+.st-plate-name { font-size: 12px; font-weight: 600; margin-bottom: 4px; }
+.st-cells { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.st-cell { display: flex; flex-direction: column; gap: 2px; font-size: 10.5px; color: var(--muted); }
+.st-cell input { width: 100%; min-width: 0; font: inherit; font-size: 13px; padding: 5px 4px; border: 1px solid var(--line); border-radius: 5px; color: var(--ink); }
+@media (max-width: 700px) { .st-layout { flex-direction: column-reverse; } .st-picture { position: static; width: 100%; } }
+table.support-material { width: 100%; border-collapse: collapse; font-size: 12px; }
+table.support-material th { text-align: left; font-size: 10px; color: var(--muted); font-weight: 600; padding: 4px 3px; border-bottom: 1px solid var(--line); }
+table.support-material td { padding: 4px 3px; border-bottom: 1px solid var(--line); }
+table.support-material tr.total td { font-weight: 700; }
 .dialog .row label.check { flex: 1 1 auto; color: var(--ink); font-size: 12.5px; }
 .dialog p { margin: 0 0 14px; font-size: 12.5px; color: var(--muted); line-height: 1.5; }
 
 @media (max-width: 1280px) {
   .panel { flex-basis: 300px; }
+  /* Seven tabs in the panel's width. */
+  .tabs button { font-size: 11.5px; padding: 10px 1px; }
 
   /* Drop the chrome that only labels things: each select already reads as its
      own label, so the buttons that do the work stay on screen. */

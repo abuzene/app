@@ -6,7 +6,7 @@ import type { LibraryEntry } from '../model/library';
 import type { DriveStatus } from '../model/drive';
 import type { FolderStatus } from '../model/folder';
 
-export type TabId = 'route' | 'command' | 'items' | 'welds' | 'title' | 'projects';
+export type TabId = 'route' | 'command' | 'items' | 'welds' | 'supports' | 'title' | 'projects';
 
 export interface AppState {
   drawing: Drawing;
@@ -85,6 +85,13 @@ export interface Host {
   closePickedPiece(): boolean;
   /** The print dialog for a project, all its sheets picked. */
   printProject(name: string): void;
+  /**
+   * The support type editor: an existing type by id, or a new one (of a
+   * shape, else the first), given on saving to the support `forComp`.
+   */
+  editSupportType(id: string | null, forComp?: string, shape?: import('../model/supports').SupportShape): void;
+  /** The print dialog with the support detail sheets picked. */
+  printSupports(): void;
   /** Welds numbered across the project with this code ("HYF 1/2.1"), or per sheet (null). */
   setProjectWeldCode(code: string | null): void;
   /** Google Drive: whether the app is signed in, and what the last sync moved. */

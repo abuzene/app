@@ -1306,6 +1306,41 @@ ships, and the decisions already taken, so they are not re-litigated.
   is top left), else fits the drawing beside or above it, whichever is
   bigger. "Take off sheet" (`[data-a="v3d-off"]`) deletes it. No WebGL:
   the window says so and the sheet has no picture.
+- **Pipe supports of steel sections** (his ask, 2026-11-15: "draw pipe
+  supports from standard profiles such as U and RHS, with a U-bolt and
+  plates with holes"; he chose a separate detail sheet plus the mark on
+  the isometric, five shapes, and a list of their own): `src/model/
+  supports.ts`. A **support type** (`drawing.supportTypes`, `SupportType`:
+  PS-1, PS-2 …) is one of `SUPPORT_SHAPES` — `POST_LOW` (short post, top
+  plate, U-bolt through it), `POST_T` (post with a beam across its top),
+  `POST_ARM` (post with a profile out of its side), `BRACKET_L` (arm from a
+  wall plate), `BRACKET_BRACED` (arm with a diagonal brace) — with members
+  from `PROFILES` (UPN 50–200, RHS/SHS, equal angles, kg/m), plates
+  (`SupportPlate` w/l/t, hole Ø, hole from edge; the top plate's two holes
+  are at the U-bolt's legs) and a DIN 3570 U-bolt (`uBoltRod` by the pipe's
+  OD). `newSupportType` sizes a new one for the pipe; `memberLengths` cuts
+  the members (post = height − base plate − top plate / beam depth);
+  `supportParts` is its parts list; `supportMaterial` the sheet's support
+  steel (members as metres by profile, plates and U-bolts by count, times
+  the supports of each type). A SUPPORT/SUPPORT_L component points at one
+  (`comp.supportType`): its panel's **Type** select (`[data-f="support-type"]`,
+  "New type…" makes one and gives it the support), and the callout reads
+  `SUPPORT 2 PS-1`. The **Supports** tab (`supportsTab` in panels.ts): the
+  types (tap to edit, × deletes, the supports keep their place as marks),
+  **New type** by shape (`[data-f="support-new"]`), the support material
+  table, and **Print / PDF the detail sheets** (`[data-a="print-supports"]`
+  → the print dialog with `supports` picked; it also offers "This sheet and
+  its support details"). The editor (`supportTypeDialog` in main.ts,
+  `[data-editor="support-type"]`, fields `[data-st=…]`, plate cells
+  `[data-st="basePlate.hole"]`) shows the support as it is set
+  (`supportPreview`). Each type's **detail sheet** (`renderSupportSheet` in
+  `src/render/support-sheet.ts`, framed like the isometric with its
+  stamp and title block, sheet "SUPPORT PS-1"): the support looking along
+  the pipe at a standard scale (1:2.5, 1:5, 1:10 …) with the pipe, U-bolt
+  and nuts, floor or wall hatched, dimensions and part balloons; each
+  plate flat with its holes; the column has the parts list, "n OFF ON THIS
+  SHEET", and the support material of all types. A new sheet in the
+  project carries the types on.
 - **The printed drawing keeps off the compass** (his DESHANIM sheet,
   2026-10-22: "it touches the north mark though there is room below"):
   the compass sits `COMPASS_AT` 16 mm into the drawing area's top left,
