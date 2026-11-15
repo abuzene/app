@@ -1376,6 +1376,25 @@ ships, and the decisions already taken, so they are not re-litigated.
   its own (`1x1`). A plate's drawing, its title and figures with it, is
   kept wholly inside its support's box (centred when too big for it), its
   title set just above the plate. Scales go on to 1:75 and 1:100.
+  **Billed at 5 kg a support at least** (his ask, 2026-11-16: "a support
+  may weigh under 5 kg on its own, but the total I bill the customer by
+  counts at least 5 kg a support"): `SUPPORT_BILL_MIN_KG`; one support's
+  own weight stays as it is (parts list, "kg EACH"), every total takes
+  `max(kg, 5) × qty` (`supportSchedule`: rows, `steel`, `billed`). The
+  Supports tab's row "= n kg (5 kg each at least)", its table's **Steel**
+  and **Billed** rows; on each detail sheet a **SUPPORT SCHEDULE —
+  QUANTITIES** table first (every type of the line: type, shape, qty, kg
+  each, kg billed with "(MIN)"), foot "n SUPPORTS · BILLED x KG (MIN 5 KG
+  EACH)"; each box's subtitle starts "n OFF"; the material foot "TOTAL
+  STEEL · BILLED". The column's rows close up (down to 2.8 mm, smaller
+  type) so the three tables fit above the notes.
+  **A rib (gusset)** (same day: "a triangular rib between two profiles"):
+  `SupportType.gusset {leg, t}`, the editor's **Rib (gusset)**
+  (`[data-st-gusset]`, `[data-st="gusset.leg|t"]`), only on shapes with
+  two members (`gussetCount`: T post 2 under the beam either side; post
+  with arm, hanger, arm from wall, braced arm 1 in the arm's corner); drawn
+  as a triangle in the corner with its balloon, on the parts list as
+  `GUSSET PL t TRIANGLE` leg×leg, half a square's weight.
   **A quantity per type** (his ask, same day: "more than one of the same
   shape — enter a quantity and count it in the total weight"):
   `SupportType.qty`, typed in the Supports tab row (`[data-support-qty]`,

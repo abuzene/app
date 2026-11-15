@@ -15,7 +15,7 @@ import { DN_LIST, schedulesFor, sizeLabel, sizeOf } from './model/pipe-data';
 import { northArrow, paperOf, renderDrawing, runOffsetAtPaper, symbolSizeFor } from './render/renderer';
 import { SHEET_STAMPS, renderSheet, sheetLegibility, sheetStamp, sheetSymbolSize, type SheetSize } from './render/sheet';
 import { renderSupportDetailSheet, renderSupportSheets, supportPreview } from './render/support-sheet';
-import { PROFILES, SUPPORT_SHAPES, defaultPlate, membersOf, newSupportType, nextSupportName, supportMarks, supportParts, supportSheetGroups, supportUses, uBoltRod, type SupportShape, type SupportType } from './model/supports';
+import { PROFILES, SUPPORT_SHAPES, defaultPlate, gussetCount, membersOf, newSupportType, nextSupportName, supportMarks, supportParts, supportSheetGroups, supportUses, uBoltRod, type SupportShape, type SupportType } from './model/supports';
 import { Canvas } from './ui/canvas';
 import { esc, fileStem, renderPanel, renderTabs } from './ui/panels';
 import { renderTools } from './ui/tools';
@@ -3409,6 +3409,11 @@ function supportTypeDialog(id: string | null, forComp?: string, shape?: SupportS
       ${m.arm || m.beam ? num('pipeAt', m.post ? 'Pipe from the post centre, mm' : 'Pipe from the wall, mm', t.pipeAt) : ''}
       ${m.brace ? num('braceDrop', 'Brace foot below the arm, mm', t.braceDrop) + num('braceReach', 'Brace top along the arm, mm', t.braceReach) : ''}
       ${m.base ? (t.shape === 'HANGER_ARM' ? plateRows('basePlate', 'Roof plate (bolted)', 'None — welded to the steel above', 'Off the post centre, mm (+ right)') : plateRows('basePlate', 'Base plate', 'None — welded to existing steel', 'Off the post centre, mm (+ right)')) : ''}${m.top ? plateRows('topPlate', 'Top plate', 'None — the pipe on the post', 'Off the post centre, mm (+ right)') : ''}${m.wall ? plateRows('wallPlate', 'Wall plate', 'None — welded to existing steel', 'Off its place, mm (+ up)') : ''}
+      ${gussetCount(t) ? `<div class="st-plate"><div class="row"><label>Rib (gusset)</label><select data-st-gusset><option value="0"${t.gusset ? '' : ' selected'}>None</option><option value="1"${t.gusset ? ' selected' : ''}>Triangle — ${gussetCount(t) === 2 ? 'two, under the beam each side' : 'in the corner of the arm'}</option></select></div>${
+        t.gusset
+          ? `<div class="st-cells"><label class="st-cell"><span>Leg, mm</span><input type="number" inputmode="numeric" min="10" data-st="gusset.leg" value="${t.gusset.leg}" /></label><label class="st-cell"><span>Thick</span><input type="number" inputmode="numeric" min="1" data-st="gusset.t" value="${t.gusset.t}" /></label></div>`
+          : ''
+      }</div>` : ''}
       <div class="row"><label>U-bolt</label><select data-st="uBolt"><option value="1"${t.uBolt ? ' selected' : ''}>Yes — M${uBoltRod(t.dn)} DIN 3570</option><option value="0"${t.uBolt ? '' : ' selected'}>No — the pipe rests on it</option></select></div>
       <div class="row"><label>Note</label><input type="text" data-st="note" value="${esc(t.note ?? '')}" placeholder="printed on its detail sheet" /></div>
       <div class="row"><label>Quantity to make</label><input type="number" inputmode="numeric" min="0" step="1" data-st="qty" value="${t.qty ?? ''}" placeholder="as on the line (${supportUses(d).get(t.id) || 1})" /></div>
@@ -3454,7 +3459,10 @@ function supportTypeDialog(id: string | null, forComp?: string, shape?: SupportS
     else if (path === 'note') t.note = el.value.trim() || undefined;
     else if (path === 'uBolt') t.uBolt = el.value === '1';
     else if (path === 'post' || path === 'beam' || path === 'arm' || path === 'brace') t[path] = el.value;
-    else if (path.includes('.')) {
+    else if (path.startsWith('gusset.')) {
+      const v = Number(el.value);
+      if (t.gusset && Number.isFinite(v) && v > 0) t.gusset[path.slice(7) as 'leg' | 't'] = v;
+    } else if (path.includes('.')) {
       const [plate, f] = path.split('.') as ['basePlate' | 'topPlate' | 'wallPlate', keyof NonNullable<SupportType['basePlate']>];
       const v = Number(el.value);
       if (t[plate] && Number.isFinite(v) && (v >= 0 || f === 'shift')) t[plate]![f] = v;
@@ -3482,6 +3490,11 @@ function supportTypeDialog(id: string | null, forComp?: string, shape?: SupportS
         draw();
       }),
     );
+    backdrop.querySelector<HTMLSelectElement>('[data-st-gusset]')?.addEventListener('change', (e) => {
+      if ((e.target as HTMLSelectElement).value === '1') t.gusset = t.gusset ?? { leg: 100, t: 8 };
+      else delete t.gusset;
+      draw();
+    });
     backdrop.querySelectorAll<HTMLInputElement>('[data-st-mark]').forEach((el) =>
       el.addEventListener('change', () => {
         if (el.checked) chosen.add(el.dataset.stMark!);

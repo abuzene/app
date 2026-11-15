@@ -70,6 +70,12 @@ export interface SupportType {
   topPlate?: SupportPlate;
   /** A U-bolt round the pipe (DIN 3570). */
   uBolt: boolean;
+  /**
+   * A triangular rib (gusset) in the corner between two members (his ask,
+   * 2026-11-16): `leg` along each member, `t` thick, mm. Where it goes is
+   * the shape's: under an arm or beam against its post or wall.
+   */
+  gusset?: { leg: number; t: number };
   note?: string;
   /**
    * Which detail sheet it is drawn on (his ask, 2026-11-16: several
@@ -276,11 +282,53 @@ export function supportParts(t: SupportType): SupportPart[] {
     parts.push({ mark: parts.length + 1, description: `ANCHOR BOLT M${Math.round(t.basePlate.hole - 2)} WITH NUT AND WASHER`, size: 'TO SUIT ROOF', qty: 4, kg: 0 });
   plate('TOP PLATE', t.topPlate);
   plate('WALL PLATE', t.wallPlate);
+  const ribs = gussetCount(t);
+  if (t.gusset && ribs) {
+    const { leg, t: th } = t.gusset;
+    parts.push({ mark: parts.length + 1, description: `GUSSET PL ${th} TRIANGLE`, size: `${leg}x${leg}`, qty: ribs, kg: Math.round(((leg * leg) / 2) * th * 7.85e-6 * ribs * 100) / 100 });
+  }
   if (t.uBolt) {
     const rod = uBoltRod(t.dn);
     parts.push({ mark: parts.length + 1, description: `U-BOLT M${rod} DIN 3570 WITH 4 NUTS`, size: `FOR ${sizeLabel(t.dn)} PIPE`, qty: 1, kg: 0 });
   }
   return parts;
+}
+
+/** How many ribs a shape takes: one in each corner between two of its members. */
+export function gussetCount(t: SupportType): number {
+  switch (t.shape) {
+    case 'POST_T':
+      return 2; // under the beam, each side of the post
+    case 'POST_ARM':
+    case 'HANGER_ARM':
+    case 'BRACKET_L':
+    case 'BRACKET_BRACED':
+      return 1; // in the corner of the arm and the post or wall
+    default:
+      return 0; // one member only
+  }
+}
+
+/**
+ * The least a support counts in the weight he charges by (his ask,
+ * 2026-11-16: "a support may weigh under 5 kg on its own, but the total I
+ * bill the customer by counts at least 5 kg a support").
+ */
+export const SUPPORT_BILL_MIN_KG = 5;
+
+/** Each type: how many, what one weighs, what they count for in the bill. */
+export function supportSchedule(drawing: Drawing): { rows: { id: string; name: string; shape: SupportShape; qty: number; kg: number; billed: number }[]; steel: number; billed: number } {
+  const qty = supportQty(drawing);
+  const rows = (drawing.supportTypes ?? []).map((t) => {
+    const kg = Math.round(supportParts(t).reduce((a, p) => a + p.kg, 0) * 100) / 100;
+    const n = qty.get(t.id) ?? 0;
+    return { id: t.id, name: t.name, shape: t.shape, qty: n, kg, billed: Math.round(Math.max(kg, SUPPORT_BILL_MIN_KG) * n * 10) / 10 };
+  });
+  return {
+    rows,
+    steel: Math.round(rows.reduce((a, r) => a + r.kg * r.qty, 0) * 10) / 10,
+    billed: Math.round(rows.reduce((a, r) => a + r.billed, 0) * 10) / 10,
+  };
 }
 
 /** How many supports on the sheet are of each type. */

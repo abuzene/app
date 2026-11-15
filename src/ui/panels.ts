@@ -8,7 +8,7 @@ import { projectsOf, sheetNumber } from '../model/library';
 import { applyChainDimension, applyReducer, setFlangeStd, elbowTurns, turnElbow, freeDimensions, offersAutoCoupling, resetDrawnLength, setAutoCoupling, wantsAutoCoupling, deletePoint, isCouplingPoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, runLength, setGroupLength, setLastFlange, deleteRunGroup, DASHED_NOTE, setLineSize, setRunDashed, setRunDirect, setRunLength, setTerminal, setEndSize, splitRun, addStockWelds } from '../model/edit';
 import { setDriveClientId } from '../model/drive';
 import { reducerPreview } from './reducer-preview';
-import { SUPPORT_SHAPES, supportMarks, supportMaterial, supportParts, supportQty, supportSheetGroups, supportUses, type SupportShape } from '../model/supports';
+import { SUPPORT_SHAPES, supportMarks, supportMaterial, supportParts, supportQty, supportSchedule, supportSheetGroups, supportUses, SUPPORT_BILL_MIN_KG, type SupportShape } from '../model/supports';
 
 const supportShapeName = (shape: SupportShape) => SUPPORT_SHAPES.find((x) => x.id === shape)?.name ?? shape;
 import { SHEET_STAMPS, sheetStamp } from '../render/sheet';
@@ -857,6 +857,7 @@ function supportsTab(host: Host): string {
     return these.length ? ` (${these.join(', ')})` : '';
   };
   const made = supportQty(drawing);
+  const schedule = supportSchedule(drawing);
   const rows = types
     .map((t) => {
       const n = uses.get(t.id) ?? 0;
@@ -865,7 +866,7 @@ function supportsTab(host: Host): string {
       return `<div class="sheet-row" data-support-type="${esc(t.id)}">
       <div class="sheet-main"><strong>${esc(t.name)}</strong> · ${esc(supportShapeName(t.shape))} · ${esc(sizeLabel(t.dn))} pipe</div>
       <div class="sheet-sub">${n ? `${n} on the line${names(t.id)}` : 'not on the line yet — counted as 1'} · ${kg.toFixed(1)} kg each · detail sheet ${sheetOf.get(t.id) ?? '—'}</div>
-      <label class="support-qty">Quantity <input type="number" inputmode="numeric" min="0" step="1" data-support-qty="${esc(t.id)}" value="${t.qty ?? ''}" placeholder="${n || 1}" /> = <strong>${(kg * q).toFixed(1)} kg</strong></label>
+      <label class="support-qty">Quantity <input type="number" inputmode="numeric" min="0" step="1" data-support-qty="${esc(t.id)}" value="${t.qty ?? ''}" placeholder="${n || 1}" /> = <strong>${(Math.max(kg, SUPPORT_BILL_MIN_KG) * q).toFixed(1)} kg</strong>${kg < SUPPORT_BILL_MIN_KG && q ? ` <span class="st-other">(${SUPPORT_BILL_MIN_KG} kg each at least)</span>` : ''}</label>
       <button class="sheet-remove" data-remove-support="${esc(t.id)}" type="button" title="Delete this support type">×</button>
     </div>`;
     })
@@ -886,7 +887,8 @@ ${
   <h3>Support material — this sheet</h3>
   <table class="support-material"><thead><tr><th>Description</th><th>Length / size</th><th>Qty</th><th>kg</th></tr></thead><tbody>
   ${material.map((r) => `<tr><td>${esc(r.description)}</td><td>${esc(r.size)}</td><td>${r.qty || ''}</td><td>${r.kg ? r.kg.toFixed(1) : '—'}</td></tr>`).join('')}
-  <tr class="total"><td colspan="3">Total</td><td>${material.reduce((a, r) => a + r.kg, 0).toFixed(1)}</td></tr>
+  <tr class="total"><td colspan="3">Steel</td><td>${schedule.steel.toFixed(1)}</td></tr>
+  <tr class="total billed"><td colspan="3">Billed — ${schedule.rows.reduce((a, r) => a + r.qty, 0)} supports, ${SUPPORT_BILL_MIN_KG} kg each at least</td><td>${schedule.billed.toFixed(1)}</td></tr>
   </tbody></table>
 </div>`
     : ''

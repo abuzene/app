@@ -9,6 +9,7 @@ import type { Drawing } from '../model/types';
 import { sizeLabel, sizeOf } from '../model/pipe-data';
 import {
   basePlateName,
+  gussetCount,
   membersOf,
   supportMarks,
   supportSheetGroups,
@@ -17,6 +18,8 @@ import {
   supportMaterial,
   supportParts,
   supportQty,
+  supportSchedule,
+  SUPPORT_BILL_MIN_KG,
   uBoltRod,
   SUPPORT_SHAPES,
   type Profile,
@@ -433,6 +436,34 @@ function elevation(t: SupportType, pen: Pen | null): Elevation {
     under = arm.t;
   }
 
+  // A rib (gusset) in each corner between two members (his ask, 2026-11-16).
+  if (t.gusset && gussetCount(t)) {
+    const g = t.gusset.leg;
+    const corners: { x: number; y: number; sx: number; sy: number }[] =
+      t.shape === 'POST_T'
+        ? [
+            { x: post.h / 2, y: H - beam.h, sx: 1, sy: -1 },
+            { x: -post.h / 2, y: H - beam.h, sx: -1, sy: -1 },
+          ]
+        : t.shape === 'POST_ARM'
+          ? [{ x: post.h / 2, y: H - arm.h, sx: 1, sy: -1 }]
+          : t.shape === 'HANGER_ARM'
+            ? [{ x: post.h / 2, y: seat, sx: 1, sy: 1 }]
+            : [{ x: 0, y: H - arm.h, sx: 1, sy: -1 }];
+    for (const k of corners) {
+      P.poly(
+        [
+          { x: k.x, y: k.y },
+          { x: k.x + k.sx * g, y: k.y },
+          { x: k.x, y: k.y + k.sy * g },
+        ],
+        'sd-steel',
+      );
+    }
+    const k = corners[0];
+    marks.push({ mark: markOf('GUSSET'), at: { x: k.x + k.sx * g * 0.3, y: k.y + k.sy * g * 0.3 }, dx: 7 * k.sx, dy: 7 * -k.sy });
+  }
+
   // The pipe, its centre lines, and the U-bolt round it.
   const c = { x: pipeX, y: seat + rp };
   P.circle(c, rp, 'sd-pipe');
@@ -610,7 +641,7 @@ function supportCell(drawing: Drawing, t: SupportType, box: Box, wide: boolean, 
   pen.close();
   const shapeName = SUPPORT_SHAPES.find((x) => x.id === t.shape)?.name.toUpperCase() ?? t.shape;
   let out = text(box.x + elevW / 2, box.y + 3.2, wide ? `${t.name} — ${shapeName}, LOOKING ALONG THE PIPE` : `${t.name} — ${shapeName}`, 'sd-view-title', 'middle');
-  out += text(box.x + elevW / 2, box.y + 6.6, `${usedOn(drawing, t)} · SCALE 1:${n}`, 'sd-view-scale', 'middle');
+  out += text(box.x + elevW / 2, box.y + 6.6, `${supportQty(drawing).get(t.id) ?? 0} OFF · ${usedOn(drawing, t)} · SCALE 1:${n}`, 'sd-view-scale', 'middle');
   out += pen.out;
 
   // Each plate flat, down the right of the box, where he put it.
@@ -688,7 +719,7 @@ export function renderSupportDetailSheet(drawing: Drawing, types: SupportType[],
 
   // The column.
   const uses = supportQty(drawing);
-  const rowH = types.length > 2 ? 3.5 : 4.2;
+  let rowH = 4.2;
   const headH = 5;
   let y = MARGIN;
   let colSvg = '';
@@ -707,6 +738,14 @@ export function renderSupportDetailSheet(drawing: Drawing, types: SupportType[],
     `SUPPORTS MARKED ${types.map((t) => t.name).join(', ')} ON THE ISOMETRIC.`,
   ];
   const noteY = stampY - 4 - notes.length * 3.2;
+  // The rows as tight as it takes for the three tables to fit above the notes.
+  {
+    const lines =
+      ((drawing.supportTypes ?? []).length + 1) +
+      types.reduce((a, t) => a + supportParts(t).length + (types.length > 1 ? 1 : 0), 1) +
+      (supportMaterial(drawing).length + 1);
+    rowH = Math.max(2.8, Math.min(4.2, (noteY - 5 - MARGIN - 3 * headH * 2 - 6) / (lines + 2)));
+  }
   const table = (title: string, head: string[], widths: number[], body: (string[] | { group: string })[], foot: string | undefined, room: number) => {
     const fits = Math.max(1, Math.floor((room - headH * 2 - (foot ? rowH : 0)) / rowH));
     const shown = body.length > fits ? [...body.slice(0, fits - 1), { group: `AND ${body.length - fits + 1} MORE LINES` }] : body;
@@ -742,25 +781,47 @@ export function renderSupportDetailSheet(drawing: Drawing, types: SupportType[],
   };
   const material = supportMaterial(drawing);
   const materialRoom = headH * 2 + rowH * (Math.max(material.length, 1) + 1);
+  // How many of each support and what they weigh, all the line's types
+  // (his ask, 2026-11-16: "the quantities of each support on the sheet of
+  // all of them, counted in the total"), and the total he bills by, every
+  // support counted at no less than SUPPORT_BILL_MIN_KG.
+  const schedule = supportSchedule(drawing);
+  const shapeOf = (shape: string) => SUPPORT_SHAPES.find((x) => x.id === shape)?.name.toUpperCase() ?? shape;
+  table(
+    'SUPPORT SCHEDULE — QUANTITIES',
+    ['TYPE', 'SHAPE', 'QTY', 'KG EACH', 'KG'],
+    [0.15, 0.39, 0.1, 0.17, 0.19],
+    schedule.rows.map((r) => [
+      r.name,
+      shapeOf(r.shape),
+      String(r.qty),
+      r.kg.toFixed(1),
+      `${r.billed.toFixed(1)}${r.kg < SUPPORT_BILL_MIN_KG && r.qty ? ' (MIN)' : ''}`,
+    ]),
+    `${schedule.rows.reduce((a, r) => a + r.qty, 0)} SUPPORTS · BILLED ${schedule.billed.toFixed(1)} KG (MIN ${SUPPORT_BILL_MIN_KG} KG EACH)`,
+    headH * 2 + rowH * (schedule.rows.length + 1),
+  );
+  y += 3;
   const partsRows: (string[] | { group: string })[] = [];
   let all = 0;
   for (const t of types) {
     const parts = supportParts(t);
     const one = parts.reduce((a, p) => a + p.kg, 0);
     const n = uses.get(t.id) ?? 0;
-    all += one * n;
+    all += Math.max(one, SUPPORT_BILL_MIN_KG) * n;
     if (types.length > 1) partsRows.push({ group: `${t.name} — ${n} OFF · ${one.toFixed(1)} KG EACH` });
     for (const p of parts) partsRows.push([String(p.mark), p.description, p.size, String(p.qty), p.kg ? p.kg.toFixed(1) : '—']);
   }
   const single = types.length === 1 ? types[0] : null;
   const oneKg = single ? supportParts(single).reduce((a, p) => a + p.kg, 0) : 0;
+  const singleN = single ? uses.get(single.id) ?? 0 : 0;
   table(
     single ? `PARTS LIST — ${single.name}, ONE SUPPORT` : 'PARTS LIST — ONE SUPPORT OF EACH',
     ['MK', 'DESCRIPTION', 'SIZE', 'QTY', 'KG'],
     [0.07, 0.5, 0.21, 0.09, 0.13],
     partsRows,
     single
-      ? `${uses.get(single.id) ?? 0} OFF · ${oneKg.toFixed(1)} KG EACH · ${(oneKg * (uses.get(single.id) ?? 0)).toFixed(1)} KG IN ALL`
+      ? `${singleN} OFF · ${oneKg.toFixed(1)} KG EACH · ${(Math.max(oneKg, SUPPORT_BILL_MIN_KG) * singleN).toFixed(1)} KG IN ALL${oneKg < SUPPORT_BILL_MIN_KG ? ` (MIN ${SUPPORT_BILL_MIN_KG} KG EACH)` : ''}`
       : `THESE ${types.length} TYPES · ${all.toFixed(1)} KG IN ALL`,
     noteY - 5 - y - materialRoom - 3,
   );
@@ -770,7 +831,7 @@ export function renderSupportDetailSheet(drawing: Drawing, types: SupportType[],
     ['DESCRIPTION', 'LENGTH / SIZE', 'QTY', 'KG'],
     [0.54, 0.24, 0.09, 0.13],
     material.map((r) => [r.description, r.size, r.qty ? String(r.qty) : '', r.kg ? r.kg.toFixed(1) : '—']),
-    `TOTAL ${material.reduce((a, r) => a + r.kg, 0).toFixed(1)} KG`,
+    `TOTAL STEEL ${schedule.steel.toFixed(1)} KG · BILLED ${schedule.billed.toFixed(1)} KG`,
     Math.max(materialRoom, noteY - 5 - y),
   );
   let notesSvg = '';
@@ -795,7 +856,7 @@ text { font-family: "Helvetica Neue", Arial, sans-serif; }
 .tb-label { font-size: 1.7px; fill: #5b6675; letter-spacing: 0.06em; }
 .tb-value { font-size: 2.4px; fill: #12161c; }
 .tb-head { font-size: 1.9px; font-weight: 700; letter-spacing: 0.05em; }
-.tb-cell { font-size: ${rowH < 4 ? 1.85 : 2.05}px; }
+.tb-cell { font-size: ${rowH < 3.3 ? 1.7 : rowH < 4 ? 1.85 : 2.05}px; }
 .note-text { font-size: 1.95px; fill: #3d4756; }
 ${SUPPORT_CSS(k)}
 `, `#${id}`)}</style>

@@ -5939,7 +5939,7 @@ check('supports: made for a support, the support has it', supD.supportTypes?.len
 await page.click('#tabs button:has-text("Supports")');
 await page.waitForTimeout(200);
 const supText = await page.locator('#tab-body').innerText();
-check('supports: the support material is listed on its own', supText, (t) => /UPN 120/.test(t) && /L 50x50x5/.test(t) && /U-BOLT M12/.test(t) && /Total/.test(t), 'UPN 120, L 50x50x5, U-bolt, total');
+check('supports: the support material is listed on its own', supText, (t) => /UPN 120/.test(t) && /L 50x50x5/.test(t) && /U-BOLT M12/.test(t) && /Steel/.test(t), 'UPN 120, L 50x50x5, U-bolt, steel total');
 // The detail sheets, from the Supports tab through the print dialog.
 await page.click('#tab-body [data-a="print-supports"]');
 await page.waitForTimeout(250);
@@ -6083,7 +6083,7 @@ await page.click('#tab-body [data-a="print-supports"]');
 await page.waitForTimeout(250);
 await page.click('.dialog [data-x="preview"]');
 await page.waitForTimeout(600);
-const hangerSheet = (await page.evaluate(() => [...document.querySelectorAll('.sheet-preview svg')].map((s) => s.textContent))).find((t) => /HANGER WITH ARM/.test(t)) ?? '';
+const hangerSheet = (await page.evaluate(() => [...document.querySelectorAll('.sheet-preview svg')].map((s) => s.textContent))).find((t) => /— HANGER WITH ARM/.test(t)) ?? '';
 check('hanger: its detail has the roof plate, the post down to the arm and one off', hangerSheet, (t) => /ROOF PLATE PL 10 4 HOLES Ø18/.test(t) && /POST RHS 100x100x5/.test(t) && /L=660/.test(t) && /ARM L 70x70x7/.test(t) && /1 OFF/.test(t), 'roof plate, post L=660, arm, 1 off');
 await page.click('.dialog [data-close]');
 await page.waitForTimeout(200);
@@ -6132,6 +6132,44 @@ for (let i = 0; i < 4 && !(await page.locator(wallSel).count()); i += 1) {
 }
 check('support plates: a grid\'s arrangement leaves the sheet of its own as drawn', await page.locator(wallSel).getAttribute('transform'), (v) => !v, 'no move');
 await page.click('[data-editor="support-arrange"] [data-ar="close"]');
+await page.waitForTimeout(200);
+
+// His billing rule (2026-11-16): "a support may weigh under 5 kg on its own,
+// but in the total I bill by every support counts at least 5 kg"; the
+// quantities of every support on the sheet of all of them; and a
+// triangular rib (gusset) between two members.
+await page.click('#tabs button:has-text("Supports")');
+await page.waitForTimeout(200);
+await page.selectOption('#tab-body [data-f="support-new"]', 'BRACKET_L');
+await page.waitForTimeout(250);
+// Welded straight to the steel there, no wall plate: an arm and a rib, under 5 kg.
+await page.selectOption('[data-editor="support-type"] [data-st-plate="wallPlate"]', '0');
+await page.waitForTimeout(200);
+await page.selectOption('[data-editor="support-type"] [data-st-gusset]', '1');
+await page.waitForTimeout(200);
+check('rib: a gusset offered and set, its leg and thickness', await page.locator('[data-editor="support-type"] [data-st="gusset.leg"], [data-editor="support-type"] [data-st="gusset.t"]').count(), (v) => v === 2, '2');
+await page.locator('[data-editor="support-type"] [data-st-mark]').evaluateAll((els) => els.forEach((el) => { if (el.checked) el.click(); }));
+await page.fill('[data-editor="support-type"] [data-st="qty"]', '3');
+await page.locator('[data-editor="support-type"] [data-st="qty"]').dispatchEvent('input');
+await page.click('[data-editor="support-type"] [data-confirm]');
+await page.waitForTimeout(300);
+supD = await drawingNow();
+const light = supD.supportTypes.find((t) => t.shape === 'BRACKET_L');
+check('rib: kept with the type', light?.gusset, (v) => v && v.leg === 100 && v.t === 8, '{leg 100, t 8}');
+const lightRow = await page.locator(`#tab-body [data-support-type="${light.id}"] .support-qty`).innerText();
+check('billing: a support under 5 kg counts 5 kg each, 3 off = 15 kg', lightRow, (t) => /15\.0 kg/.test(t) && /5 kg each at least/.test(t), '15.0 kg, 5 kg each at least');
+check('billing: the tab gives the steel and the billed weight', await page.locator('#tab-body table.support-material').innerText(), (t) => /Steel/.test(t) && /Billed — \d+ supports, 5 kg each at least/.test(t), 'Steel, Billed');
+await page.click('#tab-body [data-a="supports-one-sheet"]');
+await page.waitForTimeout(300);
+await page.click('#tab-body [data-a="print-supports"]');
+await page.waitForTimeout(250);
+await page.click('.dialog [data-x="preview"]');
+await page.waitForTimeout(700);
+const allSheet = (await page.locator('.sheet-preview svg').first().textContent()) ?? '';
+const lightName = light.name;
+check('quantities: the sheet of all the supports has the schedule, each with its quantity', allSheet, (t) => /SUPPORT SCHEDULE — QUANTITIES/.test(t) && new RegExp(`${lightName}ARM FROM WALL3[\\d.]+15\\.0 \\(MIN\\)`).test(t) && /BILLED [\d.]+ KG \(MIN 5 KG EACH\)/.test(t) && /3 OFF ·/.test(t), `${lightName} 3 off, 15.0 (MIN), billed total`);
+check('rib: on the parts list, a triangle', allSheet, (t) => /GUSSET PL 8 TRIANGLE100x100/.test(t), 'GUSSET PL 8 TRIANGLE 100x100');
+await page.click('.dialog [data-close]');
 await page.waitForTimeout(200);
 
 // A reducer put along a pipe over a support: the support goes to the pipe
