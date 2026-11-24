@@ -953,6 +953,52 @@ function layout(drawing: Drawing, nodeById: Map<string, IsoNode>, adjacency: Map
   return display;
 }
 
+/** What a piece shift needs of the drawing as it was before an edit. */
+export interface ShiftBefore {
+  shifts: Record<string, Vec3>;
+  display: Map<string, Vec3>;
+  starts: Map<string, string>;
+  pos: Map<string, Vec3>;
+}
+
+/** Notes, before an edit, where each point was drawn and which piece it was in. */
+export function shiftBefore(drawing: Drawing, analysis: Analysis): ShiftBefore | null {
+  if (!drawing.pieceShift || !Object.keys(drawing.pieceShift).length) return null;
+  return {
+    shifts: { ...drawing.pieceShift },
+    display: analysis.display,
+    starts: analysis.pieceStart,
+    pos: new Map(drawing.nodes.map((n) => [n.id, { ...n.pos }])),
+  };
+}
+
+/**
+ * A piece's shift is kept by its first point. When an edit takes that
+ * point away (a weld removed, the point joined through), the shift goes to
+ * the piece's new first point, set so that point is drawn where it was —
+ * else the whole piece jumped to where it really is, off the screen (his
+ * INBAR sheet, 2026-11-24: weld 2.9 was the piece's first point, and
+ * removing it "deleted the whole line": it had only gone out of sight).
+ */
+export function carryPieceShift(before: ShiftBefore | null, drawing: Drawing): void {
+  if (!before) return;
+  const alive = new Set(drawing.nodes.map((n) => n.id));
+  for (const key of Object.keys(before.shifts)) {
+    if (alive.has(key)) continue;
+    if (drawing.pieceShift) delete drawing.pieceShift[key];
+    // The new first point: the first, in the drawing's order, of those left
+    // of that piece (the order the layout takes its starts in).
+    const heir = drawing.nodes.find((n) => before.starts.get(n.id) === key && before.display.has(n.id) && before.pos.has(n.id));
+    if (!heir || drawing.pieceShift?.[heir.id]) continue;
+    const drawn = before.display.get(heir.id)!;
+    const truePos = before.pos.get(heir.id)!;
+    const shift = sub(drawn, truePos);
+    if (length3(shift) < 0.01) continue;
+    drawing.pieceShift = { ...(drawing.pieceShift ?? {}), [heir.id]: shift };
+  }
+  if (drawing.pieceShift && !Object.keys(drawing.pieceShift).length) delete drawing.pieceShift;
+}
+
 /**
  * How much length a run loses at one of its ends. Everywhere but an olet this
  * is just the fitting's take-out; at an olet the header runs lose nothing,

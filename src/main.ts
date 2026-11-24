@@ -4,7 +4,7 @@ import type { Preview, Pt, Selection } from './render/renderer';
 import type { AppState, Host, OletAsk, OletChoice, ReducerAsk, ReducerChoice } from './ui/types';
 import { reducerPreview } from './ui/reducer-preview';
 import { tidyLayout, type LayoutSpecs } from './render/tidy';
-import { COMPONENT_LABEL, isValve, analyse, chainStops, dimensionStops, drawnLength, drawnStations, runDrawnFloor, trueAtShare, type DrawnStations, isMark, isReducer, itemAtEnd, itemHalf, runGroupIds, emptyDrawing, oletLegs, oletMarks, pipeStretchAt, type PipeStretchPart, uid } from './model/drawing';
+import { COMPONENT_LABEL, carryPieceShift, shiftBefore, isValve, analyse, chainStops, dimensionStops, drawnLength, drawnStations, runDrawnFloor, trueAtShare, type DrawnStations, isMark, isReducer, itemAtEnd, itemHalf, runGroupIds, emptyDrawing, oletLegs, oletMarks, pipeStretchAt, type PipeStretchPart, uid } from './model/drawing';
 import { isRemoved, loadLibrary, makeRoomAfter, retargetFrom, projectsOf, removeDrawing, renumberProject, renumberSheets, sheetNumber, upsertDrawing, worthKeeping } from './model/library';
 import { allowFolder, chooseFolder, folderStatus, forgetFolder, restoreFolder, syncFolder } from './model/folder';
 import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, setDriveClientId, syncDrive } from './model/drive';
@@ -198,7 +198,10 @@ const host: Host = {
     undoStack.push(snapshot());
     if (undoStack.length > UNDO_LIMIT) undoStack.shift();
     redoStack.length = 0;
+    const shifted = shiftBefore(state.drawing, state.analysis);
     mutator(state.drawing);
+    // A piece whose first point went keeps where it is drawn.
+    carryPieceShift(shifted, state.drawing);
     // Equipment keeps with its point, and the line beyond it with the box.
     syncEquipment(state.drawing);
     uncoverPoints(state.drawing);
@@ -681,8 +684,35 @@ function openWeldEditor(key: string, clientX: number, clientY: number): void {
             label: 'Change this one only',
             act: (text) => renumberWeld(key, text, true),
           },
+          // A pipe-to-pipe weld on a straight line is a point that need not
+          // be there: it goes, and the pipe runs on whole.
+          ...(plainWeldPoint(key) ? [{ label: 'Remove this weld — one pipe', act: () => removePlainWeld(key) }] : []),
         ],
   );
+}
+
+/**
+ * The point under a pipe-to-pipe weld on a straight line, when the weld can
+ * go by joining the pipe through (his INBAR sheet, 2026-11-24: "an
+ * unnecessary weld 2.9 — a straight piece of 200 from the half coupling to
+ * the flange; deleting the weld deletes the whole line"): the weld itself
+ * could not be deleted, a tap beside it picked the pipe, and Delete pipe
+ * took the pipe.
+ */
+function plainWeldPoint(key: string): string | null {
+  const m = /^n:([^:]+)$/.exec(key);
+  return m && isPlainPoint(state.drawing, m[1]) ? m[1] : null;
+}
+
+/** Takes a pipe-to-pipe weld out: its point goes, the pipe either side is one. */
+function removePlainWeld(key: string): void {
+  const node = plainWeldPoint(key);
+  if (!node) return;
+  const number = state.analysis.joints.find((j) => j.key === key)?.number;
+  host.edit('Remove weld', (d) => deletePoint(d, node));
+  canvas.setAnchor(null);
+  host.select(null);
+  host.notify(`Weld${number ? ` ${number}` : ''} removed; the pipe runs on as one length.`);
 }
 
 /**
@@ -2047,6 +2077,7 @@ function renderHud(): void {
     if (run && !header) parts.push(`<button class="hud-stop" id="hud-direct" type="button">${run.direct ? 'Pipe here after all' : 'No pipe — fittings touch'}</button>`);
     if (run) parts.push(`<button class="hud-stop" id="hud-dashed" type="button">${run.dashed ? 'Solid line' : 'Dashed — next sheet'}</button>`);
   }
+  if (sel?.kind === 'weld' && plainWeldPoint(sel.key)) parts.push('<button class="hud-stop hud-delete" id="hud-remove-weld" type="button">Remove weld</button>');
   if (sel && sel.kind !== 'weld') {
     const flanged = sel.kind === 'node' && !!state.drawing.nodes.find((n) => n.id === sel.id)?.flange;
     const olet = sel.kind === 'node' && oletAlone(sel.id);
@@ -2066,6 +2097,9 @@ function renderHud(): void {
   hudEl.innerHTML = parts.join('');
   hudEl.querySelector('#hud-stop')?.addEventListener('click', stopDrawing);
   hudEl.querySelector('#hud-delete')?.addEventListener('click', deleteSelection);
+  hudEl.querySelector('#hud-remove-weld')?.addEventListener('click', () => {
+    if (state.selection?.kind === 'weld') removePlainWeld(state.selection.key);
+  });
   hudEl.querySelector('#hud-direct')?.addEventListener('click', () => {
     if (state.selection?.kind !== 'run') return;
     if (closePickedPiece()) return;

@@ -6172,6 +6172,64 @@ check('rib: on the parts list, a triangle', allSheet, (t) => /GUSSET PL 8 TRIANG
 await page.click('.dialog [data-close]');
 await page.waitForTimeout(200);
 
+// A pipe-to-pipe weld on a straight line taken out (his INBAR sheet,
+// 2026-11-24: "an unnecessary weld 2.9 — a straight piece of 200 from the
+// half coupling to the flange; trying to delete the weld deletes the whole
+// line"): the weld's keypad and the HUD offer Remove weld, the point goes
+// and the pipe runs on as one; the line stays.
+await routeLine('2"\nSCH40\nORIGIN 0 0 0\nE 1000\nE 200\nN 600');
+await page.waitForTimeout(200);
+let pw = await drawingNow();
+const plainWeldNode = pw.nodes.find((n) => n.pos.e === 1000 && n.pos.n === 0 && n.pos.u === 0)?.id;
+const runsBefore = pw.runs.length;
+const weldKeys = () => page.evaluate(() => new Set([...document.querySelectorAll('#canvas [data-weld]')].map((e) => e.dataset.weld)).size);
+const weldsBefore = await weldKeys();
+const plainHit = await page.evaluate((id) => {
+  const r = document.querySelector(`#canvas [data-weld="n:${id}"]`).getBoundingClientRect();
+  return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+}, plainWeldNode);
+await penTap(plainHit.x, plainHit.y);
+check('remove weld: a pipe-to-pipe weld\'s keypad offers to remove it', await page.locator('.dim-keypad [data-extra="2"]').innerText(), (v) => /Remove this weld/.test(v), 'Remove this weld — one pipe');
+await page.locator('.dim-keypad [data-extra="2"]').dispatchEvent('pointerdown', { bubbles: true });
+await page.waitForTimeout(400);
+pw = await drawingNow();
+check('remove weld: the point goes, the pipe is one, the line stays', [pw.runs.length, pw.nodes.some((n) => n.id === plainWeldNode), Math.max(...pw.nodes.map((n) => n.pos.e)), Math.max(...pw.nodes.map((n) => n.pos.n))].join(' '), (v) => v === `${runsBefore - 1} false 1200 600`, `${runsBefore - 1} false 1200 600`);
+check('remove weld: one weld fewer on the drawing', await weldKeys(), (v) => v === weldsBefore - 1, `${weldsBefore - 1}`);
+// An elbow's weld is no such weld: its keypad has no Remove.
+const elbowHit = await page.evaluate(() => {
+  const r = document.querySelector('#canvas [data-weld*=":r"]').getBoundingClientRect();
+  return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+});
+await penTap(elbowHit.x, elbowHit.y);
+check('remove weld: not offered on an elbow\'s weld', await page.locator('.dim-keypad [data-extra="2"]').count(), (v) => v === 0, '0');
+await page.keyboard.press('Escape');
+await page.waitForTimeout(200);
+
+// The same, where the weld's point is the first point of a piece drawn
+// shifted (his INBAR sheet: weld 2.9 was that point, and removing it threw
+// the whole line out of sight — "the whole line is deleted").
+await routeLine('2"\nSCH40\nORIGIN 0 0 0\nE 200\nE 1000\nN 600');
+await page.waitForTimeout(200);
+{
+  const d = await drawingNow();
+  const weldPoint = d.nodes.find((n) => n.pos.e === 200 && n.pos.n === 0).id;
+  d.nodes = [d.nodes.find((n) => n.id === weldPoint), ...d.nodes.filter((n) => n.id !== weldPoint)];
+  d.pieceShift = { [weldPoint]: { e: 5000, n: 2000, u: 0 } };
+  await page.evaluate((json) => localStorage.setItem('iso-draw.drawing.v1', json), JSON.stringify(d));
+  await page.reload();
+  await page.waitForTimeout(900);
+  const corner = d.nodes.find((n) => n.pos.e === 1200 && n.pos.n === 0).id;
+  const at = () => page.evaluate((id) => { const r = document.querySelector(`#canvas circle.hit-dot[data-node="${id}"]`)?.getBoundingClientRect(); return r ? [Math.round(r.x + r.width / 2), Math.round(r.y + r.height / 2)] : null; }, corner);
+  const was = await at();
+  const hit = await page.evaluate((id) => { const r = document.querySelector(`#canvas [data-weld="n:${id}"]`).getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; }, weldPoint);
+  await penTap(hit.x, hit.y);
+  await page.locator('.dim-keypad [data-extra="2"]').dispatchEvent('pointerdown', { bubbles: true });
+  await page.waitForTimeout(400);
+  const now = await at();
+  const after = await drawingNow();
+  check('remove weld: a shifted piece\'s first point removed, the line stays where it is drawn', was && now && Math.hypot(now[0] - was[0], now[1] - was[1]) < 2 && !after.nodes.some((n) => n.id === weldPoint), (v) => v === true, 'the corner drawn where it was, the point gone');
+}
+
 // A reducer put along a pipe over a support: the support goes to the pipe
 // beside it, not inside the reducer (it was left there on the same sheet).
 {

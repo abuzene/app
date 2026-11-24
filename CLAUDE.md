@@ -918,6 +918,21 @@ ships, and the decisions already taken, so they are not re-litigated.
   changing when I moved the olet". The A/E was a real bug too: merging
   header pieces through a second olet compared against entries already
   rewritten (fixed by noting the two pieces first).
+- **A weld removed from the weld itself** (his INBAR sheet, 2026-11-24:
+  "an unnecessary weld 2.9 — a straight piece of 200 from the half
+  coupling to the flange; deleting the weld deletes the whole line"): a
+  pipe-to-pipe weld on a straight line (`n:<node>` on a plain point,
+  `plainWeldPoint` in main.ts) offers **Remove this weld — one pipe** on
+  its keypad (the third extra, `[data-extra="2"]`) and **Remove weld** on
+  the HUD (`#hud-remove-weld`), both `removePlainWeld` → `deletePoint`: the
+  point goes and the pipe runs on as one length. The weld itself had no
+  delete, a tap beside it picked the pipe, and the drawing then **jumped
+  out of sight**: a piece's shift (`pieceShift`) is kept by its first
+  point, and his weld's point was it. `host.edit` now notes before every
+  mutation where each point is drawn (`shiftBefore`) and after it
+  `carryPieceShift` gives a shift whose point is gone to the piece's new
+  first point (the first left of it in node order), set so that point is
+  drawn where it was.
 - **Deleting a plain point** (degree 2, collinear, no fitting/flange/olet;
   `isPlainPoint`, `deletePoint`, `joinThrough` in edit.ts — the merge that
   `removeFlangeJoint` also uses) removes only the point and joins the pipe
