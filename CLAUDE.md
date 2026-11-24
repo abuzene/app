@@ -91,6 +91,16 @@ ships, and the decisions already taken, so they are not re-litigated.
   (`[data-a="undo-divide"]`, shown while one is kept for the project on
   screen, asks first) removes the sheets it made (tombstoned, so Drive
   and the folder lose them) and puts the others back.
+  **A removed sheet opened again goes back in its place** (his INBAR
+  sheet 1, removed by mistake, 2026-11-24: opened from its file it sorted
+  after the sheet that had become 1): Open of a sheet file whose id is
+  not in the library (a removed id comes back new, `takeUp`) and whose
+  number a sheet of its project holds (`putBackAt` in main.ts) first
+  makes room (`makeRoomAfter(project, k - 1)`), then `mendFromPutBack`
+  (library.ts) sets a moved sheet's "CONT. FROM" that now names itself
+  back to k when the sheet put back goes on to it, and `renumberKept`.
+  A removed sheet's copy is in Drive until the next sync deletes it (the
+  tombstone): fetch it then, save it outside the app's folder.
 
 ## Before every push
 

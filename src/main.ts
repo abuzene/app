@@ -5,7 +5,7 @@ import type { AppState, Host, OletAsk, OletChoice, ReducerAsk, ReducerChoice } f
 import { reducerPreview } from './ui/reducer-preview';
 import { tidyLayout, type LayoutSpecs } from './render/tidy';
 import { COMPONENT_LABEL, carryPieceShift, shiftBefore, isValve, analyse, chainStops, dimensionStops, drawnLength, drawnStations, runDrawnFloor, trueAtShare, type DrawnStations, isMark, isReducer, itemAtEnd, itemHalf, runGroupIds, emptyDrawing, oletLegs, oletMarks, pipeStretchAt, type PipeStretchPart, uid } from './model/drawing';
-import { isRemoved, loadLibrary, makeRoomAfter, retargetFrom, projectsOf, removeDrawing, renumberProject, renumberSheets, sheetNumber, upsertDrawing, worthKeeping } from './model/library';
+import { isRemoved, loadLibrary, makeRoomAfter, mendFromPutBack, retargetFrom, projectsOf, removeDrawing, renumberProject, renumberSheets, sheetNumber, upsertDrawing, worthKeeping } from './model/library';
 import { allowFolder, chooseFolder, folderStatus, forgetFolder, restoreFolder, syncFolder } from './model/folder';
 import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, setDriveClientId, syncDrive } from './model/drive';
 import { AXES, AXIS_VECTOR, add, axisFromScreenDelta, length3, lengthAlongAxis, scale3, sub } from './model/iso';
@@ -2650,8 +2650,15 @@ fileInput.addEventListener('change', async () => {
     }
     keepNow();
     undoStack.push(snapshot());
+    const putBack = putBackAt(parsed);
+    if (putBack) makeRoomAfter(putBack.project, putBack.k - 1);
     takeUp(parsed);
-    host.notify(`Opened ${file.name}`);
+    if (putBack) {
+      keepNow();
+      mendFromPutBack(putBack.project, putBack.k, putBack.goesOnTo);
+      renumberKept(putBack.project);
+    }
+    host.notify(putBack ? `Opened ${file.name} — back in its place as sheet ${putBack.k} of ${putBack.project}.` : `Opened ${file.name}`);
   } catch (error) {
     host.notify(error instanceof Error ? error.message : 'Could not open that file.');
   }
@@ -3889,6 +3896,30 @@ function renumberKept(project?: string): void {
   }
   recompute();
   persist();
+}
+
+/**
+ * A sheet file opened that is not in the library (a removed sheet comes
+ * back under a new id) and whose number another sheet of its project now
+ * holds goes back in its place: the sheets from that number on move up
+ * one. His INBAR sheet 1, removed by mistake, 2026-11-24: opened again it
+ * sorted after the sheet that had become 1.
+ */
+function putBackAt(parsed: Drawing): { project: string; k: number; goesOnTo: number[] } | null {
+  const project = parsed.meta?.project || '';
+  if (!project || !parsed.meta?.sheet) return null;
+  const library = loadLibrary();
+  if (parsed.id && !isRemoved(parsed.id) && library.some((e) => e.id === parsed.id)) return null;
+  const k = sheetNumber(parsed.meta.sheet);
+  const taken = library.some((e) => (e.drawing.meta.project || '') === project && e.id !== state.drawing.id && sheetNumber(e.drawing.meta.sheet) === k);
+  const onScreen = (state.drawing.meta.project || '') === project && state.drawing.runs.length > 0 && sheetNumber(state.drawing.meta.sheet) === k;
+  if (!taken && !onScreen) return null;
+  const goesOnTo: number[] = [];
+  for (const node of parsed.nodes) {
+    const m = node.terminal?.note?.match(/CONT\. ON SH\.(\d+)/);
+    if (m) goesOnTo.push(Number(m[1]));
+  }
+  return { project, k, goesOnTo };
 }
 
 /** Puts the drawing on screen in the library now, if it is worth keeping. */

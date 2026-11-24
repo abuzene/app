@@ -6230,6 +6230,49 @@ await page.waitForTimeout(200);
   check('remove weld: a shifted piece\'s first point removed, the line stays where it is drawn', was && now && Math.hypot(now[0] - was[0], now[1] - was[1]) < 2 && !after.nodes.some((n) => n.id === weldPoint), (v) => v === true, 'the corner drawn where it was, the point gone');
 }
 
+// A removed sheet opened again from its file goes back in its place (his
+// INBAR sheet 1, 2026-11-24: removed by mistake, the sheets after it
+// renumbered 1…3; opened again it must be sheet 1 again, the others 2…4,
+// their CONT. notes as they were).
+{
+  const base = await drawingNow();
+  const ends = (d) => d.nodes.slice(0, 3).map((n) => n.id);
+  const sheet = (id, k, notes) => {
+    const d = JSON.parse(JSON.stringify(base));
+    d.id = id;
+    d.meta = { ...d.meta, project: 'PUT BACK', sheet: `${k} of 4` };
+    const ids = ends(d);
+    notes.forEach((note, i) => { const n = d.nodes.find((x) => x.id === ids[i]); n.terminal = { kind: 'CONTINUATION', note }; });
+    return d;
+  };
+  const sheets = [sheet('dpb1', 1, ['CONT. ON SH.2']), sheet('dpb2', 2, ['CONT. FROM SH.1', 'CONT. ON SH.3', 'CONT. ON SH.4']), sheet('dpb3', 3, ['CONT. FROM SH.2']), sheet('dpb4', 4, ['CONT. FROM SH.2'])];
+  await page.evaluate((list) => {
+    const lib = JSON.parse(localStorage.getItem('iso-draw.library.v1') || '[]').filter((e) => e.drawing.meta.project !== 'PUT BACK');
+    localStorage.setItem('iso-draw.library.v1', JSON.stringify([...list.map((d, i) => ({ id: d.id, savedAt: Date.now() + i * 1000, drawing: d })), ...lib]));
+    localStorage.setItem('iso-draw.drawing.v1', JSON.stringify(list[0]));
+  }, sheets);
+  await page.reload();
+  await page.waitForTimeout(900);
+  const putBack = () => page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.library.v1')).filter((e) => e.drawing.meta.project === 'PUT BACK').map((e) => `${e.drawing.meta.sheet}:${e.drawing.nodes.map((n) => n.terminal?.note).filter(Boolean).join('|')}`).sort().join(' / '));
+  await page.click('#tabs button:has-text("Projects")');
+  await page.waitForTimeout(250);
+  await page.click('[data-remove-sheet="dpb1"]');
+  await page.waitForTimeout(200);
+  await page.click('.dialog-backdrop [data-confirm]');
+  await page.waitForTimeout(600);
+  check('put back: sheet 1 removed, the others are 1…3', await putBack(), (v) => /^1 of 3:CONT\. FROM SH\.1\|CONT\. ON SH\.2\|CONT\. ON SH\.3 \/ 2 of 3:CONT\. FROM SH\.1 \/ 3 of 3:CONT\. FROM SH\.1$/.test(v), 'three sheets, renumbered');
+  const { writeFile: writeSheet } = await import('node:fs/promises');
+  const file = join(out, 'put-back.iso.json');
+  await writeSheet(file, JSON.stringify(sheets[0]));
+  await page.setInputFiles('#file-input', file);
+  await page.waitForTimeout(900);
+  check('put back: the removed sheet opened from its file is sheet 1 again, the others 2…4 with their notes', await putBack(), (v) => v === '1 of 4:CONT. ON SH.2 / 2 of 4:CONT. FROM SH.1|CONT. ON SH.3|CONT. ON SH.4 / 3 of 4:CONT. FROM SH.2 / 4 of 4:CONT. FROM SH.2', 'as before the removal');
+  check('put back: said so', (await page.locator('#hud').innerText()).includes('back in its place as sheet 1'), (v) => v === true, '"back in its place as sheet 1"');
+  await page.reload();
+  await page.waitForTimeout(900);
+  check('put back: and so after the app is opened again', await putBack(), (v) => v === '1 of 4:CONT. ON SH.2 / 2 of 4:CONT. FROM SH.1|CONT. ON SH.3|CONT. ON SH.4 / 3 of 4:CONT. FROM SH.2 / 4 of 4:CONT. FROM SH.2', 'as before the removal');
+}
+
 // A reducer put along a pipe over a support: the support goes to the pipe
 // beside it, not inside the reducer (it was left there on the same sheet).
 {

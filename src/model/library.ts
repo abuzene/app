@@ -164,6 +164,39 @@ export function makeRoomAfter(project: string, k: number): void {
 }
 
 /**
+ * A sheet put back at number `k` (a removed sheet opened again from its
+ * file, his INBAR sheet 1, 2026-11-24): `makeRoomAfter(project, k - 1)`
+ * moved every sheet from k on up one, their notes with them. A sheet
+ * whose "CONT. FROM SH.m" pointed at the gap the removal left now reads
+ * its own number; when the sheet put back goes on to it ("CONT. ON
+ * SH.m"), it comes from k again.
+ */
+export function mendFromPutBack(project: string, k: number, goesOnTo: number[]): void {
+  const entries = loadLibrary();
+  const now = Date.now();
+  let changed = false;
+  for (const entry of entries) {
+    const drawing = entry.drawing;
+    if ((drawing.meta.project || '') !== project) continue;
+    const m = sheetNumber(drawing.meta.sheet);
+    if (m === k || !goesOnTo.includes(m)) continue;
+    const self = new RegExp(`(CONT\\. FROM SH\\.)${m}(?!\\d)`);
+    let dirty = false;
+    for (const node of drawing.nodes) {
+      const note = node.terminal?.note;
+      if (note && self.test(note)) {
+        node.terminal!.note = note.replace(self, `$1${k}`);
+        dirty = true;
+      }
+    }
+    if (!dirty) continue;
+    entry.savedAt = Math.max(now, entry.savedAt + 1);
+    changed = true;
+  }
+  if (changed) saveLibrary(entries.sort((a, b) => b.savedAt - a.savedAt));
+}
+
+/**
  * On sheet `target` of a project, "CONT. FROM SH.<from>" made to read
  * `to`: the line it carries on comes from another sheet now (a sheet split
  * in two, the far end on the new one).
