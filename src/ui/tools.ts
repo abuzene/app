@@ -9,7 +9,7 @@ import { runOffsetAtPaper } from '../render/renderer';
 import { componentSymbol, halfCouplingSymbol, jointMark, oletSymbol, type Frame } from '../render/symbols';
 
 /** Branch fittings act on the header, they do not sit in the line. */
-type BranchTool = { elbow45: true } | { branch: 'TEE' } | { olet: JointType; half?: true } | { weld: 'BW' } | { equipment: true } | { measure: true } | { area: true } | { circle: true } | { valve: ComponentKind; ends: 'SW' | 'THD' };
+type BranchTool = { elbow45: true } | { branch: 'TEE' } | { olet: JointType; half?: true } | { weld: 'BW' } | { equipment: true } | { measure: true } | { area: true } | { copyArea: true } | { paste: true } | { circle: true } | { valve: ComponentKind; ends: 'SW' | 'THD' };
 type Tool = ComponentKind | BranchTool;
 
 function isBranch(tool: Tool): tool is BranchTool {
@@ -26,7 +26,7 @@ const GROUPS: ToolGroup[] = [
   { label: 'Fittings', kinds: ['RED_CONC', 'RED_ECC', 'CAP', 'TRANSITION', 'COUPLING_SW', 'COUPLING_THD', 'UNION', { elbow45: true }] },
   { label: 'Valves', kinds: ['BALL', 'BALL_ACT', { valve: 'BALL', ends: 'SW' }, { valve: 'BALL', ends: 'THD' }, 'REGULATOR', 'FILTER', 'METER', 'RELIEF'] },
   { label: 'Branch', kinds: [{ branch: 'TEE' }, { olet: 'BW' }, { olet: 'SW' }, { olet: 'THD' }, { olet: 'THD', half: true }] },
-  { label: 'Marks', kinds: ['SUPPORT', 'SUPPORT_L', 'GROUND', { equipment: true }, { measure: true }, { area: true }, { circle: true }] },
+  { label: 'Marks', kinds: ['SUPPORT', 'SUPPORT_L', 'GROUND', { equipment: true }, { measure: true }, { area: true }, { copyArea: true }, { paste: true }, { circle: true }] },
   { label: 'Joints', kinds: [{ weld: 'BW' }] },
 ];
 
@@ -119,6 +119,27 @@ function valveEndsIcon(kind: ComponentKind, ends: 'SW' | 'THD'): string {
 }
 
 /** A dashed box round a piece of pipe, with the arrow it moves by. */
+function copyIcon(): string {
+  return (
+    `<svg class="tool-icon" viewBox="0 0 48 48" aria-hidden="true">` +
+    `<rect x="6" y="8" width="24" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3.5 2.5"/>` +
+    `<line x1="10" y1="22" x2="26" y2="14" stroke="currentColor" stroke-width="2.2"/>` +
+    `<rect x="20" y="22" width="22" height="18" fill="none" stroke="currentColor" stroke-width="1.5"/>` +
+    `<line x1="24" y1="35" x2="38" y2="28" stroke="currentColor" stroke-width="2.2"/>` +
+    `</svg>`
+  );
+}
+
+function pasteIcon(): string {
+  return (
+    `<svg class="tool-icon" viewBox="0 0 48 48" aria-hidden="true">` +
+    `<rect x="11" y="9" width="26" height="32" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/>` +
+    `<rect x="18" y="6" width="12" height="6" rx="1.5" fill="currentColor"/>` +
+    `<line x1="16" y1="32" x2="32" y2="22" stroke="currentColor" stroke-width="2.2"/>` +
+    `</svg>`
+  );
+}
+
 function areaIcon(): string {
   return (
     `<svg class="tool-icon" viewBox="0 0 48 48" aria-hidden="true">` +
@@ -951,6 +972,22 @@ export function renderTools(container: HTMLElement, host: Host): void {
                 `</button>`
               );
             }
+            if ('copyArea' in tool) {
+              return (
+                `<button class="tool" data-copy-area="1" title="Draw a box round part of the drawing to copy it, then Paste it on this sheet or another">` +
+                copyIcon() +
+                `<span class="tool-name">Copy area</span>` +
+                `</button>`
+              );
+            }
+            if ('paste' in tool) {
+              return (
+                `<button class="tool" data-paste="1" title="Paste what was copied: onto the picked open end, else beside the drawing"${host.hasClipboard() ? '' : ' disabled'}>` +
+                pasteIcon() +
+                `<span class="tool-name">Paste</span>` +
+                `</button>`
+              );
+            }
             if ('measure' in tool) {
               return (
                 `<button class="tool" data-measure="1" title="A dimension between two points: pick one, then tap the other"${enabled ? '' : ' disabled'}>` +
@@ -1019,6 +1056,8 @@ export function renderTools(container: HTMLElement, host: Host): void {
       if (button.dataset.weld) placeWeld(host);
       else if (button.dataset.equipment) placeEquipment(host);
       else if (button.dataset.area) host.startArea();
+      else if (button.dataset.copyArea) host.startCopyArea();
+      else if (button.dataset.paste) host.paste();
       else if (button.dataset.circle) host.startCircle();
       else if (button.dataset.elbow45) void placeElbow45(host);
       else if (button.dataset.measure) {

@@ -4,7 +4,7 @@ import { headerTakenOff, COMPONENT_LABEL, DEFAULT_LOGO, ROOT_GAP, TERMINAL_LABEL
 import { COMMAND_HELP } from '../model/commands';
 import { DN_LIST, SIZE_LABELS, defaultValveEnds, schedulesFor, sizeLabel } from '../model/pipe-data';
 import { AXES, AXIS_VECTOR, axisBetween } from '../model/iso';
-import { projectsOf, sheetNumber } from '../model/library';
+import { loadBin, projectsOf, sheetNumber } from '../model/library';
 import { applyChainDimension, applyReducer, setFlangeStd, elbowTurns, turnElbow, freeDimensions, offersAutoCoupling, resetDrawnLength, setAutoCoupling, wantsAutoCoupling, deletePoint, isCouplingPoint, isPlainPoint, removeComponent, removeEquipment, removeFlangeJoint, removeOlet, runLength, setGroupLength, setLastFlange, deleteRunGroup, DASHED_NOTE, setLineSize, setRunDashed, setRunDirect, setRunLength, setTerminal, setEndSize, splitRun, addStockWelds } from '../model/edit';
 import { setDriveClientId } from '../model/drive';
 import { reducerPreview } from './reducer-preview';
@@ -975,8 +975,33 @@ function projectsTab(host: Host): string {
       : ''
   }
 </div>
+${binSection(when)}
 ${driveSection(host)}
 ${folderSection(host)}`;
+}
+
+/**
+ * The sheets removed lately, each put back with a tap (his ask,
+ * 2026-11-25): back in its place in its project, under a new id.
+ */
+function binSection(when: (t: number) => string): string {
+  const bin = loadBin();
+  if (bin.length === 0) return '';
+  return `
+<div class="section" data-editor="bin">
+  <h3>Removed lately</h3>
+  <p class="empty-note">A sheet removed by mistake goes back in its place in its project, the sheets after it moving up one.</p>
+  ${bin
+    .map((e) => {
+      const m = e.drawing.meta;
+      return `<div class="sheet-row bin-row">
+      <div class="sheet-main"><strong>${esc(m.project || '(no project name)')}</strong> · sheet ${esc(m.sheet || '1 of 1')}${m.lineNumber ? ` · ${esc(m.lineNumber)}` : ''}</div>
+      <div class="sheet-sub">${e.drawing.runs.length} run${e.drawing.runs.length === 1 ? '' : 's'} · removed ${when(e.removedAt)}</div>
+      <button class="btn-line" type="button" data-put-back="${esc(e.id)}">Put back</button>
+    </div>`;
+    })
+    .join('')}
+</div>`;
 }
 
 /** A folder on this computer, beside Google Drive: a file per sheet. */
@@ -1133,6 +1158,9 @@ function wire(body: HTMLElement, host: Host): void {
   });
   body.querySelectorAll<HTMLElement>('[data-remove-sheet]').forEach((button) => {
     button.addEventListener('click', () => host.removeFromLibrary(button.dataset.removeSheet!));
+  });
+  body.querySelectorAll<HTMLElement>('[data-put-back]').forEach((button) => {
+    button.addEventListener('click', () => host.putBackSheet(button.dataset.putBack!));
   });
 
   // Selecting a run from the list.

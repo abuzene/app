@@ -542,6 +542,9 @@ table.support-material tr.total td { font-weight: 700; }
   background: #fff; color: var(--muted); font-size: 15px; line-height: 1; cursor: pointer;
 }
 .sheet-remove:hover { color: var(--danger, #b42318); border-color: var(--danger, #b42318); }
+.bin-row { padding-right: 96px; cursor: default; }
+.bin-row:hover { border-color: var(--line); background: #fff; }
+.bin-row [data-put-back] { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); padding: 4px 10px; font-size: 11.5px; }
 
 /* ---------------------------------------------------------------- 3D view */
 .v3d-backdrop {

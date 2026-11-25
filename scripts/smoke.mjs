@@ -149,7 +149,7 @@ check('a length can be typed', await page.locator('#tab-body .run-list input[dat
 // Palette.
 await page.locator('#tab-body .run-list tbody tr').first().click();
 await page.waitForTimeout(200);
-check('the palette carries the fittings, couplings (SW, NPT), the threaded union, ball valves (flanged, air, SW, threaded), regulator, filter, relief, tee, olets, the half coupling, marks, equipment, move area, circle note, a 45° elbow, a meter and a weld', await page.locator('.tool').count(), (v) => v === 33, '33');
+check('the palette carries the fittings, couplings (SW, NPT), the threaded union, ball valves (flanged, air, SW, threaded), regulator, filter, relief, tee, olets, the half coupling, marks, equipment, move area, copy area, paste, circle note, a 45° elbow, a meter and a weld', await page.locator('.tool').count(), (v) => v === 35, '35');
 check('and no slip-on or lap joint flange, which are not used here', await page.locator('.tool[data-kind="FLG_SO"], .tool[data-kind="FLG_LAP"]').count(), (v) => v === 0, '0');
 check('a tee can be placed on a header', await page.locator('.tool[data-branch="TEE"]').count(), (v) => v === 1, '1');
 check('the actuated ball valve is there', await page.locator('.tool[data-kind="BALL_ACT"]').count(), (v) => v === 1, '1');
@@ -6271,6 +6271,122 @@ await page.waitForTimeout(200);
   await page.reload();
   await page.waitForTimeout(900);
   check('put back: and so after the app is opened again', await putBack(), (v) => v === '1 of 4:CONT. ON SH.2 / 2 of 4:CONT. FROM SH.1|CONT. ON SH.3|CONT. ON SH.4 / 3 of 4:CONT. FROM SH.2 / 4 of 4:CONT. FROM SH.2', 'as before the removal');
+}
+
+// Copy area and Paste, on this sheet or another (his ask, 2026-11-25: "a
+// box like Move area that copies, then paste even on another sheet").
+{
+  const centreOf = (sel) => page.evaluate((sel) => {
+    const e = document.querySelector(sel);
+    if (!e) return null;
+    const r = e.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  }, sel);
+  const penLine = async (from, to) => {
+    await pen('mousePressed', from.x, from.y);
+    for (let i = 1; i <= 12; i += 1) {
+      await pen('mouseMoved', from.x + ((to.x - from.x) * i) / 12, from.y + ((to.y - from.y) * i) / 12);
+      await page.waitForTimeout(30);
+    }
+    await pen('mouseReleased', to.x, to.y);
+    await page.waitForTimeout(400);
+  };
+  const pickNode = async (id) => {
+    const el = page.locator(`#canvas circle.hit-dot[data-node="${id}"]`).first();
+    await el.dispatchEvent('pointerdown', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+    await el.dispatchEvent('pointerup', { bubbles: true, pointerId: 9, pointerType: 'mouse', button: 0, isPrimary: true });
+    await page.waitForTimeout(250);
+  };
+  await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 2000\nN 1500\n+BALL 700\nE 1500\nEND FLG');
+  await page.click('#fit');
+  await page.waitForTimeout(300);
+  const nodes = (await drawingNow()).nodes;
+  const pts = [];
+  for (const n of nodes) pts.push(await centreOf(`#canvas circle.hit-dot[data-node="${n.id}"]`));
+  check('copy area: Paste waits until something is copied', await page.locator('.tool[data-paste]').isDisabled(), (v) => v === true, 'disabled');
+  await page.click('.tool[data-copy-area]');
+  await page.waitForTimeout(150);
+  const xs = pts.slice(1).map((p) => p.x);
+  const ys = pts.slice(1).map((p) => p.y);
+  await penLine({ x: Math.min(...xs) - 30, y: Math.min(...ys) - 30 }, { x: Math.max(...xs) + 30, y: Math.max(...ys) + 30 });
+  const clip = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.clipboard.v1') || 'null'));
+  check('copy area: the box copies the pipes wholly in it, their items and end', clip && `${clip.runs.length} ${clip.runs.flatMap((r) => r.inline.map((c) => c.kind)).join()} ${clip.nodes.some((n) => n.terminal?.kind === 'FLG_WN')}`, (v) => v === '2 BALL true', '2 BALL true');
+  check('copy area: the drawing itself is left as it was', (await drawingNow()).runs.length, (v) => v === 3, '3');
+  // On another sheet: a pipe, its open end picked, Paste joins the copy on.
+  await routeLine('3"\nSTD\nORIGIN 0 0 0\nE 1000');
+  const end = (await drawingNow()).nodes.find((n) => n.pos.e === 1000);
+  await pickNode(end.id);
+  check('copy area: Paste here offered on an open end', await page.locator('#hud-paste').count(), (v) => v === 1, '1');
+  await page.click('#hud-paste');
+  await page.waitForTimeout(400);
+  const after = await drawingNow();
+  check('copy area: pasted on another sheet onto the picked end, joined there', `${after.runs.length} ${after.nodes.length} ${after.nodes.map((n) => `${n.pos.e}/${n.pos.n}`).sort().join(' ')} ${after.runs.flatMap((r) => r.inline.map((c) => c.kind)).join()}`, (v) => v === '3 4 0/0 1000/0 1000/1500 2500/1500 BALL', '3 runs, the corner on the end, the ball and the flange end');
+  check('copy area: one point at the join (an elbow), held in a box to move', `${after.nodes.filter((n) => n.pos.e === 1000 && n.pos.n === 0).length} ${await page.locator('#canvas .area-box').count()}`, (v) => v === '1 1', '1 1');
+  const welds = (await page.evaluate(() => [...document.querySelectorAll('#canvas [data-weld]')].map((e) => e.getAttribute('data-weld')))).length;
+  check('copy area: the copy is welded like any line (elbow legs, valve flanges, end flange)', welds >= 5, (v) => v === true, 'five welds or more');
+  await page.click('#hud-area-done');
+  await page.waitForTimeout(150);
+  // Nothing picked: beside the drawing, clear of it.
+  await page.click('.tool[data-paste]');
+  await page.waitForTimeout(400);
+  const beside = await drawingNow();
+  check('copy area: Paste with nothing picked puts it beside the drawing, held to drag', `${beside.runs.length} ${Math.min(...beside.nodes.slice(4).map((n) => n.pos.e)) > 2500} ${await page.locator('#canvas .area-box').count()}`, (v) => v === '5 true 1', '5 true 1');
+  await page.keyboard.press('Control+z');
+  await page.waitForTimeout(300);
+  check('copy area: a paste is one undo step', (await drawingNow()).runs.length, (v) => v === 3, '3');
+  await page.click('#hud-area-done').catch(() => {});
+}
+
+// Undo remove (his ask, 2026-11-25, after his INBAR sheet 1 was removed
+// by mistake): right after, from the HUD, and later from Removed lately.
+{
+  const base = await drawingNow();
+  const sheet = (id, k, notes) => {
+    const d = JSON.parse(JSON.stringify(base));
+    d.id = id;
+    d.meta = { ...d.meta, project: 'UNDO REMOVE', sheet: `${k} of 3` };
+    notes.forEach((note, i) => { d.nodes[i].terminal = { kind: 'CONTINUATION', note }; });
+    return d;
+  };
+  const sheets = [sheet('dur1', 1, ['CONT. ON SH.2']), sheet('dur2', 2, ['CONT. FROM SH.1', 'CONT. ON SH.3']), sheet('dur3', 3, ['CONT. FROM SH.2'])];
+  await page.evaluate((list) => {
+    const lib = JSON.parse(localStorage.getItem('iso-draw.library.v1') || '[]').filter((e) => e.drawing.meta.project !== 'UNDO REMOVE');
+    localStorage.setItem('iso-draw.library.v1', JSON.stringify([...list.map((d, i) => ({ id: d.id, savedAt: Date.now() + i * 1000, drawing: d })), ...lib]));
+    localStorage.setItem('iso-draw.drawing.v1', JSON.stringify(list[1]));
+  }, sheets);
+  await page.reload();
+  await page.waitForTimeout(900);
+  const listed = () => page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.library.v1')).filter((e) => e.drawing.meta.project === 'UNDO REMOVE').map((e) => `${e.drawing.meta.sheet}:${e.drawing.nodes.map((n) => n.terminal?.note).filter(Boolean).join('|')}`).sort().join(' / '));
+  const whole = '1 of 3:CONT. ON SH.2 / 2 of 3:CONT. FROM SH.1|CONT. ON SH.3 / 3 of 3:CONT. FROM SH.2';
+  await page.click('#tabs button:has-text("Projects")');
+  await page.waitForTimeout(250);
+  await page.click('[data-remove-sheet="dur1"]');
+  await page.waitForTimeout(200);
+  await page.click('.dialog-backdrop [data-confirm]');
+  await page.waitForTimeout(500);
+  check('undo remove: offered on the HUD right after a removal', `${await page.locator('#hud-undo-remove').count()} ${(await listed()).split(' / ').length}`, (v) => v === '1 2', '1, two sheets left');
+  await page.click('#hud-undo-remove');
+  await page.waitForTimeout(700);
+  check('undo remove: the sheet is back in its place, the others and their notes as before', await listed(), (v) => v === whole, whole);
+  check('undo remove: under a new id (the old one stays removed for Drive)', await page.evaluate(() => { const lib = JSON.parse(localStorage.getItem('iso-draw.library.v1')); const removed = JSON.parse(localStorage.getItem('iso-draw.library.removed') || '[]'); return `${lib.some((e) => e.id === 'dur1')} ${removed.includes('dur1')} ${lib.some((e) => e.drawing.meta.project === 'UNDO REMOVE' && e.drawing.meta.sheet === '1 of 3')}`; }), (v) => v === 'false true true', 'false true true');
+  // Later, after the app was opened again: Removed lately in the Projects tab.
+  const thirdId = await page.evaluate(() => JSON.parse(localStorage.getItem('iso-draw.library.v1')).find((e) => e.drawing.meta.project === 'UNDO REMOVE' && e.drawing.meta.sheet.startsWith('3 ')).id);
+  await page.click('#tabs button:has-text("Projects")');
+  await page.waitForTimeout(250);
+  await page.click(`[data-remove-sheet="${thirdId}"]`);
+  await page.waitForTimeout(200);
+  await page.click('.dialog-backdrop [data-confirm]');
+  await page.waitForTimeout(500);
+  await page.reload();
+  await page.waitForTimeout(900);
+  await page.click('#tabs button:has-text("Projects")');
+  await page.waitForTimeout(250);
+  check('undo remove: the sheet is under Removed lately after the app is opened again', await page.locator(`[data-put-back="${thirdId}"]`).count(), (v) => v === 1, '1');
+  await page.click(`[data-put-back="${thirdId}"]`);
+  await page.waitForTimeout(700);
+  check('undo remove: Put back brings it back as sheet 3, and it leaves the list', `${await listed()} | ${await page.evaluate((id) => JSON.parse(localStorage.getItem('iso-draw.library.bin') || '[]').some((e) => e.id === id), thirdId)}`, (v) => v === `${whole} | false`, `${whole} | false`);
+  await page.click('#tabs button:has-text("Route")');
+  await page.waitForTimeout(150);
 }
 
 // A reducer put along a pipe over a support: the support goes to the pipe

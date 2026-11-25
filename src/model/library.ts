@@ -78,9 +78,68 @@ export function upsertDrawing(drawing: Drawing, savedAt?: number): void {
 }
 
 /** Takes a sheet out of the library for good: it is not kept again. */
-export function removeDrawing(id: string): void {
+export function removeDrawing(id: string, bin = true): void {
+  const gone = bin ? loadLibrary().find((e) => e.id === id) : undefined;
+  if (gone) keepBin(gone.drawing);
   markRemoved([id]);
   saveLibrary(loadLibrary().filter((e) => e.id !== id));
+}
+
+/**
+ * The sheets removed lately, kept on this device so a Remove can be undone
+ * (his ask, 2026-11-25, after his INBAR sheet 1 was removed by mistake).
+ * The id stays removed for good (Drive and the other device lose it); a
+ * sheet put back comes in under a new id, in its place in its project.
+ */
+const KEY_BIN = 'iso-draw.library.bin';
+const BIN_LIMIT = 12;
+
+export interface BinEntry {
+  /** The id the sheet had: the bin's key. */
+  id: string;
+  removedAt: number;
+  drawing: Drawing;
+}
+
+export function loadBin(): BinEntry[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(KEY_BIN) ?? '[]') as unknown;
+    return Array.isArray(parsed) ? (parsed as BinEntry[]).filter((e) => e && typeof e.id === 'string' && e.drawing && Array.isArray(e.drawing.nodes)) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveBin(entries: BinEntry[]): void {
+  // Newest first; the oldest go when storage is short.
+  let list = entries.slice(0, BIN_LIMIT);
+  while (list.length > 0) {
+    try {
+      localStorage.setItem(KEY_BIN, JSON.stringify(list));
+      return;
+    } catch {
+      list = list.slice(0, -1);
+    }
+  }
+  try {
+    localStorage.removeItem(KEY_BIN);
+  } catch {
+    // Storage unavailable: nothing to be done.
+  }
+}
+
+function keepBin(drawing: Drawing): void {
+  if (!drawing.id) return;
+  const copy = JSON.parse(JSON.stringify(drawing)) as Drawing;
+  saveBin([{ id: drawing.id, removedAt: Date.now(), drawing: copy }, ...loadBin().filter((e) => e.id !== drawing.id)]);
+}
+
+/** Takes a sheet out of the bin (put back, or let go). */
+export function takeFromBin(id: string): BinEntry | null {
+  const bin = loadBin();
+  const entry = bin.find((e) => e.id === id) ?? null;
+  if (entry) saveBin(bin.filter((e) => e.id !== id));
+  return entry;
 }
 
 function readIds(key: string): string[] {

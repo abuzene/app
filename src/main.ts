@@ -5,7 +5,8 @@ import type { AppState, Host, OletAsk, OletChoice, ReducerAsk, ReducerChoice } f
 import { reducerPreview } from './ui/reducer-preview';
 import { tidyLayout, type LayoutSpecs } from './render/tidy';
 import { COMPONENT_LABEL, carryPieceShift, shiftBefore, isValve, analyse, chainStops, dimensionStops, drawnLength, drawnStations, runDrawnFloor, trueAtShare, type DrawnStations, isMark, isReducer, itemAtEnd, itemHalf, runGroupIds, emptyDrawing, oletLegs, oletMarks, pipeStretchAt, type PipeStretchPart, uid } from './model/drawing';
-import { isRemoved, loadLibrary, makeRoomAfter, mendFromPutBack, retargetFrom, projectsOf, removeDrawing, renumberProject, renumberSheets, sheetNumber, upsertDrawing, worthKeeping } from './model/library';
+import { copyArea, loadClip, pasteClip, saveClip, type PasteResult } from './model/clipboard';
+import { isRemoved, loadLibrary, makeRoomAfter, markRemoved, mendFromPutBack, takeFromBin, retargetFrom, projectsOf, removeDrawing, renumberProject, renumberSheets, sheetNumber, upsertDrawing, worthKeeping } from './model/library';
 import { allowFolder, chooseFolder, folderStatus, forgetFolder, restoreFolder, syncFolder } from './model/folder';
 import { beginDriveSignIn, driveSignOut, driveStatus, finishDriveSignIn, setDriveClientId, syncDrive } from './model/drive';
 import { AXES, AXIS_VECTOR, add, axisFromScreenDelta, length3, lengthAlongAxis, scale3, sub } from './model/iso';
@@ -87,6 +88,10 @@ const state: AppState = {
 const undoStack: string[] = [];
 const redoStack: string[] = [];
 let toast: { message: string; until: number } | null = null;
+/** The sheet removed last, offered back on the HUD for a while (Undo remove). */
+let lastRemoved: { id: string; until: number } | null = null;
+/** The box being drawn is for Copy area, not Move area. */
+let areaForCopy = false;
 
 function snapshot(): string {
   return JSON.stringify(state.drawing);
@@ -319,6 +324,8 @@ const host: Host = {
     ).then((ok) => {
       if (!ok) return;
       removeDrawing(id);
+      lastRemoved = { id, until: Date.now() + 30000 };
+      setTimeout(renderHud, 30200);
       // The sheet on screen goes too: kept under a new id it came straight
       // back into the list and Drive (his complaint, 2026-09-26).
       if (id === state.drawing.id) clearRemovedSheet();
@@ -330,7 +337,11 @@ const host: Host = {
       if (folderStatus().connected) void runFolderSync();
       if (drive.connected) void runDriveSync();
       else if (drive.clientId) host.notify('Removed here. Its Drive copy goes at the next sync — sign in to Google Drive to do it now.');
+      else host.notify('Removed. Undo remove puts it back; so does Put back under Removed lately in this tab.');
     });
+  },
+  putBackSheet(binId) {
+    putBackSheet(binId);
   },
   closePickedPiece() {
     return closePickedPiece();
@@ -453,7 +464,20 @@ const host: Host = {
     render();
     host.notify('Draw the circle with the pen: from its middle out.');
   },
+  startCopyArea() {
+    host.startArea();
+    areaForCopy = true;
+    renderHud();
+    host.notify('Draw a box with the pen round what to copy.');
+  },
+  paste() {
+    pasteClipboard();
+  },
+  hasClipboard() {
+    return loadClip() !== null;
+  },
   startArea() {
+    areaForCopy = false;
     canvas.circleMode = false;
     canvas.areaMode = true;
     canvas.area = null;
@@ -1072,6 +1096,13 @@ const canvas = new Canvas(svg, {
           })
           .map((n) => n.id)
       : [];
+    if (areaForCopy) {
+      areaForCopy = false;
+      canvas.area = null;
+      state.selection = null;
+      copyPoints(ids);
+      return;
+    }
     canvas.area = ids.length > 0 ? ids : null;
     state.selection = null;
     render();
@@ -2049,6 +2080,9 @@ function renderHud(): void {
   // Installed, the app fetches a new version in the background; this says so,
   // so nobody keeps working on an old one without knowing.
   if (updateReady) parts.push('<button class="hud-stop hud-update" id="hud-update" type="button">New version ready — tap to reload</button>');
+  // A sheet just removed can be put back from here for half a minute, and
+  // from the Projects tab's Removed lately after that.
+  if (lastRemoved && Date.now() < lastRemoved.until) parts.push('<button class="hud-stop" id="hud-undo-remove" type="button">Undo remove</button>');
   const sel = state.selection;
   // Drawing on from a picked point is a button here as well as in the panel,
   // which may be folded away on a tablet.
@@ -2058,8 +2092,10 @@ function renderHud(): void {
   if (state.joinFrom) parts.push('<span>join — tap the other open end</span>');
   else if (sel?.kind === 'node' && state.analysis.nodeInfo.get(sel.id)?.degree === 1) parts.push('<button class="hud-stop" id="hud-join" type="button">Join to another end</button>');
   if (canvas.circleMode) parts.push('<span>circle — draw it with the pen, from its middle out</span><button class="hud-stop" id="hud-area-done" type="button">Cancel</button>');
-  if (canvas.areaMode) parts.push('<span>box — draw it round what to move</span><button class="hud-stop" id="hud-area-done" type="button">Cancel</button>');
-  else if (canvas.area) parts.push(`<span>${canvas.area.length} point${canvas.area.length === 1 ? '' : 's'} held — drag inside the box to move</span><button class="hud-stop" id="hud-area-done" type="button">Done</button>`);
+  if (canvas.areaMode) parts.push(`<span>box — draw it round what to ${areaForCopy ? 'copy' : 'move'}</span><button class="hud-stop" id="hud-area-done" type="button">Cancel</button>`);
+  else if (canvas.area) parts.push(`<span>${canvas.area.length} point${canvas.area.length === 1 ? '' : 's'} held — drag inside the box to move</span><button class="hud-stop" id="hud-area-copy" type="button">Copy</button><button class="hud-stop" id="hud-area-done" type="button">Done</button>`);
+  // What was copied goes onto the picked open end.
+  if (sel?.kind === 'node' && !canvas.drawingFrom && state.analysis.nodeInfo.get(sel.id)?.degree === 1 && loadClip()) parts.push('<button class="hud-stop" id="hud-paste" type="button">Paste here</button>');
   if (state.measureFrom) parts.push('<span>dimension — tap the other point</span>');
   else if (sel?.kind === 'node') parts.push('<button class="hud-stop" id="hud-measure" type="button">Dimension from here</button>');
   if (sel?.kind === 'equipment') parts.push('<button class="hud-stop" id="hud-equip-draw" type="button">Draw on from the far side</button>');
@@ -2128,13 +2164,21 @@ function renderHud(): void {
     host.notify(on ? 'Drawn dashed, carried on to the next sheet: not on this sheet\'s list. Tap the note beside it to type it over, or drag it.' : 'A solid line again.');
   });
   hudEl.querySelector('#hud-update')?.addEventListener('click', () => location.reload());
+  hudEl.querySelector('#hud-undo-remove')?.addEventListener('click', () => {
+    if (lastRemoved) putBackSheet(lastRemoved.id);
+  });
   hudEl.querySelector('#hud-replace')?.addEventListener('click', () => {
     if (state.selection?.kind !== 'component') return;
     state.replacing = state.selection.id;
     renderHud();
     host.notify('Pick the new item in the palette: a valve, regulator, filter or relief valve (or the other reducer).');
   });
+  hudEl.querySelector('#hud-area-copy')?.addEventListener('click', () => {
+    if (canvas.area) copyPoints(canvas.area);
+  });
+  hudEl.querySelector('#hud-paste')?.addEventListener('click', () => pasteClipboard());
   hudEl.querySelector('#hud-area-done')?.addEventListener('click', () => {
+    areaForCopy = false;
     canvas.circleMode = false;
     canvas.areaMode = false;
     canvas.area = null;
@@ -2648,16 +2692,7 @@ fileInput.addEventListener('change', async () => {
     if (!parsed || !Array.isArray(parsed.nodes) || !Array.isArray(parsed.runs)) {
       throw new Error('Not an isometric file.');
     }
-    keepNow();
-    undoStack.push(snapshot());
-    const putBack = putBackAt(parsed);
-    if (putBack) makeRoomAfter(putBack.project, putBack.k - 1);
-    takeUp(parsed);
-    if (putBack) {
-      keepNow();
-      mendFromPutBack(putBack.project, putBack.k, putBack.goesOnTo);
-      renumberKept(putBack.project);
-    }
+    const putBack = openInPlace(parsed);
     host.notify(putBack ? `Opened ${file.name} — back in its place as sheet ${putBack.k} of ${putBack.project}.` : `Opened ${file.name}`);
   } catch (error) {
     host.notify(error instanceof Error ? error.message : 'Could not open that file.');
@@ -3899,6 +3934,96 @@ function renumberKept(project?: string): void {
 }
 
 /**
+ * Copy area (his ask, 2026-11-25: "a box like Move area that copies, then
+ * paste even on another sheet"): the points given, with the pipes between
+ * them, kept on this device for Paste on any sheet.
+ */
+function copyPoints(ids: string[]): void {
+  const clip = ids.length > 0 ? copyArea(state.drawing, new Set(ids)) : null;
+  render();
+  if (!clip) {
+    host.notify(ids.length > 0 ? 'No pipe lies wholly in the box: draw it round both ends of what to copy.' : 'Nothing in the box.');
+    return;
+  }
+  if (!saveClip(clip)) {
+    host.notify('Could not keep the copy: the device storage is full.');
+    return;
+  }
+  render();
+  host.notify(`Copied ${clip.runs.length} pipe${clip.runs.length === 1 ? '' : 's'}. Paste on any sheet: pick an open end first to join it there.`);
+}
+
+/** Paste: onto the picked open end, else beside the drawing, held in a box to drag. */
+function pasteClipboard(): void {
+  const clip = loadClip();
+  if (!clip) {
+    host.notify('Nothing copied yet: Copy area first.');
+    return;
+  }
+  const sel = state.selection;
+  const onto = sel?.kind === 'node' && state.analysis.nodeInfo.get(sel.id)?.degree === 1 ? sel.id : null;
+  if (canvas.drawingFrom) stopDrawing();
+  let result: PasteResult = { ids: [] };
+  host.edit('Paste', (d) => {
+    result = pasteClip(d, clip, onto);
+  });
+  if (result.refused) {
+    // Refused before anything was put in: the undo step taken goes.
+    undoStack.pop();
+    render();
+    host.notify(result.refused);
+    return;
+  }
+  const ids = result.ids.filter((id) => state.drawing.nodes.some((n) => n.id === id));
+  canvas.area = ids.length > 0 ? ids : null;
+  state.selection = null;
+  render();
+  host.notify(onto ? `Pasted onto the picked end, joined. Drag inside the box to move it, or Done.` : `Pasted beside the drawing: drag inside the box to move it into place, then Done.`);
+}
+
+/**
+ * Puts a sheet on screen; one not in the library whose number its project
+ * already holds goes back in its place (`putBackAt`).
+ */
+function openInPlace(parsed: Drawing): { project: string; k: number; goesOnTo: number[] } | null {
+  keepNow();
+  undoStack.push(snapshot());
+  const putBack = putBackAt(parsed);
+  if (putBack) makeRoomAfter(putBack.project, putBack.k - 1);
+  takeUp(parsed);
+  if (putBack) {
+    keepNow();
+    mendFromPutBack(putBack.project, putBack.k, putBack.goesOnTo);
+    renumberKept(putBack.project);
+  }
+  return putBack;
+}
+
+/**
+ * A sheet removed lately put back (his ask, 2026-11-25: "add undo of a
+ * removal"): under a new id, in its place in its project, on screen.
+ */
+function putBackSheet(binId: string): void {
+  const entry = takeFromBin(binId);
+  if (!entry) {
+    host.notify('That sheet is no longer kept here.');
+    return;
+  }
+  const drawing = entry.drawing;
+  // Its own id stays removed for good (Drive and the other device lose
+  // it); taken up, it gets a new one.
+  markRemoved([entry.id]);
+  const putBack = openInPlace(drawing);
+  if (!putBack && drawing.meta.project) renumberKept(drawing.meta.project);
+  lastRemoved = null;
+  const project = drawing.meta.project || 'the drawing';
+  host.notify(putBack ? `Put back as sheet ${putBack.k} of ${project}.` : `Put back: ${project}, sheet ${state.drawing.meta.sheet || '1 of 1'}.`);
+  const drive = driveStatus();
+  if (folderStatus().connected) void runFolderSync();
+  if (drive.connected) void runDriveSync();
+}
+
+/**
  * A sheet file opened that is not in the library (a removed sheet comes
  * back under a new id) and whose number another sheet of its project now
  * holds goes back in its place: the sheets from that number on move up
@@ -4220,7 +4345,7 @@ async function undoDivision(): Promise<void> {
   if (!saved) return;
   const ok = await confirmDialog('Undo division', `Put the sheets of ${saved.project} back as they were before the division? Changes made to them since are lost.`, 'Put back');
   if (!ok) return;
-  for (const id of saved.made) removeDrawing(id);
+  for (const id of saved.made) removeDrawing(id, false);
   for (const sheet of saved.sheets) upsertDrawing(sheet);
   localStorage.removeItem(DIVIDE_UNDO_KEY);
   const back = saved.sheets.find((d) => d.id === saved.onScreen);

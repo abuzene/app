@@ -101,6 +101,32 @@ ships, and the decisions already taken, so they are not re-litigated.
   back to k when the sheet put back goes on to it, and `renumberKept`.
   A removed sheet's copy is in Drive until the next sync deletes it (the
   tombstone): fetch it then, save it outside the app's folder.
+  **Undo remove** (his ask, 2026-11-25): `removeDrawing` keeps the sheet
+  in a bin (`iso-draw.library.bin`, `loadBin`/`takeFromBin` in
+  library.ts, the last 12; not the sheets an Undo division takes out,
+  `removeDrawing(id, false)`). For 30 s after a Remove the HUD offers
+  **Undo remove** (`#hud-undo-remove`, `lastRemoved` in main.ts), and the
+  Projects tab lists **Removed lately** with **Put back**
+  (`[data-put-back]`, `binSection` in panels.ts): `putBackSheet` → the
+  same `openInPlace` as Open, so it comes back in its place under a new
+  id; the old id stays removed (Drive and the other device lose it).
+- **Copy area and Paste** (his ask, 2026-11-25: "a box like Move area
+  that gives me copy, then paste even on another sheet";
+  `src/model/clipboard.ts`): Marks palette **Copy area**
+  (`.tool[data-copy-area]` → `host.startCopyArea`, `areaForCopy` in
+  main.ts; the same box as Move area, whose HUD also has **Copy**,
+  `#hud-area-copy`) → `copyArea`: the pipes with both ends in the box,
+  their items, points (one cut off from the rest loses its fitting, keeps
+  its joint), hand dimensions between them and the support types they
+  use, kept in `iso-draw.clipboard.v1` so any sheet can paste. **Paste**
+  (`.tool[data-paste]`, disabled till something is copied; HUD **Paste
+  here** `#hud-paste` on a picked open end) → `pasteClip`: new ids
+  throughout; onto a picked open end the copy's anchor (the point it was
+  cut off the line at, first along the route, else an open end) goes on
+  it and is joined (`connectNodes`, same place); else beside the drawing,
+  1500 mm east of it. Refused when a pasted pipe lies along one drawn.
+  The pasted points are held in a Move area box to drag into place; one
+  undo step. Equipment boxes, circles and weld numbers are not copied.
 
 ## Before every push
 

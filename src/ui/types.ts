@@ -65,6 +65,12 @@ export interface Host {
   /** Brings a kept drawing back on screen. */
   openFromLibrary(id: string): void;
   removeFromLibrary(id: string): void;
+  /** A sheet removed lately put back in its place in its project. */
+  putBackSheet(binId: string): void;
+  /** Copy the points in a box (Copy area), or paste what was copied. */
+  startCopyArea(): void;
+  paste(): void;
+  hasClipboard(): boolean;
   /**
    * Starts the next sheet of the project on screen: same title block, same
    * pipe, the sheet count moved on. Picked on an open end, that end is marked
